@@ -1,26 +1,5 @@
 const AWS = require('aws-sdk')
-const fs = require('fs');
-
-let rawdata = fs.readFileSync('connect.json');  
-let connectJSON = JSON.parse(rawdata);  
-
-var Service = AWS.Service;
-var apiLoader = AWS.apiLoader;
-apiLoader.services['connect'] = {};
-AWS.Connect = Service.defineService('connect', ['2017-08-08']);
-
-Object.defineProperty(apiLoader.services['connect'], '2017-08-08', {
-    get: function get() {
-        var model = connectJSON
-        model.paginators = {};
-        return model;
-    },
-    enumerable: true,
-    configurable: true
-});
-
 const connectInstanceId = process.env.INSTANCE_ID;
-
 AWS.config.update({region: process.env.REGION_ID});
 const connect = new AWS.Connect({ region: process.env.REGION_ID }, {apiVersion: '2017-08-08'});
 
