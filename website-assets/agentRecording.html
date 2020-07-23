@@ -1,0 +1,667 @@
+
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Amazon Connect - CCP</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta content="utf-8" http-equiv="encoding">
+    <link rel="shortcut icon" type="images/png" href="images/clipboard.png"/>
+    <link href="css/style.css" rel="stylesheet" type="text/css" />
+    <link href="css/copybutton.css" rel="stylesheet" type="text/css" />
+    <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.10.19/css/jquery.dataTables.min.css">
+    <script src="https://code.jquery.com/jquery-3.1.0.min.js"></script>
+    <script type="text/javascript" src="js/connect-streams.js"></script>    
+    <script src="js/clipboard.min.js"></script>
+    <script src="js/aws-credentials.js"></script>
+    <script src="https://cdn.datatables.net/1.10.13/js/jquery.dataTables.min.js"></script>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+	<script src="//code.jquery.com/ui/1.12.1/jquery-ui.js"></script>	
+    <link rel="stylesheet" href="//code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
+	
+    <style>
+        #ccpContainer {
+            width: 600px;
+            height: 770px;
+            overflow: hidden;
+            float: left;
+            margin-left: 22px;
+            padding: 25px;
+        }
+
+        #section-main {
+            padding: 10px;
+            max-width: 600px;
+            height: 800px;
+            margin-left: 0px;
+            float: left;
+            overflow: hidden;
+        }
+        #section-dispositioncodes{
+            padding: 10px;
+            max-width: 600px;
+            height: 800px;
+            margin-left: 0px;
+            float: left;
+            overflow: hidden;
+        }
+        #attributes_wrapper {
+            font-size: 14px;
+            width: 550px;
+            height: 175px;
+            overflow-y: scroll;
+            overflow-x: hidden;
+        }
+        .btnRecording{
+        	width: 70px;
+        	cursor: pointer;
+        }
+        .btnImages{
+        	width: 60px;
+        	height: 60px;
+        }
+		.dotGrey {
+		  height: 25px;
+		  width: 25px;
+		  background-color: #bbb;
+		  border-radius: 50%;
+		  display: inline-block;
+		}
+		.dotRed {
+		  height: 25px;
+		  width: 25px;
+		  background-color: #f70202;
+		  border-radius: 50%;
+		  display: inline-block;
+		}        
+		.dotGreen{
+		  height: 25px;
+		  width: 25px;
+		  background-color: #296703;
+		  border-radius: 50%;
+		  display: inline-block;	
+		}
+		.dotOrange {
+		  height: 25px;
+		  width: 25px;
+		  background-color: #f9db05;
+		  border-radius: 50%;
+		  display: inline-block;
+		}        
+		        
+    </style>
+    
+</head>
+
+<body>
+    <!--navbar div with the id-->
+    <div id="navbar-frame"></div>
+    <script>
+        var clipboard = new Clipboard('.btn');
+        clipboard.on('success', function (e) {
+            console.log(e);
+        });
+
+        clipboard.on('error', function (e) {
+            console.log(e);
+        });
+
+    </script>
+    <section id="ccpContainer">
+        <div id="ccpContainer1">
+            <script>
+                //Connect CCP Integration
+                var container = document.getElementById("ccpContainer");
+                var instanceAlias = getInstanceName();
+                var loginURL = `https://${instanceAlias}.awsapps.com/connect/login`;
+                var logoutURL = `https://${instanceAlias}.awsapps.com/connect/logout`;
+                var instanceHome = `https://${instanceAlias}.awsapps.com/connect/home`;
+                var ccpURL = `https://${instanceAlias}.awsapps.com/connect/ccp-v2`;
+                var agentMetricsURL = `https://${instanceAlias}.awsapps.com/connect/real-time-metrics?tableType=user`;
+                var loginWindow;
+                var prevState;
+                var agentProfileName ="";
+                var agentQueues="";
+                var queueMap=[];
+                var credentials;
+                var userName;
+                window.ccp = window.ccp || {};
+                connect.core.initCCP(container, {
+                    ccpUrl: ccpURL,
+                    loginPopup: true,
+                    softphone: {
+                        allowFramedSoftphone: true,
+                        disableRingtone: false
+                    }
+                });
+                connect.core.initSoftphoneManager({
+                    allowFramedSoftphone: !0
+                });                
+                connect.core.getEventBus().subscribe(connect.EventType.ACK_TIMEOUT, function () {
+                    try {
+                        connect.getLog().warn("ACK_TIMEOUT occurred, attempting to pop the login page.");
+                        var width = 500;
+                        var height = 600;
+                        var left = (screen.width / 2) - (width / 2);
+                        var top = (screen.height / 2) - (height / 2);
+
+                        loginWindow = window.open(loginURL, true, "width=" + width + ",height=" + height +
+                            ",menubar=no,status=no,toolbar=no,left=" + left + ",top=" + top);
+                    } catch (e) {
+                        connect.getLog().error(
+                            "ACK_TIMEOUT occurred but we are unable to open the login popup." + e).withException(
+                            e);
+                    }
+                    connect.core.getEventBus().subscribe(connect.EventType.ACKNOWLEDGE, function () {
+                        closeLoginWindow();
+                    });
+
+                });
+
+                function closeLoginWindow() {
+                    loginWindow.close();
+                }
+                
+                connect.agent((agent) => {
+                    $('#logoutButton').show();
+                    window.ccp.agent = agent;
+                    //Setup nav-bar action buttons
+
+                    $("#logoutButton").click(() => {
+                        goOfflineLogout();
+                    });
+
+                    $("#btnGetLogs").click(() => {
+                    	window.frames[0].frameElement.contentWindow.download();
+                    });
+
+                    //pop-native CCP
+                    $("#nativeCCP").click(() => {
+                        openNativeCCP();
+                    });
+
+                    //Open Agent Metrics Page
+                    $("#agentMetrics").click(() => {
+                        openAgentMetrics();
+                    });
+
+                    $("#agentMetrics").show();
+                    $("#nativeCCP").show();
+                    $('#logoutButton').show();
+                    
+                    agent.onStateChange(agentStateChange);
+                    agent.onRefresh(agentRefresh);
+                    agent.onRoutable(agentRoutable);
+                    agent.onNotRoutable(agentNotRoutable);
+                    agent.onOffline(agentOffline);
+                    
+
+                    
+                });
+
+                function sleep(ms) {
+                	  return new Promise(resolve => setTimeout(resolve, ms));
+                }
+                
+                async function agentStateChange(agent) {
+                	//console.log(agent);
+                    //console.log("in the agentStateChange function: Agent went from " + agent.oldState + " state to " + agent.newState);
+                }
+                
+                function agentRefresh(agent) {
+                	$('#agentName').text(agent.getName());
+                	var agentConfig = agent.getConfiguration();
+                	userName = agentConfig.username;
+                	$('#agentStatus').text(agent.getState().name + ' - Duration : ' + Math.floor(agent.getStateDuration()/1000)) + ' Seconds';
+                    getRoutingProfileDetails(agent.getRoutingProfile());
+                }
+
+                function agentRoutable(agent) {
+                	console.log(agent);
+                    console.log("in the agentRoutable function: " + agent.getName() + " is now routable");
+                }
+
+                function agentNotRoutable(agent) {
+                	console.log(agent);
+                    console.log("in the agentNotRoutable function: " + agent.getName() + " is now not routable");
+                }
+
+                function agentOffline(agent) {
+                	console.log(agent);
+                    console.log("in the agentOffline function: " + agent.getName() + " is now offline");
+                }
+
+                function getRoutingProfileDetails(routingProfile) {
+                    agentProfileName =routingProfile.name;
+                    $('#routingProfile').text(agentProfileName);
+                    var queueList = routingProfile.queues;
+                    fillQueuesTable(queueList);
+                }
+                
+                var fillQueuesTable = (queueList) => {
+                	//console.log('in the fillqueue : ' , queueList);
+                    agentQueues="";
+                    var queueARNs = [];
+                    //empty the array, fastest
+                    while (queueMap.length > 0) {
+                    	queueMap.pop();
+                    }
+                    for (var k in queueList) {
+                    	var row = {};
+                    	row.queueARN = queueList[k].queueARN;
+                    	row.queueName = queueList[k].name;
+                    	queueMap.push(row);
+                        var queueName = queueList[k].name;
+                        if(queueName){
+                        	agentQueues = agentQueues + queueName + ",";
+                        	queueARNs.push(queueList[k].queueARN)
+                        }
+                        	
+                    }
+                    agentQueues = agentQueues.substring(0, agentQueues.length-1);
+                    //var $q = $('#queueList');
+                    //$q.text(agentQueues);
+                	$('#queueList').text(agentQueues); 
+                };
+
+
+                function goOfflineLogout() {
+                    var offlineState = window.ccp.agent.getAgentStates().filter(function (state) {
+                        console.log("this is state: " + state);
+                        return state.type === connect.AgentStateType.OFFLINE;
+                    })[0];
+                    window.ccp.agent.setState(offlineState, {
+                        success: function () {
+                            console.log("Set agent status to Offline via Streams");
+                            logOut();
+                        },
+                        failure: function () {
+                            console.log("Failed to set agent status to Offline via Streams");
+                        }
+                    });
+                }
+
+                function logOut() {
+                    var width = 500;
+                    var height = 600;
+                    var left = (screen.width / 2) - (width / 2);
+                    var top = (screen.height / 2) - (height / 2);
+                    var sourceURL = window.location.href;
+                    logoutWindow = window.open(logoutURL, true, "width=" + width + ",height=" + height +
+                        ",menubar=no,status=no,toolbar=no,left=" + left + ",top=" + top);
+                    logoutWindow.close();
+                    console.log("closed the window");
+                    newWindow = window.location.replace(`/logout.html?sourceURL=${sourceURL}`);
+                }
+
+
+                function openNativeCCP() {
+                    var width = 320;
+                    var height = 468;
+                    var left = (screen.width / 2) - (width / 2);
+                    var top = (screen.height / 2) - (height / 2);
+
+
+                    ccpWindow = window.open(ccpURL, true, "width=" + width + ",height=" + height +
+                        ",menubar=no,status=no,toolbar=no,left=" + left + ",top=" + top);
+                }
+
+                function openAgentMetrics() {
+                    agentMetricsWindow = window.open(agentMetricsURL, false);
+                }
+
+
+
+                var c;
+                connect.contact(function (contact) {
+                    c = contact;
+                    c.onConnecting(function (c) {
+                    	console.log("Event Ringing");
+                        var attr = c.getAttributes();
+                        try{
+                            for (var k in attr) {
+                            	if(k=='recording')
+                            		$('#spnRecordingStatus').removeClass('dotGrey dotRed dotOrange dotGreen').addClass('dotRed');
+                            }
+                        }catch(e){}
+                        var c1 = c.getConnections()[1];
+                        var c2 = c.getStatus();
+                        document.getElementById("contactID").value = c.contactId;
+                        document.getElementById("phoneNumber").value = c1.getAddress()['phoneNumber'];
+                        if (attr.firstName) {
+                            document.getElementById("firstName").value = attr.firstName.value;
+                        }
+                        if (attr.lastName) {
+                            document.getElementById("lastName").value = attr.lastName.value;
+                        }
+                        try {
+                        	//We need to get these keys for everycall, as the session expires within 8 minutes
+                            const aid = attr.aid.value;
+                            const sak = attr.sak.value;
+                            const sst = attr.sst.value;
+                            const reg = getRegion();
+                            AWS.config.update({
+                                accessKeyId: aid, secretAccessKey: sak, sessionToken: sst, region: reg
+                            });
+                            AWS.config.credentials.get(function (err) {
+                                if (err)
+                                    console.log(err);
+                                else {
+                                    credentials = AWS.config.credentials;
+                                }
+                            });
+                        } catch (e) {
+                            console.log(e);
+                        }
+                        
+                    });
+
+                    c.onRefresh((c) => {
+                        console.log(`contact refreshed`);
+                        fillTable(c.getAttributes());
+                    });
+                    c.onConnected((t) => {
+                    	console.log("Event Established -> ", t.getContactId());
+                    });
+                    c.onMissed(() => {
+                    	console.log("Event Missed");
+                    	$('#spnRecordingStatus').removeClass('dotGrey dotRed dotOrange dotGreen').addClass('dotGrey');
+                    });
+                    c.onEnded(() => {
+                    	console.log("Call Ended");
+                    	$('#spnRecordingStatus').removeClass('dotGrey dotRed dotOrange dotGreen').addClass('dotGrey');
+                    });
+                    c.onAccepted(() => {
+                    	console.log("Call Accepted");
+                    });
+                });
+
+                var table;
+                $(document).ready((a) => {
+                    table = $('#attributes').DataTable({
+                        columns: [{
+                                title: "Name"
+                            },
+                            {
+                                title: "Value"
+                            }
+                        ],
+                        paging: false,
+                        info: false,
+                        searching: false
+                    });
+                    
+                    $("#showAttributes").click(() => {
+                        $('#visibleAttributes').show();
+                        $('#hiddenAttributes').hide();
+                    });
+                    $("#hideAttributes").click(() => {
+                        $('#visibleAttributes').hide();
+                        $('#hiddenAttributes').show();
+                    });
+                });
+                
+                var fillQueueTable = (queueInfo) => {
+                	queueTable.clear();
+                    for (var k in attributes) {
+                        var value = attributes[k].value;
+                        if (value.startsWith("http")) {
+                            value = '<a target="_blank" href="' + value + '">' + value + '</a>'
+                        }
+                        table.row.add([k, value]);
+                    }
+                    table.draw();
+                
+                }
+                
+                var fillTable = (attributes) => {
+                    table.clear();
+                    for (var k in attributes) {
+                        var value = attributes[k].value;
+                        if (value.startsWith("http")) {
+                            value = '<a target="_blank" href="' + value + '">' + value + '</a>'
+                        }
+                        table.row.add([k, value]);
+                    }
+                    table.draw();
+                };
+
+                connect.agent((agent) => {
+                    agent.onStateChange((event) => {
+                        if (event.newState === 'Available') {
+                        	$('#spnRecordingStatus').removeClass('dotRed');
+                        	$('#spnRecordingStatus').addClass('dotGrey');
+                            document.getElementById("contactDetails").reset();
+                            $('#attributes').DataTable().clear().draw();
+                        }
+                    });
+                });
+                //This function will update contact attributes using Amazon API Gateway/NodeJS
+                function setRecordingStatus(operation){
+                    var body = {};
+                    body.operation = operation;
+                    if(operation == 'START'){
+                        body.contactId = c.contactId;
+                        body.initialContactId=c.contactId;
+                        body.voiceRecordingTrack="ALL";                         
+                    }else{
+                        body.contactId = c.contactId;
+                        body.initialContactId=c.contactId;
+                    }
+                    //
+                    // 
+				   console.log(JSON.stringify(body));
+  			       var apiGateway = getGatewayAPI();
+                   var posting = $.ajax({
+                	   		url: apiGateway,
+                            method: "POST",
+                            data: JSON.stringify(body)
+                        })
+                        .done(function (msg) {
+                        	console.log(msg);
+                            if (msg.message == "Success") {
+								if(msg.operation == 'START')
+							    	$('#spnRecordingStatus').removeClass('dotGrey dotRed dotOrange dotGreen').addClass('dotRed');
+								else if(msg.operation == 'PAUSE')
+									$('#spnRecordingStatus').removeClass('dotGrey dotRed dotOrange dotGreen').addClass('dotOrange');
+								else if(msg.operation == 'STOP')
+									$('#spnRecordingStatus').removeClass('dotGrey dotRed dotOrange dotGreen').addClass('dotGrey');
+								else if(msg.operation == 'RESUME')
+									$('#spnRecordingStatus').removeClass('dotGrey dotRed dotOrange dotGreen').addClass('dotRed');
+                            } else {
+                            	showResults("Failed to : " + msg.operation + ' error : ' + msg.message);
+                                console.log("Failed to update");
+                            }
+                        })
+                        .fail(function (msg) {
+                            console.log("Failed with response: " + JSON.stringify(
+                                msg));
+                        });
+                    return false;
+                   
+                }
+            
+                
+            </script>
+        </div>
+    </section>
+    <section id="section-main">
+        <header>
+            <h1>Amazon Connect CCP call recording controls</h1>
+            <p>Demonstrates the abilty to start/stop/pause/resume call recordings</p>
+        </header>
+        <form name="contactDetails" id="contactDetails">
+            <fieldset>
+                <legend>Contact Details</legend>
+                <div>
+                    <label for="phoneNumber">Phone Number</label>
+                    <input name="phoneNumber" type="tel" id="phoneNumber" placeholder="+15551112222" readonly>
+                </div>
+                <div>
+                    <table>
+                        <tbody>
+                            <tr>
+                                <td>
+                                    <label for="contactID" style="width: 128px;">Contact ID</label>
+                                </td>
+                                <td>
+                                    <input name="contactID" type="text" id="contactID" placeholder="Contact ID" style='width: 340px' readonly>
+                                </td>
+                                <td>
+                                    <button class="btn" type="button" id="btn" data-clipboard-demo data-clipboard-target="#contactID">
+                                        <img class="clippy" src="images/clipboard.png" width="17" alt="Copy to clipboard">
+                                        </button>
+                                </td>
+                                
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div>
+                    <div id="hiddenAttributes">
+                        <input type=button id="showAttributes" value="Show Contact Attributes"></input>
+                    </div>
+                    <div id="visibleAttributes" style="display:none;">
+                        <input type=button id="hideAttributes" value="Hide Contact Attributes"></input>
+                        <table id="attributes" style="width:100%;border:1px;" /></table>
+                    </div>
+                </div>
+            </fieldset>
+        </form>
+      <form name="agentRecordings" id="agentRecordings">
+      <fieldset class="agent-info">
+        <legend><span>Recording Status </span><span id='spnRecordingStatus' class="dotRed"></span></legend>
+        <div>
+        	<button class="btnRecording" type="button" id="btnStart" title="Start recording"><img class="btnImages" src="images/start.jpg" alt="Start recording"> </button>
+        	<button class="btnRecording" type="button" id="btnStop" title="Stop recording"><img class="btnImages" src="images/stop.jpg" alt="Stop recording"> </button>
+        	<button class="btnRecording" type="button" id="btnPause" title="Pause recording"><img class="btnImages" src="images/pause.jpg" alt="Pause recording"> </button>
+        	<button class="btnRecording" type="button" id="btnResume" title="Resume recording"><img class="btnImages" src="images/resume.jpg" alt="Resume recording"> </button>
+			<span style="padding-left: 200px;"><button class="btnRecording" type="button" id="btnAuthenticate" title="Authenticate"><img class="btnImages" src="images/auth.jpg" alt="Authenticate"> </button></span>
+        	
+        </div>
+      </fieldset>
+    </form>
+        
+      <form name="agentDetails" id="agentDetails">
+      <fieldset class="agent-info">
+        <legend>Agent Details</legend>
+        <div>
+          <table>
+            <tbody>
+              <tr>
+                <td>
+                  <label for="agentName">Agent Name:</label>
+                </td>
+                <td>
+                  <span id="agentName"></span>
+                </td>
+              </tr>
+              <tr>
+	             <td>
+	              <label for="agentStatus">Current Status:</label>
+	             </td>
+	             <td>
+	               <span id="agentStatus"></span>
+	             </td>
+	          </tr>
+              <tr>
+                <td>
+                  <label for="routingProfile">Routing Profile:</label>
+                </td>
+                <td>
+                  <span id="routingProfile"></span>
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <label for="queueList">Queues :</label>
+                </td>
+                <td>
+                  <span id="queueList"></span>
+                </td>
+              </tr>
+              
+            </tbody>
+          </table>
+        </div>
+      </fieldset>
+    </form>
+    </section>
+	<script type="text/javascript">
+		var isBlink = false;
+
+		function blink(selector){
+			$(selector).fadeOut('slow', function(){
+			    $(this).fadeIn('slow', function(){
+			        blink(this);
+			    });
+			});
+		}
+		
+		$( document ).ready(function() {
+	    	$('#spnRecordingStatus').removeClass('dotRed dotGreen dotOrange').addClass('dotGrey');
+			blink('#spnRecordingStatus');
+			
+		    $("#authDialog").dialog({
+		        autoOpen: false,
+		        modal: true,
+		        height: "auto",
+		        buttons: {
+		            "Authenicate": function() {
+		            	setRecordingStatus('RESUME');
+		              	$( this ).dialog( "close" );		              
+		            },
+		            Cancel: function() {
+		            	setRecordingStatus('RESUME');	
+		              $( this ).dialog( "close" );
+		            }
+		          }
+		      });
+			
+		    $( "#resultDialog").dialog({
+		        autoOpen: false
+		    });
+		    
+			
+		});
+		
+	    $("#btnStart").click(() => {
+	    	setRecordingStatus('START');
+	    });
+		    
+	    $("#btnStop").click(() => {
+	    	setRecordingStatus('STOP');
+	    });
+
+	    $("#btnPause").click(() => {
+	    	setRecordingStatus('PAUSE');
+	    });
+
+	    $("#btnResume").click(() => {
+	    	setRecordingStatus('RESUME');
+	    });
+	    
+	    $("#btnAuthenticate").click(() => {	    	
+	    	$( "#authDialog" ).dialog( "open" );
+	    	setRecordingStatus('PAUSE');
+	    });
+	    
+	    function showResults(message){
+	    	$('#resultSpan').text(message);
+	    	$("#resultDialog").dialog("open");
+	    }
+			
+	</script>
+	<div id="authDialog" title="Authenticate">
+	  <p>
+	  	<span class="ui-icon ui-icon-alert" style="float:left; margin:12px 12px 20px 0;"></span>Enter account number  
+	  	<input name="accountNumber" type="text" id="accountNumber" value="">
+	  </p>
+	</div>	
+	<div id="resultDialog" title="API Result">
+	  	<span id="resultSpan"></span>
+	</div>
+	   
+	    
+</body>
+</html>
