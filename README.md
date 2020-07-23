@@ -4,6 +4,9 @@
 This demo explains how you can use [Amazon Connect](https://aws.amazon.com/connect/) api's to start/stop/pause/resume call recordings when the agent is on call with the customer.  These api's come very handy, when accepting PCI/PII type of data from the customers, where agent can manually pause/resume or programatically pause/resume the recording. The sample html page demo's shows both versions.
 
 ## Usage
+`cd recording-lambda`
+`npm init`
+`npm install --save aws-sdk`
 
 Use `sam` to build, invoke and deploy the function.
 
