@@ -1,0 +1,15 @@
+{
+    "files": [
+        "agentRecording.html",
+        "css/style.css",
+		"css/copybutton.css",
+		"js/connect-streams.js",
+		"js/clipboard.min.js",
+		"images/clipboard.png",
+		"images/start.jpg",
+		"images/stop.jpg",
+		"images/pause.jpg",
+		"images/resume.jpg",
+		"images/auth.jpg"
+    ]
+}
