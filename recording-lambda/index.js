@@ -14,23 +14,19 @@ exports.handler = async (event) => {
         var resp;
         if(operation == 'START'){
             resp = await startContactRecording(connectInstanceId, body.contactId, body.initialContactId, body.voiceRecordingTrack);
-            console.log(resp);
         }else if(operation == 'STOP'){
             resp = await stopContactRecording(connectInstanceId, body.contactId, body.initialContactId);
-            console.log(resp);
         }else if(operation == 'PAUSE'){
             resp = await suspendContactRecording(connectInstanceId, body.contactId, body.initialContactId);
-            console.log(resp);
         }else{
             resp = await resumeContactRecording(connectInstanceId, body.contactId, body.initialContactId);
-            console.log(resp);
         }
+        console.log(resp);
     }catch(e){
         console.log(e);
         status = 200;
         message = e.message;
     }
-    
     const response = buildResponse(status,message, operation);
     return response;
 };
