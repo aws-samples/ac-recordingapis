@@ -1,0 +1,366 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Recording API demo for Amazon Connect
+
+Parameters:
+  CADS3BucketForWebSite:
+    Type: String
+    AllowedPattern: '(?=^.{3,63}$)(?!^(\d+\.)+\d+$)(^(([a-z0-9]|[a-z0-9][a-z0-9\-]*[a-z0-9])\.)*([a-z0-9]|[a-z0-9][a-z0-9\-]*[a-z0-9])$)'
+    ConstraintDescription: 'Invalid S3 Bucket name'
+    Description: Enter the (globally unique) name you would like to use for the Amazon S3 bucket where we will store the website assets and the sample contact flow. This template will fail to deploy if the bucket name you chose is currently in use.
+    
+  instanceIdParam:
+    Type: String
+    AllowedPattern: '\w{8}-\w{4}-\w{4}-\w{4}-\w{12}'
+    ConstraintDescription: "Invalid Amazon Connect instance Id"
+    Description: Amazon Connect Instance ID (Ensure you it is entered accurately in the format xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx ).
+    
+  instanceNameParam:
+    Type: String
+    ConstraintDescription: "Invalid Amazon Connect instance alias"
+    Description: Amazon Connect Instance Alias (Ensure you it is entered accurately as configured under Amazon Connect Service ).
+
+Outputs:
+  GatewayAPIURLForCallRecordings:
+      Description:  This is the URL that will be used to call the AWS Lambda function for control the call recordings
+      Value: !Sub "https://${CADAPIGateway}.execute-api.${AWS::Region}.amazonaws.com/Prod/setrecordingstatus"
+      
+  CloudfrontEndpoint:
+      Description: Endpoint for Cloudfront distribution
+      Value: !Join
+        - ''
+        - - 'https://'
+          - !GetAtt [CADCloudFrontDistribution, DomainName]
+          - '/agentRecording.html'
+
+
+Resources:
+    createWebSiteS3Bucket:
+        Type: 'AWS::S3::Bucket'
+        Properties:
+            BucketName: !Ref CADS3BucketForWebSite
+            PublicAccessBlockConfiguration:
+                BlockPublicAcls: False
+                BlockPublicPolicy: False
+                IgnorePublicAcls: False
+                RestrictPublicBuckets: False
+            WebsiteConfiguration:
+                IndexDocument: agentRecording.html
+                ErrorDocument: error.html
+    CADs3BucketPolicy:
+        Type: AWS::S3::BucketPolicy
+        DependsOn:
+            - CADCloudFrontDistributionAccessIdentity
+        Properties:
+            Bucket: !Ref createWebSiteS3Bucket
+            PolicyDocument:
+                Statement:
+                    -
+                        Action:
+                            - "s3:GetObject"
+                        Effect: "Allow"
+                        Principal:
+                            CanonicalUser:
+                                Fn::GetAtt: [ CADCloudFrontDistributionAccessIdentity , S3CanonicalUserId ]
+                        Resource:
+                            !Sub ${createWebSiteS3Bucket.Arn}/CCP/*
+
+    CADCloudFrontDistributionAccessIdentity:
+        Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+        Properties:
+          CloudFrontOriginAccessIdentityConfig:
+            Comment: 'CloudFront endpoint for call recording control via agentRecording'
+            
+    CADCloudFrontDistribution:
+        Type: AWS::CloudFront::Distribution
+        Properties:
+          DistributionConfig:
+            Origins:
+            - DomainName:
+                !Join
+                    - ''
+                    - - !Ref CADS3BucketForWebSite
+                      - .s3.amazonaws.com
+              Id: !Ref CADS3BucketForWebSite
+              OriginPath: '/CCP'
+              S3OriginConfig:
+                OriginAccessIdentity:
+                    !Join
+                        - ''
+                        - - 'origin-access-identity/cloudfront/'
+                          - !Ref CADCloudFrontDistributionAccessIdentity
+            Enabled: 'true'
+            Logging:
+                Bucket: !GetAtt createWebSiteS3Bucket.DomainName
+                Prefix: 'logs/'
+                IncludeCookies: 'true'
+            Comment: CloudFront for call recording controls via agentRecording
+            DefaultRootObject: agentRecording.html
+            DefaultCacheBehavior:
+                AllowedMethods:
+                    - DELETE
+                    - GET
+                    - HEAD
+                    - OPTIONS
+                    - PATCH
+                    - POST
+                    - PUT
+                TargetOriginId: !Ref CADS3BucketForWebSite
+                ForwardedValues:
+                    QueryString: true
+                    Cookies:
+                        Forward: all
+                ViewerProtocolPolicy: redirect-to-https
+            Restrictions:
+                GeoRestriction:
+                    RestrictionType: whitelist
+                    Locations:
+                        - US
+
+    CADLambdaCallRecordingControlRole:
+        Type: "AWS::IAM::Role"
+        Properties:
+          AssumeRolePolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: "Allow"
+                Principal:
+                  Service:
+                    - "lambda.amazonaws.com"
+                Action:
+                  - "sts:AssumeRole"
+          Path: "/"
+          Policies:
+            -
+              PolicyName: !Sub ${AWS::StackName}-call-recordings-control-policy
+              PolicyDocument:
+                Version: "2012-10-17"
+                Statement:
+                  -
+                    Effect: "Allow"
+                    Action:
+                      - 'logs:CreateLogGroup'
+                      - 'logs:CreateLogStream'
+                      - 'logs:PutLogEvents'
+                    Resource:
+                      - !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*"
+                  -
+                    Effect: "Allow"
+                    Action:
+                      - "s3:PutObject"
+                    Resource:
+                      - !Sub ${createWebSiteS3Bucket.Arn}/*
+                  - Effect: Allow
+                    Action:
+                      - "connect:StartContactRecording"
+                      - "connect:StopContactRecording"
+                      - "connect:SuspendContactRecording"
+                      - "connect:ResumeContactRecording"
+                    Resource: "*"
+
+                
+    CADCallRecordingsControlLambdaFunction:
+      Type: "AWS::Lambda::Function"
+      Properties:
+        Description:  >
+            AWS Lambda Function that will provide the functions to control the call recordings
+        Handler: "index.handler"
+        Role: !GetAtt CADLambdaCallRecordingControlRole.Arn
+        Runtime: "nodejs12.x"
+        MemorySize: 256
+        Timeout: 120
+        Code: ./recording-lambda/
+        Environment:
+            Variables:
+              INSTANCE_ID: !Ref instanceIdParam
+              REGION_ID: !Ref AWS::Region
+
+    CADContactFlowCreatorRole:
+        Type: "AWS::IAM::Role"
+        Properties:
+          AssumeRolePolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: "Allow"
+                Principal:
+                  Service:
+                    - "lambda.amazonaws.com"
+                Action:
+                  - "sts:AssumeRole"
+          Path: "/"
+          Policies:
+            -
+              PolicyName: !Sub ${AWS::StackName}-website-creator-policy
+              PolicyDocument:
+                Version: "2012-10-17"
+                Statement:
+                  -
+                    Effect: "Allow"
+                    Action:
+                      - 'logs:CreateLogGroup'
+                      - 'logs:CreateLogStream'
+                      - 'logs:PutLogEvents'
+                    Resource:
+                      - !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*"
+                  -
+                    Effect: "Allow"
+                    Action:
+                      - "s3:PutObject"
+                      - "s3:GetObject"
+                      - "s3:PutObjectAcl"
+                    Resource:
+                      -  !Join
+                          - ''
+                          - - 'arn:'
+                            - !Ref 'AWS::Partition'
+                            - ':s3:::'
+                            - !Ref CADS3BucketForWebSite
+                            - '/*'
+                  -
+                    Effect: "Allow"
+                    Action:
+                      - "s3:PutBucketPublicAccessBlock"
+                    Resource:
+                      -  !Join
+                          - ''
+                          - - 'arn:'
+                            - !Ref 'AWS::Partition'
+                            - ':s3:::'
+                            - !Ref CADS3BucketForWebSite
+                  -
+                    Effect: "Allow"
+                    Action:
+                      - "s3:GetObject"
+                    Resource:
+                      -  !Join
+                          - ''
+                          - - 'arn:'
+                            - !Ref 'AWS::Partition'
+                            - ':s3:::'
+                            - 'amazon-connect-blogs2'
+                            - '/*'
+
+    webSiteCreator:
+      Type: "AWS::Lambda::Function"
+      Properties:
+        Description:  >
+            AWS Lambda Function that will create the website and upload it to the S3 bucket
+        Handler: "index.handler"
+        Role: !GetAtt CADContactFlowCreatorRole.Arn
+        Runtime: "nodejs12.x"
+        MemorySize: 256
+        Timeout: 120
+        Code: ./website-creator/
+                      
+    invokeWebSiteCreator:
+        Type: Custom::CreateWebSite
+        DependsOn: createWebSiteS3Bucket
+        Properties:  
+            ServiceToken:  !GetAtt webSiteCreator.Arn
+            customAction: configureWebsite
+            Region: !Ref AWS::Region
+            sourceS3Bucket: "amazon-connect-blogs2"
+            sourceS3key: "2020/agentRecording"
+            destS3Bucket: !Ref CADS3BucketForWebSite
+            destS3KeyPrefix: CCP
+            instanceID: !Ref instanceIdParam
+            instanceName: !Ref instanceNameParam
+            gatewayAPI: !Sub "https://${CADAPIGateway}.execute-api.${AWS::Region}.amazonaws.com/Prod/setrecordingstatus"
+            manifestLocation: "2020/agentRecording/web-site-manifest.json"
+
+    CADAPIGateway:
+        Type: "AWS::ApiGateway::RestApi"
+        Properties:
+          Name: "setrecordingstatus"
+          Description: "AC Call Recordings"              
+          
+    CADAPIGatewayResource:
+        Type: 'AWS::ApiGateway::Resource'
+        Properties:
+          RestApiId: !Ref CADAPIGateway
+          ParentId: !GetAtt 
+            - CADAPIGateway
+            - RootResourceId
+          PathPart: "setrecordingstatus"
+    
+    CADAPIGatewayRootMethod:
+        Type: "AWS::ApiGateway::Method"
+        Properties:
+          ResourceId: !Ref CADAPIGatewayResource
+          RestApiId: !Ref CADAPIGateway
+          AuthorizationType: "NONE"
+          HttpMethod: "POST"
+          Integration:
+            IntegrationHttpMethod: "POST"
+            Type: "AWS_PROXY"
+            Uri: !Sub
+              - "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${lambdaArn}/invocations"
+              - lambdaArn: !GetAtt "CADCallRecordingsControlLambdaFunction.Arn"
+            IntegrationResponses:
+              - StatusCode: 200
+                ResponseParameters:
+                  method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+                  method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+                  method.response.header.Access-Control-Allow-Origin: "'*'"
+                ResponseTemplates:
+                  application/json: ''
+            PassthroughBehavior: WHEN_NO_MATCH
+            RequestTemplates:
+              application/json: '{"statusCode": 200}'
+          MethodResponses:
+            - ResponseModels:
+                application/json: 'Empty'
+              ResponseParameters:
+                method.response.header.Access-Control-Allow-Headers: true
+                method.response.header.Access-Control-Allow-Methods: true
+                method.response.header.Access-Control-Allow-Origin: true            
+              StatusCode: 200
+
+    CADAPIGatewayRootOPTIONSMethod:
+        Type: "AWS::ApiGateway::Method"
+        Properties:
+          ResourceId: !Ref CADAPIGatewayResource
+          RestApiId: !Ref CADAPIGateway
+          AuthorizationType: "NONE"
+          HttpMethod: "OPTIONS"
+          Integration:
+            IntegrationResponses:
+              - StatusCode: 200
+                ResponseParameters:
+                  method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+                  method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+                  method.response.header.Access-Control-Allow-Origin: "'*'"
+                ResponseTemplates:
+                  application/json: ''
+            PassthroughBehavior: WHEN_NO_MATCH
+            RequestTemplates:
+              application/json: '{"statusCode": 200}'
+            Type: MOCK  
+          MethodResponses:
+            - ResponseModels:
+                application/json: 'Empty'
+              ResponseParameters:
+                method.response.header.Access-Control-Allow-Headers: false
+                method.response.header.Access-Control-Allow-Methods: false
+                method.response.header.Access-Control-Allow-Origin: false          
+              StatusCode: 200
+              
+
+    CADAPIGatewayDeployment:
+        Type: "AWS::ApiGateway::Deployment"
+        DependsOn:
+          - "CADAPIGatewayRootMethod"
+        Properties:
+          RestApiId: !Ref "CADAPIGateway"
+          StageName: "Prod"          
+          
+    CADLambdaApiGatewayInvokeForSetRecordingStatus:
+        Type: "AWS::Lambda::Permission"
+        Properties:
+          Action: "lambda:InvokeFunction"
+          FunctionName: !GetAtt "CADCallRecordingsControlLambdaFunction.Arn"
+          Principal: "apigateway.amazonaws.com"
+          SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${CADAPIGateway}/*/POST/setrecordingstatus"
+          
