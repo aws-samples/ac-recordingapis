@@ -87,61 +87,38 @@
 		  border-radius: 50%;
 		  display: inline-block;
 		}        
-		/*.button {
-		  background-color: #4CAF50; 
-		  border: none;
-		  color: white;
-		  padding: 10px 22px;
-		  text-align: center;
-		  text-decoration: none;
-		  display: inline-block;
-		  font-size: 16px;
-		  margin: 4px 2px;
-		  cursor: pointer;
-		  transition-duration: 0.4s;
-		  -webkit-transition-duration: 0.4s; 		  
-		}
-		.button:hover {
-		  background-color: white;
-		  color: black;
-		}				
-		*/
-		
 		.button {
-		  display: inline-block;
 		  padding: 10px 22px;
 		  font-size: 16px;
-		  cursor: pointer;
 		  text-align: center;
-		  text-decoration: none;
+		  cursor: pointer;
 		  outline: none;
 		  color: #fff;
 		  background-color: #4CAF50;
 		  border: none;
 		  border-radius: 15px;
 		  box-shadow: 0 9px #999;
-		}		
+		}
+				
 		.button:hover {background-color: inherit, color:black}
-		.button:focus,
 		.button:active {
-		  background-color: inherit;
+		  background-color: #3e8e41;
 		  box-shadow: 0 5px #666;
 		  transform: translateY(4px);
-		  outline: none !important;
-		}		
-		.borderGreen{border-radius:3px;background-color:#4CAF50;color:white;border:2px solid #4CAF50;}
+		}				
+		.borderGreen{background-color:#4CAF50;color:white;border:2px solid #4CAF50;}
 		.borderGreen:hover {background-color:white;color:black;border:2px solid #4CAF50;} 
 
-		.borderRed {border-radius:3px;background-color:#f44336;color:white;}
+		.borderRed {background-color:#f44336;color:white;}
 		.borderRed:hover {background-color:white;color:black;border:2px solid #f44336;}
 
-		.borderOrange {border-radius:3px;background-color:#f7e402;color:white;}
+		.borderOrange {background-color:#f7e402;color:white;}
 		.borderOrange:hover {background-color:white;color:black;border:2px solid #f7e402;}
 
-		.borderLightGreen {border-radius:3px;background-color:#4df753;color:white;}
+		.borderLightGreen {background-color:#4df753;color:white;}
 		.borderLightGreen:hover {background-color:white;color:black;border:2px solid #4df753;}
 
-		.borderBlack {border-radius:3px;background-color:#555555;color:white;}
+		.borderBlack {background-color:#555555;color:white;}
 		.borderBlack:hover {background-color:white;color:black;border:2px solid #555555;}
 
 				
@@ -536,47 +513,50 @@
                 });
                 //This function will update contact attributes using Amazon API Gateway/NodeJS
                 function setRecordingStatus(operation){
-                    var body = {};
-                    body.operation = operation;
-                    if(operation == 'START'){
-                        body.contactId = c.contactId;
-                        body.initialContactId=c.contactId;
-                        body.voiceRecordingTrack="ALL";                         
-                    }else{
-                        body.contactId = c.contactId;
-                        body.initialContactId=c.contactId;
-                    }
-                    //
-                    // 
-				   console.log(JSON.stringify(body));
-  			       var apiGateway = getGatewayAPI();
-                   var posting = $.ajax({
-                	   		url: apiGateway,
-                            method: "POST",
-                            data: JSON.stringify(body)
-                        })
-                        .done(function (msg) {
-                        	console.log(msg);
-                            if (msg.message == "Success") {
-								if(msg.operation == 'START')
-							    	$('#spnRecordingStatus').removeClass('dotGrey dotRed dotOrange dotGreen').addClass('dotRed');
-								else if(msg.operation == 'PAUSE')
-									$('#spnRecordingStatus').removeClass('dotGrey dotRed dotOrange dotGreen').addClass('dotOrange');
-								else if(msg.operation == 'STOP')
-									$('#spnRecordingStatus').removeClass('dotGrey dotRed dotOrange dotGreen').addClass('dotGrey');
-								else if(msg.operation == 'RESUME')
-									$('#spnRecordingStatus').removeClass('dotGrey dotRed dotOrange dotGreen').addClass('dotRed');
-                            } else {
-                            	showResults("Failed to : " + msg.operation + ' error : ' + msg.message);
-                                console.log("Failed to update");
-                            }
-                        })
-                        .fail(function (msg) {
-                            console.log("Failed with response: " + JSON.stringify(
-                                msg));
-                        });
-                    return false;
-                   
+                	try{
+		                    var body = {};
+		                    body.operation = operation;
+		                    if(operation == 'START'){
+		                        body.contactId = c.contactId;
+		                        body.initialContactId=c.contactId;
+		                        body.voiceRecordingTrack="ALL";                         
+		                    }else{
+		                        body.contactId = c.contactId;
+		                        body.initialContactId=c.contactId;
+		                    }
+		                    //
+		                    // 
+						   console.log(JSON.stringify(body));
+		  			       var apiGateway = getGatewayAPI();
+		                   var posting = $.ajax({
+		                	   		url: apiGateway,
+		                            method: "POST",
+		                            data: JSON.stringify(body)
+		                        })
+		                        .done(function (msg) {
+		                        	console.log(msg);
+		                            if (msg.message == "Success") {
+										if(msg.operation == 'START')
+									    	$('#spnRecordingStatus').removeClass('dotGrey dotRed dotOrange dotGreen').addClass('dotRed');
+										else if(msg.operation == 'PAUSE')
+											$('#spnRecordingStatus').removeClass('dotGrey dotRed dotOrange dotGreen').addClass('dotOrange');
+										else if(msg.operation == 'STOP')
+											$('#spnRecordingStatus').removeClass('dotGrey dotRed dotOrange dotGreen').addClass('dotGrey');
+										else if(msg.operation == 'RESUME')
+											$('#spnRecordingStatus').removeClass('dotGrey dotRed dotOrange dotGreen').addClass('dotRed');
+		                            } else {
+		                            	showResults("Failed to : " + msg.operation + ' error : ' + msg.message);
+		                                console.log("Failed to update");
+		                            }
+		                        })
+		                        .fail(function (msg) {
+		                            console.log("Failed with response: " + JSON.stringify(
+		                                msg));
+		                        });
+		                    return false;
+	                	}catch(e){
+	                		console.log(e);
+	                	}
                 }
             
                 
@@ -628,16 +608,11 @@
                 </div>
             </fieldset>
         </form>
-      <form name="agentRecordings" id="agentRecordings">
+      <!--  <form name="agentRecordings" id="agentRecordings"> -->
       <fieldset class="agent-info">
         <legend><span>Recording Status </span><span id='spnRecordingStatus' class="dotRed"></span></legend>
         <div>
-        	<!--  <button class="btnRecording" type="button" id="btnStart" title="Start recording"><img class="btnImages" src="images/start.jpg" alt="Start recording"> </button>
-        	     	<button class="btnRecording" type="button" id="btnStop" title="Stop recording"><img class="btnImages" src="images/stop.jpg" alt="Stop recording"> </button>
-		        	<button class="btnRecording" type="button" id="btnPause" title="Pause recording"><img class="btnImages" src="images/pause.jpg" alt="Pause recording"> </button>
-		        	<button class="btnRecording" type="button" id="btnResume" title="Resume recording"><img class="btnImages" src="images/resume.jpg" alt="Resume recording"> </button>
-        	-->
-        	 <button class="button btnGreen borderGreen" type="button" id="btnStart" title="Start recording">Start</button>
+        	 <button class="button borderGreen" type="button" id="btnStart" title="Start recording">Start</button>
     	     <button class="button btnRed borderRed" type="button" id="btnStop" title="Stop recording">Stop</button>
 		     <button class="button btnOrange borderOrange" type="button" id="btnPause" title="Pause recording">Pause</button>
 		     <button class="button btnLightGreen borderLightGreen" type="button" id="btnResume" title="Resume recording">Resume</button>
@@ -648,7 +623,7 @@
         	
         </div>
       </fieldset>
-    </form>
+    
         
       <form name="agentDetails" id="agentDetails">
       <fieldset class="agent-info">
@@ -734,7 +709,7 @@
 		});
 		
 	    $("#btnStart").click(() => {
-	    	setRecordingStatus('START');
+	    	//setRecordingStatus('START');
 	    });
 		    
 	    $("#btnStop").click(() => {

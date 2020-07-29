@@ -170,7 +170,7 @@ form input#verify {
 form textarea, section textarea { 
 	width: 414px; 
 }
-form input:focus, form textarea:focus, form select:focus, form button:focus, section input:focus, section textarea:focus, section select:focus, section button:focus  { 
+form input:focus, form textarea:focus, form select:focus, form button:focus, section input:focus, section textarea:focus, section select:focus  { 
 	border: 1px solid #ddd; 
 	background-color: #fff; 
 	color:#333; 
