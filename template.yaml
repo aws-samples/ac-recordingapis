@@ -261,14 +261,11 @@ Resources:
             ServiceToken:  !GetAtt webSiteCreator.Arn
             customAction: configureWebsite
             Region: !Ref AWS::Region
-            sourceS3Bucket: "amazon-connect-blogs2"
-            sourceS3key: "2020/agentRecording"
             destS3Bucket: !Ref CADS3BucketForWebSite
             destS3KeyPrefix: CCP
             instanceID: !Ref instanceIdParam
             instanceName: !Ref instanceNameParam
             gatewayAPI: !Sub "https://${CADAPIGateway}.execute-api.${AWS::Region}.amazonaws.com/Prod/setrecordingstatus"
-            manifestLocation: "2020/agentRecording/web-site-manifest.json"
 
     CADAPIGateway:
         Type: "AWS::ApiGateway::RestApi"

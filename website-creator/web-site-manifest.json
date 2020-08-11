@@ -1,0 +1,9 @@
+{
+    "files": [
+        "./agentRecording.html",
+        "./css/style.css",
+		"./css/copybutton.css",
+		"./js/connect-streams.js",
+		"./js/clipboard.min.js"
+    ]
+}

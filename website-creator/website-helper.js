@@ -22,7 +22,7 @@ let s3 = new AWS.S3();
 const fs = require('fs');
 //var _downloadKey = 'agentextensions/latest/web-site-manifest.json';
 var _downloadKey = '';
-const _downloadLocation = '/tmp/web-site-manifest.json';
+const _downloadLocation = './web-site-manifest.json';
 
 /**
  * Helper function to interact with s3 hosted website for cfn custom resource.
@@ -37,21 +37,7 @@ let websiteHelper = (function() {
      */
     let websiteHelper = function() {};
 
-    /**
-     * Provisions the web site UI at deployment.
-     * @param {string} sourceS3Bucket - Bucket containing the web site files to be copied.
-     * @param {string} sourceS3prefix - S3 prefix to prepend to the web site manifest file names to be copied.
-     * @param {string} destS3Bucket - S3 destination bucket to copy website content into
-     * @param {string} destS3KeyPrefix - S3 file prefix (website folder) for the website content
-     * @param {string} userPoolId - Cognito User Pool Id for web site configuration
-     * @param {string} userPoolClientId - Cognito User Pool Client Id for web site configuration
-     * @param {string} identityPoolId - Cognito Identity Pool ID
-     * @param {string} region - Region of destination S3 bucket
-     * @param {copyWebSiteAssets~requestCallback} cb - The callback that handles the response.
-     */
     websiteHelper.prototype.copyWebSiteAssets = function(resourceProperties, cb) {
-		var sourceS3Bucket = resourceProperties.sourceS3Bucket;
-		var sourceS3prefix = resourceProperties.sourceS3key ;
 		var destS3Bucket = resourceProperties.destS3Bucket;
 		var destS3KeyPrefix = resourceProperties.destS3KeyPrefix;
 		var region = resourceProperties.Region;
@@ -62,8 +48,6 @@ let websiteHelper = (function() {
 		_downloadKey = resourceProperties.manifestLocation
 		
         console.log("Copying UI web site");
-        console.log(['source bucket:', sourceS3Bucket].join(' '));
-        console.log(['source prefix:', sourceS3prefix].join(' '));
         console.log(['destination bucket:', destS3Bucket].join(' '));
         console.log(['destination s3 key prefix:', destS3KeyPrefix].join(' '));
         console.log(['region:', region].join(' '));
@@ -72,54 +56,46 @@ let websiteHelper = (function() {
         console.log(['gatewayAPI:', gatewayAPI].join(' '));
         console.log(['lambdaARN:', lambdaARN].join(' '));
 
-        downloadWebisteManifest(sourceS3Bucket, _downloadKey, _downloadLocation, function(err, data) {
+        fs.readFile(_downloadLocation, 'utf8', function(err, data) {
             if (err) {
                 console.log(err);
                 return cb(err, null);
             }
 
-            fs.readFile(_downloadLocation, 'utf8', function(err, data) {
-                if (err) {
-                    console.log(err);
-                    return cb(err, null);
-                }
+            console.log(data);
+            let _manifest = validateJSON(data);
 
-                console.log(data);
-                let _manifest = validateJSON(data);
-
-                if (!_manifest) {
-                    return cb('Unable to validate downloaded manifest file JSON', null);
-                } else {
-                    uploadToS3(_manifest.files, 0, destS3Bucket, destS3KeyPrefix, sourceS3Bucket, sourceS3prefix,
-                        function(err, result) {
-                            if (err) {
-                                return cb(err, null);
-                            }
-                            console.log(result);
-                            createAWSCredentials(destS3Bucket, destS3KeyPrefix, gatewayAPI, region,  instanceID, instanceName, 
+            if (!_manifest) {
+                return cb('Unable to validate downloaded manifest file JSON', null);
+            } else {
+                uploadToS3(_manifest.files, 0, destS3Bucket, destS3KeyPrefix, 
+                    function(err, result) {
+                        if (err) {
+                            return cb(err, null);
+                        }
+                        console.log(result);
+                        createAWSCredentials(destS3Bucket, destS3KeyPrefix, gatewayAPI, region,  instanceID, instanceName, 
+                            function(err, createResult) {
+                                if (err) {
+                                    return cb(err, null);
+                                }
+                            createContactFlow(destS3Bucket, destS3KeyPrefix, lambdaARN, 
                                 function(err, createResult) {
                                     if (err) {
                                         return cb(err, null);
                                     }
-                                createContactFlow(destS3Bucket, destS3KeyPrefix, lambdaARN, 
+                                    //return cb(null, createResult);
+                                    removePublicAccess(destS3Bucket, 
                                     function(err, createResult) {
                                         if (err) {
                                             return cb(err, null);
                                         }
-                                        //return cb(null, createResult);
-                                        removePublicAccess(destS3Bucket, 
-                                        function(err, createResult) {
-                                            if (err) {
-                                                return cb(err, null);
-                                            }
-                                            return cb(null, createResult);
-                                        });
+                                        return cb(null, createResult);
                                     });
                                 });
-                        });
-                }
-
-            });
+                            });
+                    });
+            }
 
         });
 
@@ -143,38 +119,16 @@ let websiteHelper = (function() {
         }
     };
     
-    const getObject = (bucketName, bucketKey) => {
-        return new Promise((resolve, reject) => {
-            const params = {
-                        Bucket: bucketName,
-                        Key: bucketKey};            
-            console.log(JSON.stringify(params));            
-            s3.getObject(params, (err, data) => {
-                if ( err ) reject(err)
-                else resolve(data)
-            })
-        })
-    }
-    async function uploadToS3(filelist, index, destS3Bucket, destS3KeyPrefix, sourceS3Bucket, sourceS3prefix, cb) {
+    async function uploadToS3(filelist, index, destS3Bucket, destS3KeyPrefix, cb) {
       if (filelist.length > index) {
-          /*const params = {
-            Bucket: sourceS3Bucket,
-            Key: sourceS3prefix + '/' + filelist[index]
-          };
-          const response = await s3.getObject(params, (err) => {
-            if (err) {
-              console.log(params);    
-              console.log('Error accessing the source file');
-              console.log(err);
-            }
-          }).promise();*/
-          //console.log('Fetching -> ' , sourceS3Bucket, sourceS3prefix + '/' + filelist[index]);
-          const response = await getObject(sourceS3Bucket, sourceS3prefix + '/' + filelist[index]);
+          const response = fs.readFileSync(filelist[index], 'utf8');
+          var fileDetails = filelist[index];
+          fileDetails = fileDetails.substring(2, fileDetails.length);
           let params2 = {
               Bucket: destS3Bucket,
-              Key: destS3KeyPrefix + '/' + filelist[index],
+              Key: destS3KeyPrefix + '/' + fileDetails,
               ACL: 'public-read',
-              Body: response.Body
+              Body: response
           };
             if (filelist[index].endsWith('.htm') || filelist[index].endsWith('.html')) {
                 params2.ContentType = "text/html";
@@ -197,17 +151,17 @@ let websiteHelper = (function() {
           s3.putObject(params2, function(err, data) {
                 if (err) {
                     console.log(err);
-                    return cb(['error copying ', [sourceS3prefix, filelist[index]].join('/'), '\n', err]
+                    return cb(['error copying ', [filelist[index]].join('/'), '\n', err]
                         .join(
                             ''),
                         null);
                 }
 
                 console.log([
-                    [sourceS3prefix, filelist[index]].join('/'), 'uploaded successfully'
+                    [filelist[index]].join('/'), 'uploaded successfully'
                 ].join(' '));
                 let _next = index + 1;
-                uploadToS3(filelist, _next, destS3Bucket, destS3KeyPrefix, sourceS3Bucket, sourceS3prefix, function(err, resp) {
+                uploadToS3(filelist, _next, destS3Bucket, destS3KeyPrefix, function(err, resp) {
                     if (err) {
                         return cb(err, null);
                     }
@@ -220,65 +174,6 @@ let websiteHelper = (function() {
         }
     }
 
-    let uploadFile = function(filelist, index, destS3Bucket, destS3KeyPrefix, sourceS3Bucket, sourceS3prefix, cb) {
-        if (filelist.length > index) {
-            let params = {
-                Bucket: destS3Bucket,
-                Key: destS3KeyPrefix + '/' + filelist[index],
-                ACL: 'public-read',
-                CopySource: [sourceS3prefix, filelist[index]].join('/')
-            };
-            console.log(JSON.stringify(params));
-            if (filelist[index].endsWith('.htm') || filelist[index].endsWith('.html')) {
-                params.ContentType = "text/html";
-                params.MetadataDirective = "REPLACE";
-            } else if (filelist[index].endsWith('.css')) {
-                params.ContentType = "text/css";
-                params.MetadataDirective = "REPLACE";
-            } else if (filelist[index].endsWith('.js')) {
-                params.ContentType = "application/javascript";
-                params.MetadataDirective = "REPLACE";
-            } else if (filelist[index].endsWith('.png')) {
-                params.ContentType = "image/png";
-                params.MetadataDirective = "REPLACE";
-            } else if (filelist[index].endsWith('.jpg') || filelist[index].endsWith('.jpeg')) {
-                params.ContentType = "image/jpeg";
-                params.MetadataDirective = "REPLACE";
-            } else if (filelist[index].endsWith('.pdf')) {
-                  params.ContentType = "application/pdf";
-                  params.MetadataDirective = "REPLACE";
-            } else if (filelist[index].endsWith('.gif')) {
-                params.ContentType = "image/gif";
-                params.MetadataDirective = "REPLACE";
-            };
-
-            s3.copyObject(params, function(err, data) {
-                if (err) {
-                    console.log(err);
-                    return cb(['error copying ', [sourceS3prefix, filelist[index]].join('/'), '\n', err]
-                        .join(
-                            ''),
-                        null);
-                }
-
-                console.log([
-                    [sourceS3prefix, filelist[index]].join('/'), 'uploaded successfully'
-                ].join(' '));
-                let _next = index + 1;
-                uploadFile(filelist, _next, destS3Bucket, destS3KeyPrefix, sourceS3prefix, function(err, resp) {
-                    if (err) {
-                        return cb(err, null);
-                    }
-
-                    cb(null, resp);
-                });
-            });
-        } else {
-            cb(null, [index, 'files copied'].join(' '));
-        }
-
-    };
-
     /**
      * Helper function to download the website manifest to local storage for processing.
      * @param {string} s3_bucket -  Amazon S3 bucket of the website manifest to download.
@@ -286,43 +181,7 @@ let websiteHelper = (function() {
      * @param {string} downloadLocation - Local storage location to download the Amazon S3 object.
      * @param {downloadManifest~requestCallback} cb - The callback that handles the response.
      */
-    let downloadWebisteManifest = function(s3Bucket, s3Key, downloadLocation, cb) {
-        let params = {
-            Bucket: s3Bucket,
-            Key: s3Key
-        };
 
-        console.log(params);
-
-        // check to see if the manifest file exists
-        s3.headObject(params, function(err, metadata) {
-            if (err) {
-                console.log(err);
-            }
-
-            if (err && err.code === 'NotFound') {
-                // Handle no object on cloud here
-                console.log('file doesnt exist');
-                return cb('Manifest file was not found.', null);
-            } else {
-                console.log(s3Key, ' file exists');
-                console.log(metadata);
-                let file = require('fs').createWriteStream(downloadLocation);
-                console.log(JSON.stringify(params));
-                s3.getObject(params).
-                on('httpData', function(chunk) {
-                    file.write(chunk);
-                }).
-                on('httpDone', function() {
-                    file.end();
-                    console.log('website manifest downloaded for processing...');
-                    return cb(null, 'success');
-                }).
-                send();
-            }
-        });
-    };
-    
     let createAWSCredentials = function(destS3Bucket, destS3KeyPrefix, gatewayAPI, region, instanceId, instanceName, cb) {
         let str = "function initAWS(){ \n";
         str+= " 	AWS.config.region = '" + region  +"'; \n";
