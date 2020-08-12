@@ -127,7 +127,6 @@ let websiteHelper = (function() {
           let params2 = {
               Bucket: destS3Bucket,
               Key: destS3KeyPrefix + '/' + fileDetails,
-              ACL: 'public-read',
               Body: response
           };
             if (filelist[index].endsWith('.htm') || filelist[index].endsWith('.html')) {
@@ -205,7 +204,6 @@ let websiteHelper = (function() {
             Bucket: destS3Bucket,
             Key: destS3KeyPrefix + '/js/aws-credentials.js',
             ContentType : "application/javascript",
-            ACL: 'public-read',
             Body: str
         };
 
