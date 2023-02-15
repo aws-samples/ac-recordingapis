@@ -1,7 +1,2598 @@
-// AWS SDK for JavaScript v2.553.0
+/******/ (() => { // webpackBootstrap
+/******/ 	var __webpack_modules__ = ({
+
+/***/ 821:
+/***/ (() => {
+
+(function () {
+  var global = this || globalThis;
+  var connect = global.connect || {};
+  global.connect = connect;
+  global.lily = connect;
+
+  connect.agentApp = {};
+
+  var APP = {
+    CCP: 'ccp',
+  };
+
+  connect.agentApp.initCCP = connect.core.initCCP;
+  connect.agentApp.isInitialized = function (instanceAlias) {};
+
+  connect.agentApp.initAppCommunication = function (iframeId, endpoint) {
+    var iframe = document.getElementById(iframeId);
+    var iframeConduit = new connect.IFrameConduit(endpoint, window, iframe);
+    var BROADCAST_TYPE = [
+      connect.AgentEvents.UPDATE,
+      connect.ContactEvents.VIEW,
+      connect.EventType.ACKNOWLEDGE,
+      connect.EventType.TERMINATED,
+      connect.TaskEvents.CREATED
+    ];
+    iframe.addEventListener('load', function (e) {
+      BROADCAST_TYPE.forEach(function (type) {
+        connect.core.getUpstream().onUpstream(type, function (data) {
+          iframeConduit.sendUpstream(type, data);
+        });
+      });
+    });
+  };
+
+  var getConnectUrl = function (ccpUrl) {
+    var pos = ccpUrl.indexOf('ccp-v2');
+    return ccpUrl.slice(0, pos - 1);
+  };
+
+  var signOutThroughCCP = function (ccpUrl) {
+    var logoutUrl = getConnectUrl(ccpUrl) + '/logout';
+    return connect.fetch(logoutUrl, {
+      credentials: 'include',
+    }).then(function () {
+      var eventBus = connect.core.getEventBus();
+      eventBus.trigger(connect.EventType.TERMINATE);
+      return true;
+    }).catch(function (e) {
+      connect
+        .getLog()
+        .error('An error occured on logout.' + e)
+        .withException(e);
+      window.location.href = logoutUrl;
+      return false;
+    });
+  };
+
+  var signInThroughinitCCP = function (ccpUrl, container, config) {
+    var defaultParams = {
+      ccpUrl: ccpUrl,
+      ccpLoadTimeout: 10000,
+      loginPopup: true,
+      loginUrl: getConnectUrl(ccpUrl) + '/login',
+      softphone: {
+        allowFramedSoftphone: true,
+        disableRingtone: false,
+      }
+    };
+    var ccpParams = connect.merge(defaultParams, config.ccpParams);
+    connect.core.initCCP(container, ccpParams);
+  };
+
+  connect.agentApp.initApp = function (name, containerId, appUrl, config) {
+    config = config ? config : {};
+    var endpoint = appUrl.endsWith('/') ? appUrl : appUrl + '/';
+    var onLoad = config.onLoad ? config.onLoad : null;
+    var registerConfig = { endpoint: endpoint, style: config.style, onLoad: onLoad };
+    connect.agentApp.AppRegistry.register(name, registerConfig, document.getElementById(containerId));
+    connect.agentApp.AppRegistry.start(name, function (moduleData) {
+      var endpoint = moduleData.endpoint;
+      var containerDOM = moduleData.containerDOM;
+      return {
+        init: function () {
+          if (name === APP.CCP) {
+            config.ccpParams = config.ccpParams ? config.ccpParams : {};
+            if (config.style) config.ccpParams.style = config.style;
+            return signInThroughinitCCP(endpoint, containerDOM, config);
+          }
+          return connect.agentApp.initAppCommunication(name, endpoint);
+        },
+        destroy: function () {
+          if (name === APP.CCP) return signOutThroughCCP(endpoint);
+          return null;
+        }
+      };
+    });
+  };
+
+  connect.agentApp.stopApp = function (name) {
+    return connect.agentApp.AppRegistry.stop(name);
+  };
+})();
+
+
+/***/ }),
+
+/***/ 500:
+/***/ (() => {
+
+(function () {
+  var global = this || globalThis;
+  var connect = global.connect || {};
+  global.connect = connect;
+
+  var APP = {
+    CCP: 'ccp',
+  };
+
+  function AppRegistry() {
+    var moduleData = {};
+    var makeAppIframe = function (appName, endpoint, style, onLoad) {
+      var iframe = document.createElement('iframe');
+      iframe.src = endpoint;
+      iframe.style = style || 'width: 100%; height:100%;';
+      iframe.id = appName;
+      iframe['aria-label'] = appName;
+      iframe.onload = onLoad;
+      iframe.setAttribute(
+        "sandbox",
+        "allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"
+      );
+      // TODO: Update sandbox option for 3P widget
+
+      return iframe;
+    };
+
+    return {
+      register: function (appName, config, containerDOM) {
+        moduleData[appName] = {
+          containerDOM: containerDOM,
+          endpoint: config.endpoint,
+          style: config.style,
+          instance: undefined,
+          onLoad: config.onLoad,
+        };
+      },
+      start: function (appName, creator) {
+        if (!moduleData[appName]) return;
+        var containerDOM = moduleData[appName].containerDOM;
+        var endpoint = moduleData[appName].endpoint;
+        var style = moduleData[appName].style;
+        var onLoad = moduleData[appName].onLoad;
+        if (appName !== APP.CCP) {
+          var app = makeAppIframe(appName, endpoint, style, onLoad);
+          containerDOM.appendChild(app);
+        }
+
+        moduleData[appName].instance = creator(moduleData[appName]);
+        return moduleData[appName].instance.init();
+      },
+      stop: function (appName) {
+        if (!moduleData[appName]) return;
+
+        var data = moduleData[appName];
+        var app = data.containerDOM.querySelector('iframe');
+        data.containerDOM.removeChild(app);
+
+        var result;
+        if (data.instance) {
+          result = data.instance.destroy();
+          delete data.instance;
+        }
+
+        return result;
+      }
+    };
+  }
+
+  global.connect.agentApp.AppRegistry = AppRegistry();
+})();
+
+
+/***/ }),
+
+/***/ 965:
+/***/ (() => {
+
+/*
+ * Copyright 2014-2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+(function () {
+  var global = this || globalThis;
+  var connect = global.connect || {};
+  global.connect = connect;
+  global.lily = connect;
+
+  /*----------------------------------------------------------------
+   * enum AgentStateType
+   */
+  connect.AgentStateType = connect.makeEnum([
+    'init',
+    'routable',
+    'not_routable',
+    'offline'
+  ]);
+  connect.AgentStatusType = connect.AgentStateType;
+
+  /**
+   * enum AgentAvailStates
+   */
+  connect.AgentAvailStates = connect.makeEnum([
+    'Init',
+    'Busy',
+    'AfterCallWork',
+    'CallingCustomer',
+    'Dialing',
+    'Joining',
+    'PendingAvailable',
+    'PendingBusy'
+  ]);
+
+  /**
+   * enum AgentErrorStates
+   */
+  connect.AgentErrorStates = connect.makeEnum([
+    'Error',
+    'AgentHungUp',
+    'BadAddressAgent',
+    'BadAddressCustomer',
+    'Default',
+    'FailedConnectAgent',
+    'FailedConnectCustomer',
+    'InvalidLocale',
+    'LineEngagedAgent',
+    'LineEngagedCustomer',
+    'MissedCallAgent',
+    'MissedCallCustomer',
+    'MultipleCcpWindows',
+    'RealtimeCommunicationError'
+  ]);
+
+  /*----------------------------------------------------------------
+   * enum AddressType
+   */
+  connect.EndpointType = connect.makeEnum([
+    'phone_number',
+    'agent',
+    'queue'
+  ]);
+  connect.AddressType = connect.EndpointType;
+
+  /*----------------------------------------------------------------
+   * enum ConnectionType
+   */
+  connect.ConnectionType = connect.makeEnum([
+    'agent',
+    'inbound',
+    'outbound',
+    'monitoring'
+  ]);
+
+  /*----------------------------------------------------------------
+   * enum ConnectionStateType
+   */
+  connect.ConnectionStateType = connect.makeEnum([
+    'init',
+    'connecting',
+    'connected',
+    'hold',
+    'disconnected',
+    'silent_monitor',
+    'barge'
+  ]);
+  connect.ConnectionStatusType = connect.ConnectionStateType;
+
+  connect.CONNECTION_ACTIVE_STATES = connect.set([
+    connect.ConnectionStateType.CONNECTING,
+    connect.ConnectionStateType.CONNECTED,
+    connect.ConnectionStateType.HOLD,
+    connect.ConnectionStateType.SILENT_MONITOR,
+    connect.ConnectionStateType.BARGE
+  ]);
+
+  connect.CONNECTION_CONNECTED_STATES = connect.set([
+    connect.ConnectionStateType.CONNECTED,
+    connect.ConnectionStateType.SILENT_MONITOR,
+    connect.ConnectionStateType.BARGE
+  ]);
+
+  /*----------------------------------------------------------------
+   * enum ContactStateType
+   */
+  connect.ContactStateType = connect.makeEnum([
+    'init',
+    'incoming',
+    'pending',
+    'connecting',
+    'connected',
+    'missed',
+    'error',
+    'ended'
+  ]);
+  connect.ContactStatusType = connect.ContactStateType;
+
+  connect.CONTACT_ACTIVE_STATES = connect.makeEnum([
+    'incoming',
+    'pending',
+    'connecting',
+    'connected'
+  ]);
+
+  /*----------------------------------------------------------------
+   * enum ContactType
+   */
+  connect.ContactType = connect.makeEnum([
+    'voice',
+    'queue_callback',
+    'chat',
+    'task'
+  ]);
+
+  /*----------------------------------------------------------------
+   * enum ContactInitiationMethod
+   */
+  connect.ContactInitiationMethod = connect.makeEnum([
+    'inbound',
+    'outbound',
+    'transfer',
+    'queue_transfer',
+    'callback',
+    'api',
+    'disconnect'
+  ]);
+
+  /*----------------------------------------------------------------
+   * enum for MonitoringMode
+   */
+  connect.MonitoringMode = connect.makeEnum([
+    'SILENT_MONITOR',
+    'BARGE'
+  ]);
+
+  /*----------------------------------------------------------------
+   * enum for MonitoringErrorTypes
+   */
+  connect.MonitoringErrorTypes = connect.makeEnum([
+    'invalid_target_state'
+  ]);
+
+  /*----------------------------------------------------------------
+  * enum ChannelType
+  */
+  connect.ChannelType = connect.makeEnum([
+    'VOICE',
+    'CHAT',
+    'TASK'
+  ]);
+
+  /*----------------------------------------------------------------
+  * enum MediaType
+  */
+  connect.MediaType = connect.makeEnum([
+    'softphone',
+    'chat',
+    'task'
+  ]);
+
+  /*----------------------------------------------------------------
+   * enum SoftphoneCallType
+   */
+  connect.SoftphoneCallType = connect.makeEnum([
+    'audio_video',
+    'video_only',
+    'audio_only',
+    'none'
+  ]);
+
+  /*----------------------------------------------------------------
+   * enum for SoftphoneErrorTypes
+   */
+  connect.SoftphoneErrorTypes = connect.makeEnum([
+    'unsupported_browser',
+    'microphone_not_shared',
+    'signalling_handshake_failure',
+    'signalling_connection_failure',
+    'ice_collection_timeout',
+    'user_busy_error',
+    'webrtc_error',
+    'realtime_communication_error',
+    'other'
+  ]);
+
+  /*----------------------------------------------------------------
+   * enum for ClickType
+   */
+  connect.ClickType = connect.makeEnum([
+    'Accept',
+    'Reject',
+    'Hangup'
+  ]);
+
+  /*----------------------------------------------------------------
+   * enum for VoiceIdErrorTypes
+   */
+  connect.VoiceIdErrorTypes = connect.makeEnum([
+    'no_speaker_id_found',
+    'speaker_id_not_enrolled',
+    'get_speaker_id_failed',
+    'get_speaker_status_failed',
+    'opt_out_speaker_failed',
+    'opt_out_speaker_in_lcms_failed',
+    'delete_speaker_failed',
+    'start_session_failed',
+    'evaluate_speaker_failed',
+    'session_not_exists',
+    'describe_session_failed',
+    'enroll_speaker_failed',
+    'update_speaker_id_failed',
+    'update_speaker_id_in_lcms_failed',
+    'not_supported_on_conference_calls',
+    'enroll_speaker_timeout',
+    'evaluate_speaker_timeout',
+    'get_domain_id_failed',
+    'no_domain_id_found'
+  ]);
+
+  /*----------------------------------------------------------------
+   * enum for CTI exceptions
+   */
+  connect.CTIExceptions = connect.makeEnum([
+    "AccessDeniedException",
+    "InvalidStateException",
+    "BadEndpointException",
+    "InvalidAgentARNException",
+    "InvalidConfigurationException",
+    "InvalidContactTypeException",
+    "PaginationException",
+    "RefreshTokenExpiredException",
+    "SendDataFailedException",
+    "UnauthorizedException",
+    "QuotaExceededException"
+  ]);
+  /*----------------------------------------------------------------
+   * enum for VoiceId streaming status
+   */
+  connect.VoiceIdStreamingStatus = connect.makeEnum([
+    "ONGOING",
+    "ENDED",
+    "PENDING_CONFIGURATION"
+  ]);
+
+  /*----------------------------------------------------------------
+   * enum for VoiceId authentication decision
+   */
+  connect.VoiceIdAuthenticationDecision = connect.makeEnum([
+    "ACCEPT",
+    "REJECT",
+    "NOT_ENOUGH_SPEECH",
+    "SPEAKER_NOT_ENROLLED",
+    "SPEAKER_OPTED_OUT",
+    "SPEAKER_ID_NOT_PROVIDED",
+    "SPEAKER_EXPIRED"
+  ]);
+
+  /*----------------------------------------------------------------
+   * enum for VoiceId fraud detection decision
+   */
+  connect.VoiceIdFraudDetectionDecision = connect.makeEnum([
+    "NOT_ENOUGH_SPEECH",
+    "HIGH_RISK",
+    "LOW_RISK"
+  ]);
+
+  /*----------------------------------------------------------------
+   * enum for contact flow authentication decision
+   */
+  connect.ContactFlowAuthenticationDecision = connect.makeEnum([
+    "Authenticated",
+    "NotAuthenticated",
+    "Inconclusive",
+    "NotEnrolled",
+    "OptedOut",
+    "NotEnabled",
+    "Error"
+  ]);
+
+  /*----------------------------------------------------------------
+   * enum for contact flow  fraud detection decision
+   */
+  connect.ContactFlowFraudDetectionDecision = connect.makeEnum([
+    "HighRisk",
+    "LowRisk",
+    "Inconclusive",
+    "NotEnabled",
+    "Error"
+  ]);
+
+  /*----------------------------------------------------------------
+   * enum for VoiceId EnrollmentRequest Status
+   */
+  connect.VoiceIdEnrollmentRequestStatus = connect.makeEnum([
+    "NOT_ENOUGH_SPEECH",
+    "IN_PROGRESS",
+    "COMPLETED",
+    "FAILED"
+  ]);
+
+  /*----------------------------------------------------------------
+   * enum for VoiceId Speaker status
+   */
+  connect.VoiceIdSpeakerStatus = connect.makeEnum([
+    "OPTED_OUT",
+    "ENROLLED",
+    "PENDING"
+  ]);
+
+  connect.VoiceIdConstants = {
+    EVALUATE_SESSION_DELAY: 10000,
+    EVALUATION_MAX_POLL_TIMES: 24, // EvaluateSpeaker is Polling for maximum 2 mins.
+    EVALUATION_POLLING_INTERVAL: 5000,
+    ENROLLMENT_MAX_POLL_TIMES: 120, // EnrollmentSpeaker is Polling for maximum 10 mins.
+    ENROLLMENT_POLLING_INTERVAL: 5000,
+    START_SESSION_DELAY: 8000
+  }
+
+  /*----------------------------------------------------------------
+   * constants for AgentPermissions
+   */
+  connect.AgentPermissions = {
+    OUTBOUND_CALL: 'outboundCall',
+    VOICE_ID: 'voiceId'
+  };
+
+  /*----------------------------------------------------------------
+   * class Agent
+   */
+  var Agent = function () {
+    if (!connect.agent.initialized) {
+      throw new connect.StateError("The agent is not yet initialized!");
+    }
+  };
+
+  Agent.prototype._getData = function () {
+    return connect.core.getAgentDataProvider().getAgentData();
+  };
+
+  Agent.prototype._createContactAPI = function (contactData) {
+    return new connect.Contact(contactData.contactId);
+  };
+
+  Agent.prototype.onRefresh = function (f) {
+    var bus = connect.core.getEventBus();
+    bus.subscribe(connect.AgentEvents.REFRESH, f);
+  };
+
+  Agent.prototype.onRoutable = function (f) {
+    var bus = connect.core.getEventBus();
+    bus.subscribe(connect.AgentEvents.ROUTABLE, f);
+  };
+
+  Agent.prototype.onNotRoutable = function (f) {
+    var bus = connect.core.getEventBus();
+    bus.subscribe(connect.AgentEvents.NOT_ROUTABLE, f);
+  };
+
+  Agent.prototype.onOffline = function (f) {
+    var bus = connect.core.getEventBus();
+    bus.subscribe(connect.AgentEvents.OFFLINE, f);
+  };
+
+  Agent.prototype.onError = function (f) {
+    var bus = connect.core.getEventBus();
+    bus.subscribe(connect.AgentEvents.ERROR, f);
+  };
+
+  Agent.prototype.onSoftphoneError = function (f) {
+    var bus = connect.core.getEventBus();
+    bus.subscribe(connect.AgentEvents.SOFTPHONE_ERROR, f);
+  };
+
+  Agent.prototype.onWebSocketConnectionLost = function (f) {
+    var bus = connect.core.getEventBus();
+    bus.subscribe(connect.AgentEvents.WEBSOCKET_CONNECTION_LOST, f);
+  }
+
+  Agent.prototype.onWebSocketConnectionGained = function (f) {
+    var bus = connect.core.getEventBus();
+    bus.subscribe(connect.AgentEvents.WEBSOCKET_CONNECTION_GAINED, f);
+  }
+
+  Agent.prototype.onAfterCallWork = function (f) {
+    var bus = connect.core.getEventBus();
+    bus.subscribe(connect.AgentEvents.ACW, f);
+  };
+
+  Agent.prototype.onStateChange = function (f) {
+    var bus = connect.core.getEventBus();
+    bus.subscribe(connect.AgentEvents.STATE_CHANGE, f);
+  };
+
+  Agent.prototype.onMuteToggle = function (f) {
+    connect.core.getUpstream().onUpstream(connect.AgentEvents.MUTE_TOGGLE, f);
+  };
+
+  Agent.prototype.onLocalMediaStreamCreated = function (f) {
+    connect.core.getUpstream().onUpstream(connect.AgentEvents.LOCAL_MEDIA_STREAM_CREATED, f);
+  };
+
+  Agent.prototype.onSpeakerDeviceChanged = function(f){
+    connect.core.getUpstream().onUpstream(connect.ConfigurationEvents.SPEAKER_DEVICE_CHANGED, f);
+  }
+
+  Agent.prototype.onMicrophoneDeviceChanged = function(f){
+    connect.core.getUpstream().onUpstream(connect.ConfigurationEvents.MICROPHONE_DEVICE_CHANGED, f);
+  }
+
+  Agent.prototype.onRingerDeviceChanged = function(f){
+    connect.core.getUpstream().onUpstream(connect.ConfigurationEvents.RINGER_DEVICE_CHANGED, f);
+  }
+
+  Agent.prototype.mute = function () {
+    connect.core.getUpstream().sendUpstream(connect.EventType.BROADCAST,
+      {
+        event: connect.EventType.MUTE,
+        data: { mute: true }
+      });
+  };
+
+  Agent.prototype.unmute = function () {
+    connect.core.getUpstream().sendUpstream(connect.EventType.BROADCAST,
+      {
+        event: connect.EventType.MUTE,
+        data: { mute: false }
+      });
+  };
+
+  Agent.prototype.setSpeakerDevice = function (deviceId) {
+    connect.core.getUpstream().sendUpstream(connect.EventType.BROADCAST, {
+      event: connect.ConfigurationEvents.SET_SPEAKER_DEVICE,
+      data: { deviceId: deviceId }
+    });
+  };
+
+  Agent.prototype.setMicrophoneDevice = function (deviceId) {
+    connect.core.getUpstream().sendUpstream(connect.EventType.BROADCAST, {
+      event: connect.ConfigurationEvents.SET_MICROPHONE_DEVICE,
+      data: { deviceId: deviceId }
+    });
+  };
+
+  Agent.prototype.setRingerDevice = function (deviceId) {
+    connect.core.getUpstream().sendUpstream(connect.EventType.BROADCAST, {
+      event: connect.ConfigurationEvents.SET_RINGER_DEVICE,
+      data: { deviceId: deviceId }
+    });
+  };
+
+  Agent.prototype.getState = function () {
+    return this._getData().snapshot.state;
+  };
+
+  Agent.prototype.getNextState = function () {
+    return this._getData().snapshot.nextState;
+  };
+
+  Agent.prototype.getAvailabilityState = function () {
+    return this._getData().snapshot.agentAvailabilityState;
+  };
+
+  Agent.prototype.getStatus = Agent.prototype.getState;
+
+  Agent.prototype.getStateDuration = function () {
+    return connect.now() - this._getData().snapshot.state.startTimestamp.getTime() + connect.core.getSkew();
+  };
+
+  Agent.prototype.getStatusDuration = Agent.prototype.getStateDuration;
+
+  Agent.prototype.getPermissions = function () {
+    return this.getConfiguration().permissions;
+  };
+
+  Agent.prototype.getContacts = function (contactTypeFilter) {
+    var self = this;
+    return this._getData().snapshot.contacts.map(function (contactData) {
+      return self._createContactAPI(contactData);
+    }).filter(function (contact) {
+      return (!contactTypeFilter) || contact.getType() === contactTypeFilter;
+    });
+  };
+
+  Agent.prototype.getConfiguration = function () {
+    return this._getData().configuration;
+  };
+
+  Agent.prototype.getAgentStates = function () {
+    return this.getConfiguration().agentStates;
+  };
+
+  Agent.prototype.getRoutingProfile = function () {
+    return this.getConfiguration().routingProfile;
+  };
+
+  Agent.prototype.getChannelConcurrency = function (channel) {
+    var channelConcurrencyMap = this.getRoutingProfile().channelConcurrencyMap;
+    if (!channelConcurrencyMap) {
+      channelConcurrencyMap = Object.keys(connect.ChannelType).reduce(function (acc, key) {
+        // Exclude TASK from default concurrency.
+        if (key !== 'TASK') {
+          acc[connect.ChannelType[key]] = 1;
+        }
+        return acc;
+      }, {});
+    }
+    return channel
+      ? (channelConcurrencyMap[channel] || 0)
+      : channelConcurrencyMap;
+  };
+
+  Agent.prototype.getName = function () {
+    return this.getConfiguration().name;
+  };
+
+  Agent.prototype.getExtension = function () {
+    return this.getConfiguration().extension;
+  };
+
+  Agent.prototype.getDialableCountries = function () {
+    return this.getConfiguration().dialableCountries;
+  };
+
+  Agent.prototype.isSoftphoneEnabled = function () {
+    return this.getConfiguration().softphoneEnabled;
+  };
+
+  Agent.prototype.setConfiguration = function (configuration, callbacks) {
+    var client = connect.core.getClient();
+    if (configuration && configuration.agentPreferences && configuration.agentPreferences.LANGUAGE && !configuration.agentPreferences.locale) {
+      // workaround for the inconsistency issue that getAgentConfiguration returns agentPreferences.LANGUAGE but updateAgentConfiguration expects agentPreferences.locale to be set.
+      configuration.agentPreferences.locale = configuration.agentPreferences.LANGUAGE;
+    }
+
+    if (configuration && configuration.agentPreferences && !connect.isValidLocale(configuration.agentPreferences.locale)) {
+      if (callbacks && callbacks.failure) {
+        callbacks.failure(connect.AgentErrorStates.INVALID_LOCALE);
+      }
+    } else {
+      client.call(connect.ClientMethods.UPDATE_AGENT_CONFIGURATION, {
+        configuration: connect.assertNotNull(configuration, 'configuration')
+      }, {
+          success: function (data) {
+            // We need to ask the shared worker to reload agent config
+            // once we change it so every tab has accurate config.
+            var conduit = connect.core.getUpstream();
+            conduit.sendUpstream(connect.EventType.RELOAD_AGENT_CONFIGURATION);
+
+            if (callbacks.success) {
+              callbacks.success(data);
+            }
+          },
+          failure: callbacks && callbacks.failure
+      });
+    }
+  };
+
+  Agent.prototype.setState = function (state, callbacks, options) {
+    var client = connect.core.getClient();
+    client.call(connect.ClientMethods.PUT_AGENT_STATE, {
+      state: connect.assertNotNull(state, 'state'),
+      enqueueNextState: options && !!options.enqueueNextState
+    }, callbacks);
+  };
+  Agent.prototype.onEnqueuedNextState = function (f) {
+    var bus = connect.core.getEventBus();
+    bus.subscribe(connect.AgentEvents.ENQUEUED_NEXT_STATE, f);
+  };
+
+  Agent.prototype.setStatus = Agent.prototype.setState;
+
+  Agent.prototype.connect = function (endpointIn, params) {
+    var client = connect.core.getClient();
+    var endpoint = new connect.Endpoint(endpointIn);
+    // Have to remove the endpointId field or AWS JS SDK gets mad.
+    delete endpoint.endpointId;
+
+    client.call(connect.ClientMethods.CREATE_OUTBOUND_CONTACT, {
+      endpoint: connect.assertNotNull(endpoint, 'endpoint'),
+      queueARN: (params && (params.queueARN || params.queueId)) || this.getRoutingProfile().defaultOutboundQueue.queueARN
+    }, params && {
+        success: params.success,
+        failure: params.failure
+      });
+  };
+
+  Agent.prototype.getAllQueueARNs = function () {
+    return this.getConfiguration().routingProfile.queues.map(function (queue) {
+      return queue.queueARN;
+    });
+  };
+
+  Agent.prototype.getEndpoints = function (queueARNs, callbacks, pageInfoIn) {
+    var self = this;
+    var client = connect.core.getClient();
+    connect.assertNotNull(callbacks, "callbacks");
+    connect.assertNotNull(callbacks.success, "callbacks.success");
+    var pageInfo = pageInfoIn || { };
+
+    pageInfo.endpoints = pageInfo.endpoints || [];
+    pageInfo.maxResults = pageInfo.maxResults || connect.DEFAULT_BATCH_SIZE;
+
+    // Backwards compatibility allowing a single queueARN to be specified
+    // instead of an array.
+    if (!connect.isArray(queueARNs)) {
+      queueARNs = [queueARNs];
+    }
+
+    client.call(connect.ClientMethods.GET_ENDPOINTS, {
+      queueARNs: queueARNs,
+      nextToken: pageInfo.nextToken || null,
+      maxResults: pageInfo.maxResults
+    }, {
+        success: function (data) {
+          if (data.nextToken) {
+            self.getEndpoints(queueARNs, callbacks, {
+              nextToken: data.nextToken,
+              maxResults: pageInfo.maxResults,
+              endpoints: pageInfo.endpoints.concat(data.endpoints)
+            });
+          } else {
+            pageInfo.endpoints = pageInfo.endpoints.concat(data.endpoints);
+            var endpoints = pageInfo.endpoints.map(function (endpoint) {
+              return new connect.Endpoint(endpoint);
+            });
+
+            callbacks.success({
+              endpoints: endpoints,
+              addresses: endpoints
+            });
+          }
+        },
+        failure: callbacks.failure
+      });
+  };
+
+  Agent.prototype.getAddresses = Agent.prototype.getEndpoints;
+
+  //Internal identifier.
+  Agent.prototype._getResourceId = function() {
+    var queueArns = this.getAllQueueARNs();
+    for (let queueArn of queueArns) {
+      const agentIdMatch = queueArn.match(/\/agent\/([^/]+)/);
+
+      if (agentIdMatch) {
+        return agentIdMatch[1];
+      }
+    }
+    return new Error("Agent.prototype._getResourceId: queueArns did not contain agentResourceId: ", queueArns);
+  }
+
+  Agent.prototype.toSnapshot = function () {
+    return new connect.AgentSnapshot(this._getData());
+  };
+
+  /*----------------------------------------------------------------
+   * class AgentSnapshot
+   */
+  var AgentSnapshot = function (agentData) {
+    connect.Agent.call(this);
+    this.agentData = agentData;
+  };
+  AgentSnapshot.prototype = Object.create(Agent.prototype);
+  AgentSnapshot.prototype.constructor = AgentSnapshot;
+
+  AgentSnapshot.prototype._getData = function () {
+    return this.agentData;
+  };
+
+  AgentSnapshot.prototype._createContactAPI = function (contactData) {
+    return new connect.ContactSnapshot(contactData);
+  };
+
+  /*----------------------------------------------------------------
+   * class Contact
+   */
+  var Contact = function (contactId) {
+    this.contactId = contactId;
+  };
+
+  Contact.prototype._getData = function () {
+    return connect.core.getAgentDataProvider().getContactData(this.getContactId());
+  };
+
+  Contact.prototype._createConnectionAPI = function (connectionData) {
+    if (this.getType() === connect.ContactType.CHAT) {
+      return new connect.ChatConnection(this.contactId, connectionData.connectionId);
+    } else if (this.getType() === connect.ContactType.TASK) {
+      return new connect.TaskConnection(this.contactId, connectionData.connectionId);
+    } else {
+      return new connect.VoiceConnection(this.contactId, connectionData.connectionId);
+    }
+  };
+
+  Contact.prototype.getEventName = function (eventName) {
+    return connect.core.getContactEventName(eventName, this.getContactId());
+  };
+
+  Contact.prototype.onRefresh = function (f) {
+    var bus = connect.core.getEventBus();
+    bus.subscribe(this.getEventName(connect.ContactEvents.REFRESH), f);
+  };
+
+  Contact.prototype.onIncoming = function (f) {
+    var bus = connect.core.getEventBus();
+    bus.subscribe(this.getEventName(connect.ContactEvents.INCOMING), f);
+  };
+
+  Contact.prototype.onConnecting = function (f) {
+    var bus = connect.core.getEventBus();
+    bus.subscribe(this.getEventName(connect.ContactEvents.CONNECTING), f);
+  };
+
+  Contact.prototype.onPending = function (f) {
+    var bus = connect.core.getEventBus();
+    bus.subscribe(this.getEventName(connect.ContactEvents.PENDING), f);
+  };
+
+  Contact.prototype.onAccepted = function (f) {
+    var bus = connect.core.getEventBus();
+    bus.subscribe(this.getEventName(connect.ContactEvents.ACCEPTED), f);
+  };
+
+  Contact.prototype.onMissed = function (f) {
+    var bus = connect.core.getEventBus();
+    bus.subscribe(this.getEventName(connect.ContactEvents.MISSED), f);
+  };
+
+  Contact.prototype.onEnded = function (f) {
+    var bus = connect.core.getEventBus();
+    bus.subscribe(this.getEventName(connect.ContactEvents.ENDED), f);
+    bus.subscribe(this.getEventName(connect.ContactEvents.DESTROYED), f);
+  };
+
+  Contact.prototype.onDestroy = function (f) {
+    var bus = connect.core.getEventBus();
+    bus.subscribe(this.getEventName(connect.ContactEvents.DESTROYED), f);
+  };
+
+  Contact.prototype.onACW = function (f) {
+    var bus = connect.core.getEventBus();
+    bus.subscribe(this.getEventName(connect.ContactEvents.ACW), f);
+  };
+
+  Contact.prototype.onConnected = function (f) {
+    var bus = connect.core.getEventBus();
+    bus.subscribe(this.getEventName(connect.ContactEvents.CONNECTED), f);
+  };
+
+  Contact.prototype.onError = function (f) {
+    var bus = connect.core.getEventBus();
+    bus.subscribe(this.getEventName(connect.ContactEvents.ERROR), f);
+  }
+
+  Contact.prototype.getContactId = function () {
+    return this.contactId;
+  };
+
+  Contact.prototype.getOriginalContactId = function () {
+    return this._getData().initialContactId;
+  };
+  Contact.prototype.getInitialContactId = Contact.prototype.getOriginalContactId;
+
+  Contact.prototype.getType = function () {
+    return this._getData().type;
+  };
+
+  Contact.prototype.getContactDuration = function() {
+    return this._getData().contactDuration;
+  }
+
+  Contact.prototype.getState = function () {
+    return this._getData().state;
+  };
+
+  Contact.prototype.getStatus = Contact.prototype.getState;
+
+  Contact.prototype.getStateDuration = function () {
+    return connect.now() - this._getData().state.timestamp.getTime() + connect.core.getSkew();
+  };
+
+  Contact.prototype.getStatusDuration = Contact.prototype.getStateDuration;
+
+  Contact.prototype.getQueue = function () {
+    return this._getData().queue;
+  };
+
+  Contact.prototype.getQueueTimestamp = function () {
+    return this._getData().queueTimestamp;
+  };
+
+  Contact.prototype.getConnections = function () {
+    var self = this;
+    return this._getData().connections.map(function (connData) {
+      if (self.getType() === connect.ContactType.CHAT) {
+        return new connect.ChatConnection(self.contactId, connData.connectionId);
+      } else if (self.getType() === connect.ContactType.TASK) {
+        return new connect.TaskConnection(self.contactId, connData.connectionId);
+      } else {
+        return new connect.VoiceConnection(self.contactId, connData.connectionId);
+      }
+    });
+  };
+
+  Contact.prototype.getInitialConnection = function () {
+    return connect.find(this.getConnections(), function (conn) {
+      return conn.isInitialConnection();
+    }) || null;
+  };
+
+  Contact.prototype.getActiveInitialConnection = function () {
+    var initialConn = this.getInitialConnection();
+    if (initialConn != null && initialConn.isActive()) {
+      return initialConn;
+    } else {
+      return null;
+    }
+  };
+
+  Contact.prototype.getThirdPartyConnections = function () {
+    return this.getConnections().filter(function (conn) {
+      return !conn.isInitialConnection() && conn.getType() !== connect.ConnectionType.AGENT;
+    });
+  };
+
+  Contact.prototype.getSingleActiveThirdPartyConnection = function () {
+    return this.getThirdPartyConnections().filter(function (conn) {
+      return conn.isActive();
+    })[0] || null;
+  };
+
+  Contact.prototype.getAgentConnection = function () {
+    return connect.find(this.getConnections(), function (conn) {
+      var connType = conn.getType();
+      return connType === connect.ConnectionType.AGENT || connType === connect.ConnectionType.MONITORING;
+    });
+  };
+
+  Contact.prototype.getName = function () {
+    return this._getData().name;
+  };
+
+  Contact.prototype.getContactMetadata = function () {
+    return this._getData().contactMetadata;
+  }
+
+  Contact.prototype.getDescription = function () {
+    return this._getData().description;
+  };
+
+  Contact.prototype.getReferences = function () {
+    return this._getData().references;
+  };
+
+  Contact.prototype.getAttributes = function () {
+    return this._getData().attributes;
+  };
+
+  Contact.prototype.getContactFeatures = function () {
+    return this._getData().contactFeatures;
+  };
+
+  Contact.prototype.getChannelContext = function () {
+    return this._getData().channelContext;
+  };
+
+  Contact.prototype.isSoftphoneCall = function () {
+    return connect.find(this.getConnections(), function (conn) {
+      return conn.getSoftphoneMediaInfo() != null;
+    }) != null;
+  };
+
+  Contact.prototype._isInbound = function () {
+    var initiationMethod = this._getData().initiationMethod;
+    return (initiationMethod === connect.ContactInitiationMethod.OUTBOUND) ? false : true;
+  }
+
+  Contact.prototype.isInbound = function () {
+    var conn = this.getInitialConnection();
+
+    // We will gradually change checking inbound by relying on contact initiationMethod
+    if (conn.getMediaType() === connect.MediaType.TASK) {
+      return this._isInbound();
+    }
+
+    return conn ? conn.getType() === connect.ConnectionType.INBOUND : false;
+  };
+
+  Contact.prototype.isConnected = function () {
+    return this.getStatus().type === connect.ContactStateType.CONNECTED;
+  };
+
+  Contact.prototype.accept = function (callbacks) {
+    var client = connect.core.getClient();
+    var self = this;
+    var contactId = this.getContactId();
+
+    connect.publishClickStreamData({
+      contactId: this.getContactId(),
+      clickType: connect.ClickType.ACCEPT,
+      clickTime: new Date().toISOString()
+    });
+
+    client.call(connect.ClientMethods.ACCEPT_CONTACT, {
+      contactId: contactId
+    }, {
+        success: function (data) {
+          var conduit = connect.core.getUpstream();
+          conduit.sendUpstream(connect.EventType.BROADCAST, {
+            event: connect.ContactEvents.ACCEPTED,
+            data: new connect.Contact(contactId)
+          });
+          conduit.sendUpstream(connect.EventType.BROADCAST, {
+            event: connect.core.getContactEventName(connect.ContactEvents.ACCEPTED, self.getContactId()),
+            data: new connect.Contact(contactId)
+          });
+
+          // In Firefox, there's a browser restriction that an unfocused browser tab is not allowed to access the user's microphone.
+          // The problem is that the restriction could cause a webrtc session creation timeout error when you get an incoming call while you are not on the primary tab.
+          // It was hard to workaround the issue especially when you have multiple tabs open because you needed to find the right tab and accept the contact before the timeout.
+          // To avoid the error, when multiple tabs are open in Firefox, a webrtc session is not immediately created as an incoming softphone contact is detected.
+          // Instead, it waits until contact.accept() is called on a tab and lets the tab become the new primary tab and start the web rtc session there
+          // because the tab should be focused at the moment and have access to the user's microphone.
+          var contact = new connect.Contact(contactId);
+          if (connect.isFirefoxBrowser() && contact.isSoftphoneCall()) {
+            connect.core.triggerReadyToStartSessionEvent();
+          }
+
+          if (callbacks && callbacks.success) {
+            callbacks.success(data);
+          }
+        },
+        failure: callbacks ? callbacks.failure : null
+      });
+  };
+
+  Contact.prototype.destroy = function () {
+    connect.getLog().warn("contact.destroy() has been deprecated.");
+  };
+
+  Contact.prototype.reject = function (callbacks) {
+    var client = connect.core.getClient();
+
+    connect.publishClickStreamData({
+      contactId: this.getContactId(),
+      clickType: connect.ClickType.REJECT,
+      clickTime: new Date().toISOString()
+    });
+
+    client.call(connect.ClientMethods.REJECT_CONTACT, {
+      contactId: this.getContactId()
+    }, callbacks);
+  };
+
+  Contact.prototype.complete = function (callbacks) {
+    var client = connect.core.getClient();
+    client.call(connect.ClientMethods.COMPLETE_CONTACT, {
+      contactId: this.getContactId()
+    }, callbacks);
+  };
+
+  Contact.prototype.clear = function (callbacks) {
+    var client = connect.core.getClient();
+    client.call(connect.ClientMethods.CLEAR_CONTACT, {
+      contactId: this.getContactId()
+    }, callbacks);
+  };
+
+  Contact.prototype.notifyIssue = function (issueCode, description, callbacks) {
+    var client = connect.core.getClient();
+    client.call(connect.ClientMethods.NOTIFY_CONTACT_ISSUE, {
+      contactId: this.getContactId(),
+      issueCode: issueCode,
+      description: description
+    }, callbacks);
+  };
+
+  Contact.prototype.addConnection = function (endpointIn, callbacks) {
+    var client = connect.core.getClient();
+    var endpoint = new connect.Endpoint(endpointIn);
+    // Have to remove the endpointId field or AWS JS SDK gets mad.
+    delete endpoint.endpointId;
+
+    client.call(connect.ClientMethods.CREATE_ADDITIONAL_CONNECTION, {
+      contactId: this.getContactId(),
+      endpoint: endpoint
+    }, callbacks);
+  };
+
+  Contact.prototype.toggleActiveConnections = function (callbacks) {
+    var client = connect.core.getClient();
+    var connectionId = null;
+    var holdingConn = connect.find(this.getConnections(), function (conn) {
+      return conn.getStatus().type === connect.ConnectionStateType.HOLD;
+    });
+
+    if (holdingConn != null) {
+      connectionId = holdingConn.getConnectionId();
+
+    } else {
+      var activeConns = this.getConnections().filter(function (conn) {
+        return conn.isActive();
+      });
+      if (activeConns.length > 0) {
+        connectionId = activeConns[0].getConnectionId();
+      }
+    }
+
+    client.call(connect.ClientMethods.TOGGLE_ACTIVE_CONNECTIONS, {
+      contactId: this.getContactId(),
+      connectionId: connectionId
+    }, callbacks);
+  };
+
+  Contact.prototype.sendSoftphoneMetrics = function (softphoneStreamStatistics, callbacks) {
+    var client = connect.core.getClient();
+
+    client.call(connect.ClientMethods.SEND_SOFTPHONE_CALL_METRICS, {
+      contactId: this.getContactId(),
+      ccpVersion: global.ccpVersion,
+      softphoneStreamStatistics: softphoneStreamStatistics
+    }, callbacks);
+
+    connect.publishSoftphoneStats({
+      contactId: this.getContactId(),
+      ccpVersion: global.ccpVersion,
+      stats: softphoneStreamStatistics
+    });
+  };
+
+  Contact.prototype.sendSoftphoneReport = function (report, callbacks) {
+    var client = connect.core.getClient();
+    client.call(connect.ClientMethods.SEND_SOFTPHONE_CALL_REPORT, {
+      contactId: this.getContactId(),
+      ccpVersion: global.ccpVersion,
+      report: report
+    }, callbacks);
+
+    connect.publishSoftphoneReport({
+      contactId: this.getContactId(),
+      ccpVersion: global.ccpVersion,
+      report: report
+    });
+  };
+
+  Contact.prototype.conferenceConnections = function (callbacks) {
+    var client = connect.core.getClient();
+    client.call(connect.ClientMethods.CONFERENCE_CONNECTIONS, {
+      contactId: this.getContactId()
+    }, callbacks);
+  };
+
+  Contact.prototype.toSnapshot = function () {
+    return new connect.ContactSnapshot(this._getData());
+  };
+
+  Contact.prototype.isMultiPartyConferenceEnabled = function () {
+    var contactFeatures = this.getContactFeatures();
+    return !!(contactFeatures && contactFeatures.multiPartyConferenceEnabled);
+  }
+
+  Contact.prototype.updateMonitorParticipantState = function (targetState, callbacks) {
+    if(!targetState || !Object.values(connect.MonitoringMode).includes(targetState.toUpperCase())) {
+      connect.getLog().error(`Invalid target state was provided: ${targetState}`).sendInternalLogToServer();
+      if (callbacks && callbacks.failure) {
+        callbacks.failure(connect.MonitoringErrorTypes.INVALID_TARGET_STATE);
+      }
+    } else {
+      var client = connect.core.getClient();
+      client.call(connect.ClientMethods.UPDATE_MONITOR_PARTICIPANT_STATE, {
+        contactId: this.getContactId(),
+        targetMonitorMode: targetState.toUpperCase()
+      }, callbacks);
+    }
+  }
+
+  Contact.prototype.isUnderSupervision = function () {
+    var nonAgentConnections = this.getConnections().filter((conn) => conn.getType() !== connect.ConnectionType.AGENT);
+    var supervisorConnection = nonAgentConnections && nonAgentConnections.find(conn => conn.isBarge() && conn.isActive());
+    return supervisorConnection !== undefined;
+  }
+
+  /*----------------------------------------------------------------
+   * class ContactSnapshot
+   */
+  var ContactSnapshot = function (contactData) {
+    connect.Contact.call(this, contactData.contactId);
+    this.contactData = contactData;
+  };
+  ContactSnapshot.prototype = Object.create(Contact.prototype);
+  ContactSnapshot.prototype.constructor = ContactSnapshot;
+
+  ContactSnapshot.prototype._getData = function () {
+    return this.contactData;
+  };
+
+  ContactSnapshot.prototype._createConnectionAPI = function (connectionData) {
+    return new connect.ConnectionSnapshot(connectionData);
+  };
+
+  /*----------------------------------------------------------------
+   * class Connection
+   */
+  var Connection = function (contactId, connectionId) {
+    this.contactId = contactId;
+    this.connectionId = connectionId;
+    this._initMediaController();
+  };
+
+  Connection.prototype._getData = function () {
+    return connect.core.getAgentDataProvider().getConnectionData(
+      this.getContactId(), this.getConnectionId());
+  };
+
+  Connection.prototype.getContactId = function () {
+    return this.contactId;
+  };
+
+  Connection.prototype.getConnectionId = function () {
+    return this.connectionId;
+  };
+
+  Connection.prototype.getEndpoint = function () {
+    return new connect.Endpoint(this._getData().endpoint);
+  };
+
+  Connection.prototype.getAddress = Connection.prototype.getEndpoint;
+
+  Connection.prototype.getState = function () {
+    return this._getData().state;
+  };
+
+  Connection.prototype.getStatus = Connection.prototype.getState;
+
+  Connection.prototype.getStateDuration = function () {
+    return connect.now() - this._getData().state.timestamp.getTime() + connect.core.getSkew();
+  };
+
+  Connection.prototype.getStatusDuration = Connection.prototype.getStateDuration;
+
+  Connection.prototype.getType = function () {
+    return this._getData().type;
+  };
+
+  Connection.prototype.isInitialConnection = function () {
+    return this._getData().initial;
+  };
+
+  Connection.prototype.isActive = function () {
+    return connect.contains(connect.CONNECTION_ACTIVE_STATES, this.getStatus().type);
+  };
+
+  Connection.prototype.isConnected = function () {
+    return connect.contains(connect.CONNECTION_CONNECTED_STATES, this.getStatus().type);
+  };
+
+  Connection.prototype.isConnecting = function () {
+    return this.getStatus().type === connect.ConnectionStateType.CONNECTING;
+  };
+
+  Connection.prototype.isOnHold = function () {
+    return this.getStatus().type === connect.ConnectionStateType.HOLD;
+  };
+
+  Connection.prototype.getSoftphoneMediaInfo = function () {
+    return this._getData().softphoneMediaInfo;
+  };
+
+  /**
+   * Gets the currently monitored contact info, Returns null if does not exists.
+   * @return {{agentName:string, customerName:string, joinTime:Date}}
+   */
+  Connection.prototype.getMonitorInfo = function () {
+    return this._getData().monitoringInfo;
+  };
+
+  Connection.prototype.destroy = function (callbacks) {
+    connect.publishClickStreamData({
+      contactId: this.getContactId(),
+      clickType: connect.ClickType.HANGUP,
+      clickTime: new Date().toISOString()
+    });
+
+    var client = connect.core.getClient();
+    client.call(connect.ClientMethods.DESTROY_CONNECTION, {
+      contactId: this.getContactId(),
+      connectionId: this.getConnectionId()
+    }, callbacks);
+  };
+
+  Connection.prototype.sendDigits = function (digits, callbacks) {
+    var client = connect.core.getClient();
+    client.call(connect.ClientMethods.SEND_DIGITS, {
+      contactId: this.getContactId(),
+      connectionId: this.getConnectionId(),
+      digits: digits
+    }, callbacks);
+  };
+
+  Connection.prototype.hold = function (callbacks) {
+    var client = connect.core.getClient();
+    client.call(connect.ClientMethods.HOLD_CONNECTION, {
+      contactId: this.getContactId(),
+      connectionId: this.getConnectionId()
+    }, callbacks);
+  };
+
+  Connection.prototype.resume = function (callbacks) {
+    var client = connect.core.getClient();
+    client.call(connect.ClientMethods.RESUME_CONNECTION, {
+      contactId: this.getContactId(),
+      connectionId: this.getConnectionId()
+    }, callbacks);
+  };
+
+  Connection.prototype.toSnapshot = function () {
+    return new connect.ConnectionSnapshot(this._getData());
+  };
+
+  Connection.prototype._initMediaController = function () {
+    if (this.getMediaInfo()) {
+      connect.core.mediaFactory.get(this).catch(function () { });
+    }
+  }
+
+  // Method for checking whether this connection is an agent-side connection
+  // (type AGENT or MONITORING)
+  Connection.prototype._isAgentConnectionType = function () {
+    var connectionType = this.getType();
+    return connectionType === connect.ConnectionType.AGENT
+      || connectionType === connect.ConnectionType.MONITORING;
+  }
+
+  /**
+   * Utility method for checking whether this connection is an agent-side connection
+   * (type AGENT or MONITORING)
+   * @return {boolean} True if this connection is an agent-side connection. False otherwise.
+   */
+  Connection.prototype._isAgentConnectionType = function () {
+    var connectionType = this.getType();
+    return connectionType === connect.ConnectionType.AGENT
+      || connectionType === connect.ConnectionType.MONITORING;
+  }
+  
+  /*----------------------------------------------------------------
+  * Voice authenticator VoiceId
+  */
+
+  var VoiceId = function (contactId) {
+    this.contactId = contactId;
+  };
+
+  VoiceId.prototype.getSpeakerId = function () {
+    var self = this;
+    self.checkConferenceCall();
+    var client = connect.core.getClient();
+    return new Promise(function (resolve, reject) {
+      const params = {
+        "contactId": self.contactId,
+        "instanceId": connect.core.getAgentDataProvider().getInstanceId(),
+        "awsAccountId": connect.core.getAgentDataProvider().getAWSAccountId()
+      };
+      connect.getLog().info("getSpeakerId called").withObject(params).sendInternalLogToServer();
+      client.call(connect.AgentAppClientMethods.GET_CONTACT, params, {
+          success: function (data) {
+            if(data.contactData.customerId) {
+              var obj = {
+                speakerId: data.contactData.customerId
+              }
+              connect.getLog().info("getSpeakerId succeeded").withObject(data).sendInternalLogToServer();
+              resolve(obj);
+            } else {
+              var error = connect.VoiceIdError(connect.VoiceIdErrorTypes.NO_SPEAKER_ID_FOUND, "No speakerId assotiated with this call");
+              reject(error);
+            }
+
+          },
+          failure: function (err) {
+            connect.getLog().error("Get SpeakerId failed")
+              .withObject({
+                err: err
+              }).sendInternalLogToServer();
+            var error = connect.VoiceIdError(connect.VoiceIdErrorTypes.GET_SPEAKER_ID_FAILED, "Get SpeakerId failed", err);
+            reject(error);
+          }
+        });
+    });
+  };
+
+  VoiceId.prototype.getSpeakerStatus = function () {
+    var self = this;
+    self.checkConferenceCall();
+    var client = connect.core.getClient();
+    return new Promise(function (resolve, reject) {
+      self.getSpeakerId().then(function(data){
+        self.getDomainId().then(function(domainId) {
+          const params = {
+            "SpeakerId": connect.assertNotNull(data.speakerId, 'speakerId'),
+            "DomainId" : domainId
+          };
+          connect.getLog().info("getSpeakerStatus called").withObject(params).sendInternalLogToServer();
+          client.call(connect.AgentAppClientMethods.DESCRIBE_SPEAKER, params, {
+              success: function (data) {
+                connect.getLog().info("getSpeakerStatus succeeded").withObject(data).sendInternalLogToServer();
+                resolve(data);
+              },
+              failure: function (err) {
+                var error;
+                var parsedErr = JSON.parse(err);
+                switch(parsedErr.status) {
+                  case 400:
+                  case 404:
+                    var data = parsedErr;
+                    data.type = data.type ? data.type : connect.VoiceIdErrorTypes.SPEAKER_ID_NOT_ENROLLED;
+                    connect.getLog().info("Speaker is not enrolled.").sendInternalLogToServer();
+                    resolve(data);
+                    break;
+                  default:
+                    connect.getLog().error("getSpeakerStatus failed")
+                    .withObject({
+                      err: err
+                    }).sendInternalLogToServer();
+                    var error = connect.VoiceIdError(connect.VoiceIdErrorTypes.GET_SPEAKER_STATUS_FAILED, "Get SpeakerStatus failed", err);
+                    reject(error);
+                }
+              }
+            });
+        }).catch(function(err) {
+          reject(err);
+        });
+      }).catch(function(err){
+        reject(err);
+      });
+    });
+  };
+
+  // internal only
+  VoiceId.prototype._optOutSpeakerInLcms = function (speakerId, generatedSpeakerId) {
+    var self = this;
+    var client = connect.core.getClient();
+    return new Promise(function (resolve, reject) {
+      const params = {
+        "ContactId": self.contactId,
+        "InstanceId": connect.core.getAgentDataProvider().getInstanceId(),
+        "AWSAccountId": connect.core.getAgentDataProvider().getAWSAccountId(),
+        "CustomerId": connect.assertNotNull(speakerId, 'speakerId'),
+        "VoiceIdResult": {
+          "SpeakerOptedOut": true,
+          "generatedSpeakerId": generatedSpeakerId
+        }
+      };
+      connect.getLog().info("_optOutSpeakerInLcms called").withObject(params).sendInternalLogToServer();
+      client.call(connect.AgentAppClientMethods.UPDATE_VOICE_ID_DATA, params, {
+          success: function (data) {
+            connect.getLog().info("optOutSpeakerInLcms succeeded").withObject(data).sendInternalLogToServer();
+            resolve(data);
+          },
+          failure: function (err) {
+            connect.getLog().error("optOutSpeakerInLcms failed")
+              .withObject({
+                err: err,
+              }).sendInternalLogToServer();
+              var error = connect.VoiceIdError(connect.VoiceIdErrorTypes.OPT_OUT_SPEAKER_IN_LCMS_FAILED, "optOutSpeakerInLcms failed", err);
+              reject(error);
+          }
+        });
+    });
+  };
+
+  VoiceId.prototype.optOutSpeaker = function () {
+    var self = this;
+    self.checkConferenceCall();
+    var client = connect.core.getClient();
+    return new Promise(function (resolve, reject) {
+      self.getSpeakerId().then(function(data){
+        self.getDomainId().then(function(domainId) {
+          var speakerId = data.speakerId;
+          const params = {
+            "SpeakerId": connect.assertNotNull(speakerId, 'speakerId'),
+            "DomainId" : domainId
+          };
+          connect.getLog().info("optOutSpeaker called").withObject(params).sendInternalLogToServer();
+          client.call(connect.AgentAppClientMethods.OPT_OUT_SPEAKER, params, {
+              success: function (data) {
+                self._optOutSpeakerInLcms(speakerId, data.generatedSpeakerId).catch(function(){});
+                connect.getLog().info("optOutSpeaker succeeded").withObject(data).sendInternalLogToServer();
+                resolve(data);
+              },
+              failure: function (err) {
+                connect.getLog().error("optOutSpeaker failed")
+                  .withObject({
+                    err: err,
+                  }).sendInternalLogToServer();
+                var error = connect.VoiceIdError(connect.VoiceIdErrorTypes.OPT_OUT_SPEAKER_FAILED, "optOutSpeaker failed.", err);
+                reject(error);
+              }
+            });
+        }).catch(function(err) {
+          reject(err);
+        });
+      }).catch(function(err){
+        reject(err);
+      });
+    });
+  };
+
+  VoiceId.prototype.deleteSpeaker = function () {
+    var self = this;
+    self.checkConferenceCall();
+    var client = connect.core.getClient();
+    return new Promise(function (resolve, reject) {
+      self.getSpeakerId().then(function(data){
+        self.getDomainId().then(function(domainId) {
+          const params = {
+            "SpeakerId": connect.assertNotNull(data.speakerId, 'speakerId'),
+            "DomainId" : domainId
+          };
+          connect.getLog().info("deleteSpeaker called").withObject(params).sendInternalLogToServer();
+          client.call(connect.AgentAppClientMethods.DELETE_SPEAKER, params, {
+              success: function (data) {
+                connect.getLog().info("deleteSpeaker succeeded").withObject(data).sendInternalLogToServer();
+                resolve(data);
+              },
+              failure: function (err) {
+                connect.getLog().error("deleteSpeaker failed")
+                  .withObject({
+                    err: err,
+                  }).sendInternalLogToServer();
+                var error = connect.VoiceIdError(connect.VoiceIdErrorTypes.DELETE_SPEAKER_FAILED, "deleteSpeaker failed.", err);
+                reject(error);
+              }
+            });
+        }).catch(function(err) {
+          reject(err);
+        });
+      }).catch(function(err){
+        reject(err);
+      });
+    });
+  };
+
+  VoiceId.prototype.startSession = function () {
+    var self = this;
+    self.checkConferenceCall();
+    var client = connect.core.getClient();
+    return new Promise(function (resolve, reject) {
+      self.getDomainId().then(function(domainId) {
+        const params = {
+          "contactId": self.contactId,
+          "instanceId": connect.core.getAgentDataProvider().getInstanceId(),
+          "customerAccountId": connect.core.getAgentDataProvider().getAWSAccountId(),
+          "clientToken": AWS.util.uuid.v4(),
+          "domainId" : domainId
+        };
+        connect.getLog().info("startSession called").withObject(params).sendInternalLogToServer();
+        client.call(connect.AgentAppClientMethods.START_VOICE_ID_SESSION, params, {
+            success: function (data) {
+              if(data.sessionId) {
+                resolve(data);
+              } else {
+                connect.getLog().error("startVoiceIdSession failed, no session id returned")
+                  .withObject({
+                    data: data
+                  }).sendInternalLogToServer();
+                var error = connect.VoiceIdError(connect.VoiceIdErrorTypes.START_SESSION_FAILED, "No session id returned from start session api");
+                reject(error);
+              }
+            },
+            failure: function (err) {
+              connect.getLog().error("startVoiceIdSession failed")
+                .withObject({
+                  err: err
+                }).sendInternalLogToServer();
+              var error = connect.VoiceIdError(connect.VoiceIdErrorTypes.START_SESSION_FAILED, "startVoiceIdSession failed", err);
+              reject(error);
+            }
+          });
+      }).catch(function(err) {
+        reject(err);
+      });
+    });
+  };
+
+  VoiceId.prototype.evaluateSpeaker = function (startNew) {
+    var self = this;
+    self.checkConferenceCall();
+    var client = connect.core.getClient();
+    var contactData = connect.core.getAgentDataProvider().getContactData(this.contactId);
+    var pollTimes = 0;
+    return new Promise(function (resolve, reject) {
+      function evaluate() {
+        self.getDomainId().then(function(domainId) {
+          const params = {
+            "SessionNameOrId": contactData.initialContactId || this.contactId,
+            "DomainId" : domainId
+          };
+          connect.getLog().info("evaluateSpeaker called").withObject(params).sendInternalLogToServer();
+          client.call(connect.AgentAppClientMethods.EVALUATE_SESSION, params, {
+            success: function (data) {
+              if(++pollTimes < connect.VoiceIdConstants.EVALUATION_MAX_POLL_TIMES) {
+                if(data.StreamingStatus === connect.VoiceIdStreamingStatus.PENDING_CONFIGURATION) {
+                  setTimeout(evaluate, connect.VoiceIdConstants.EVALUATION_POLLING_INTERVAL);
+                } else {
+                  if(!data.AuthenticationResult) {
+                    data.AuthenticationResult = {};
+                    data.AuthenticationResult.Decision = connect.ContactFlowAuthenticationDecision.NOT_ENABLED;
+                  }
+
+                  if(!data.FraudDetectionResult) {
+                    data.FraudDetectionResult = {};
+                    data.FraudDetectionResult.Decision = connect.ContactFlowFraudDetectionDecision.NOT_ENABLED;
+                  }
+
+                  // Resolve if both authentication and fraud detection are not enabled.
+                  if(!self.isAuthEnabled(data.AuthenticationResult.Decision) &&
+                    !self.isFraudEnabled(data.FraudDetectionResult.Decision)) {
+                      connect.getLog().info("evaluateSpeaker succeeded").withObject(data).sendInternalLogToServer();
+                      resolve(data);
+                      return;
+                  }
+
+                  if(data.StreamingStatus === connect.VoiceIdStreamingStatus.ENDED) {
+                    if(self.isAuthResultNotEnoughSpeech(data.AuthenticationResult.Decision)) {
+                      data.AuthenticationResult.Decision = connect.ContactFlowAuthenticationDecision.INCONCLUSIVE;
+                    }
+                    if(self.isFraudResultNotEnoughSpeech(data.FraudDetectionResult.Decision)) {
+                      data.FraudDetectionResult.Decision = connect.ContactFlowFraudDetectionDecision.INCONCLUSIVE;
+                    }
+                  }
+                  // Voice print is not long enough for both authentication and fraud detection
+                  if(self.isAuthResultInconclusive(data.AuthenticationResult.Decision) &&
+                    self.isFraudResultInconclusive(data.FraudDetectionResult.Decision)) {
+                      connect.getLog().info("evaluateSpeaker succeeded").withObject(data).sendInternalLogToServer();
+                      resolve(data);
+                      return;
+                  }
+
+                  if(!self.isAuthResultNotEnoughSpeech(data.AuthenticationResult.Decision) &&
+                    self.isAuthEnabled(data.AuthenticationResult.Decision)) {
+                    switch (data.AuthenticationResult.Decision) {
+                      case connect.VoiceIdAuthenticationDecision.ACCEPT:
+                        data.AuthenticationResult.Decision = connect.ContactFlowAuthenticationDecision.AUTHENTICATED;
+                        break;
+                      case connect.VoiceIdAuthenticationDecision.REJECT:
+                        data.AuthenticationResult.Decision = connect.ContactFlowAuthenticationDecision.NOT_AUTHENTICATED;
+                        break;
+                      case connect.VoiceIdAuthenticationDecision.SPEAKER_OPTED_OUT:
+                        data.AuthenticationResult.Decision = connect.ContactFlowAuthenticationDecision.OPTED_OUT;
+                        break;
+                      case connect.VoiceIdAuthenticationDecision.SPEAKER_NOT_ENROLLED:
+                        data.AuthenticationResult.Decision = connect.ContactFlowAuthenticationDecision.NOT_ENROLLED;
+                        break;
+                      default:
+                        data.AuthenticationResult.Decision = connect.ContactFlowAuthenticationDecision.ERROR;
+                    }
+                  }
+
+                  if(!self.isFraudResultNotEnoughSpeech(data.FraudDetectionResult.Decision) &&
+                    self.isFraudEnabled(data.FraudDetectionResult.Decision)) {
+                    switch (data.FraudDetectionResult.Decision) {
+                      case connect.VoiceIdFraudDetectionDecision.HIGH_RISK:
+                        data.FraudDetectionResult.Decision = connect.ContactFlowFraudDetectionDecision.HIGH_RISK;
+                        break;
+                      case connect.VoiceIdFraudDetectionDecision.LOW_RISK:
+                        data.FraudDetectionResult.Decision = connect.ContactFlowFraudDetectionDecision.LOW_RISK;
+                        break;
+                      default:
+                        data.FraudDetectionResult.Decision = connect.ContactFlowFraudDetectionDecision.ERROR;
+                    }
+                  }
+
+                  if(!self.isAuthResultNotEnoughSpeech(data.AuthenticationResult.Decision) &&
+                    !self.isFraudResultNotEnoughSpeech(data.FraudDetectionResult.Decision)) {
+                      // Resolve only when both authentication and fraud detection have results. Otherwise, keep polling.
+                      connect.getLog().info("evaluateSpeaker succeeded").withObject(data).sendInternalLogToServer();
+                      resolve(data);
+                      return;
+                  } else {
+                    setTimeout(evaluate, connect.VoiceIdConstants.EVALUATION_POLLING_INTERVAL);
+                  }
+                }
+              } else {
+                connect.getLog().error("evaluateSpeaker timeout").sendInternalLogToServer();
+                var error = connect.VoiceIdError(connect.VoiceIdErrorTypes.EVALUATE_SPEAKER_TIMEOUT, "evaluateSpeaker timeout");
+                reject(error);
+              }
+            },
+            failure: function (err) {
+              var error;
+              var parsedErr = JSON.parse(err);
+              switch(parsedErr.status) {
+                case 400:
+                case 404:
+                  error = connect.VoiceIdError(connect.VoiceIdErrorTypes.SESSION_NOT_EXISTS, "evaluateSpeaker failed, session not exists", err);
+                  connect.getLog().error("evaluateSpeaker failed, session not exists").withObject({ err: err }).sendInternalLogToServer();
+                  break;
+                default:
+                  error = connect.VoiceIdError(connect.VoiceIdErrorTypes.EVALUATE_SPEAKER_FAILED, "evaluateSpeaker failed", err);
+                  connect.getLog().error("evaluateSpeaker failed").withObject({ err: err }).sendInternalLogToServer();
+              }
+              reject(error);
+            }
+          })
+        }).catch(function(err) {
+          reject(err);
+        });
+      }
+
+      if(!startNew) {
+        self.syncSpeakerId().then(function () {
+          evaluate();
+        }).catch(function (err) {
+          connect.getLog().error("syncSpeakerId failed when session startNew=false")
+                .withObject({err: err}).sendInternalLogToServer();
+          reject(err);
+        })
+      } else {
+        self.startSession().then(function(data) {
+          self.syncSpeakerId().then(function(data) {
+            setTimeout(evaluate, connect.VoiceIdConstants.EVALUATE_SESSION_DELAY);
+          }).catch(function (err) {
+              connect.getLog().error("syncSpeakerId failed when session startNew=true")
+                .withObject({err: err}).sendInternalLogToServer();
+              reject(err);
+            });
+          }).catch(function(err){
+            connect.getLog().error("startSession failed when session startNew=true")
+              .withObject({err: err}).sendInternalLogToServer();
+          reject(err)
+        });
+      }
+    });
+  };
+
+  VoiceId.prototype.describeSession = function () {
+    var self = this;
+    var client = connect.core.getClient();
+    var contactData = connect.core.getAgentDataProvider().getContactData(this.contactId);
+    return new Promise(function (resolve, reject) {
+      self.getDomainId().then(function(domainId) {
+        const params = {
+          "SessionNameOrId": contactData.initialContactId || this.contactId,
+          "DomainId" : domainId
+        };
+        connect.getLog().info("describeSession called").withObject(params).sendInternalLogToServer();
+        client.call(connect.AgentAppClientMethods.DESCRIBE_SESSION, params, {
+          success: function (data) {
+            resolve(data)
+          },
+          failure: function (err) {
+            connect.getLog().error("describeSession failed")
+              .withObject({
+                err: err
+              }).sendInternalLogToServer();
+            var error = connect.VoiceIdError(connect.VoiceIdErrorTypes.DESCRIBE_SESSION_FAILED, "describeSession failed", err);
+            reject(error);
+          }
+        })
+      }).catch(function(err) {
+        reject(err);
+      });
+    });
+  };
+
+  VoiceId.prototype.checkEnrollmentStatus = function (callbackOnAudioCollectionComplete) {
+    connect.getLog().info("checkEnrollmentStatus called").sendInternalLogToServer();
+    var self = this;
+    var pollingTimes = 0;
+    var callbackOnAudioCollectionCompleteHasBeenInvoked = false;
+
+    return new Promise(function (resolve, reject) {
+      function describe () {
+        if(++pollingTimes < connect.VoiceIdConstants.ENROLLMENT_MAX_POLL_TIMES) {
+          self.describeSession().then(function(data){
+            switch(data.Session.EnrollmentRequestDetails.Status) {
+              case connect.VoiceIdEnrollmentRequestStatus.COMPLETED:
+                resolve(data);
+                break;
+              case connect.VoiceIdEnrollmentRequestStatus.IN_PROGRESS:
+                if (!callbackOnAudioCollectionCompleteHasBeenInvoked && typeof callbackOnAudioCollectionComplete === 'function') {
+                  callbackOnAudioCollectionComplete(data);
+                  callbackOnAudioCollectionCompleteHasBeenInvoked = true;
+                }
+                setTimeout(describe, connect.VoiceIdConstants.ENROLLMENT_POLLING_INTERVAL);
+                break;
+              case connect.VoiceIdEnrollmentRequestStatus.NOT_ENOUGH_SPEECH:
+                if(data.Session.StreamingStatus !== connect.VoiceIdStreamingStatus.ENDED) {
+                  setTimeout(describe,connect.VoiceIdConstants.ENROLLMENT_POLLING_INTERVAL);
+                } else {
+                  setTimeout(function(){
+                    self.startSession().then(function(data) {
+                      describe();
+                    }).catch(function(err, data){
+                      reject(err);
+                    });
+                  }, connect.VoiceIdConstants.START_SESSION_DELAY);
+                }
+                break;
+              default:
+                var message = data.Session.EnrollmentRequestDetails.Message ? data.Session.EnrollmentRequestDetails.Message : "enrollSpeaker failed. Unknown enrollment status has been received";
+                connect.getLog().error(message).sendInternalLogToServer();
+  		          var error = connect.VoiceIdError(connect.VoiceIdErrorTypes.ENROLL_SPEAKER_FAILED, message, data.Session.EnrollmentRequestDetails.Status);
+  		          reject(error);
+            }
+          });
+        } else {
+          connect.getLog().error("enrollSpeaker timeout").sendInternalLogToServer();
+          var error = connect.VoiceIdError(connect.VoiceIdErrorTypes.ENROLL_SPEAKER_TIMEOUT, "enrollSpeaker timeout");
+          reject(error);
+        }
+      }
+      describe();
+    });
+  };
+
+  VoiceId.prototype.enrollSpeaker = function (callbackOnAudioCollectionComplete) {
+    connect.getLog().info("enrollSpeaker called").sendInternalLogToServer();
+    var self = this;
+    self.checkConferenceCall();
+    return new Promise(function(resolve, reject) {
+      self.syncSpeakerId().then(function() {
+        self.getSpeakerStatus().then(function(data) {
+          if(data.Speaker && data.Speaker.Status == connect.VoiceIdSpeakerStatus.OPTED_OUT) {
+            self.deleteSpeaker().then(function() {
+              self.enrollSpeakerHelper(resolve, reject, callbackOnAudioCollectionComplete);
+            }).catch(function(err) {
+              reject(err);
+            });
+          } else {
+            self.enrollSpeakerHelper(resolve, reject, callbackOnAudioCollectionComplete);
+          }
+        }).catch(function(err) {
+          reject(err);
+        })
+      }).catch(function(err) {
+        reject(err)
+      })
+    })
+  }
+
+  VoiceId.prototype.enrollSpeakerHelper = function (resolve, reject, callbackOnAudioCollectionComplete) {
+    var self = this;
+    var client = connect.core.getClient();
+    var contactData = connect.core.getAgentDataProvider().getContactData(this.contactId);
+    self.getDomainId().then(function(domainId) {
+      const params = {
+        "SessionNameOrId": contactData.initialContactId || this.contactId,
+        "DomainId" : domainId
+      };
+      connect.getLog().info("enrollSpeakerHelper called").withObject(params).sendInternalLogToServer();
+      client.call(connect.AgentAppClientMethods.ENROLL_BY_SESSION, params, {
+          success: function (data) {
+            if(data.Status === connect.VoiceIdEnrollmentRequestStatus.COMPLETED) {
+              connect.getLog().info("enrollSpeaker succeeded").withObject(data).sendInternalLogToServer();
+              resolve(data);
+            } else {
+              self.checkEnrollmentStatus(callbackOnAudioCollectionComplete).then(function(data){
+                connect.getLog().info("enrollSpeaker succeeded").withObject(data).sendInternalLogToServer();
+                resolve(data);
+              }).catch(function(err){
+                reject(err);
+              })
+            }
+          },
+          failure: function (err) {
+            connect.getLog().error("enrollSpeaker failed")
+              .withObject({
+                err: err
+              }).sendInternalLogToServer();
+            var error = connect.VoiceIdError(connect.VoiceIdErrorTypes.ENROLL_SPEAKER_FAILED, "enrollSpeaker failed", err);
+            reject(error);
+          }
+        });
+    }).catch(function(err) {
+      reject(err);
+    });
+  };
+
+  // internal only
+  VoiceId.prototype._updateSpeakerIdInLcms = function (speakerId, generatedSpeakerId) {
+    var self = this;
+    var client = connect.core.getClient();
+    return new Promise(function (resolve, reject) {
+      const params = {
+        "ContactId": self.contactId,
+        "InstanceId": connect.core.getAgentDataProvider().getInstanceId(),
+        "AWSAccountId": connect.core.getAgentDataProvider().getAWSAccountId(),
+        "CustomerId": connect.assertNotNull(speakerId, 'speakerId'),
+        "VoiceIdResult": {
+          "generatedSpeakerId": generatedSpeakerId
+        }
+      };
+      connect.getLog().info("_updateSpeakerIdInLcms called").withObject(params).sendInternalLogToServer();
+      client.call(connect.AgentAppClientMethods.UPDATE_VOICE_ID_DATA, params, {
+        success: function (data) {
+          connect.getLog().info("updateSpeakerIdInLcms succeeded").withObject(data).sendInternalLogToServer();
+          resolve(data);
+        },
+        failure: function (err) {
+          connect.getLog().error("updateSpeakerIdInLcms failed")
+            .withObject({
+              err: err,
+            }).sendInternalLogToServer();
+            var error = connect.VoiceIdError(connect.VoiceIdErrorTypes.UPDATE_SPEAKER_ID_IN_LCMS_FAILED, "updateSpeakerIdInLcms failed", err);
+            reject(error);
+        }
+      });
+    });
+  };
+
+  VoiceId.prototype.updateSpeakerIdInVoiceId = function (speakerId) {
+    var self = this;
+    self.checkConferenceCall();
+    var client = connect.core.getClient();
+    var contactData = connect.core.getAgentDataProvider().getContactData(this.contactId);
+    return new Promise(function (resolve, reject) {
+      self.getDomainId().then(function(domainId) {
+        const params = {
+          "SessionNameOrId": contactData.initialContactId || this.contactId,
+          "SpeakerId": connect.assertNotNull(speakerId, 'speakerId'),
+          "DomainId" : domainId
+        };
+        connect.getLog().info("updateSpeakerIdInVoiceId called").withObject(params).sendInternalLogToServer();
+        client.call(connect.AgentAppClientMethods.UPDATE_SESSION, params, {
+            success: function (data) {
+              connect.getLog().info("updateSpeakerIdInVoiceId succeeded").withObject(data).sendInternalLogToServer();
+              var generatedSpeakerId = data && data.Session && data.Session.GeneratedSpeakerId;
+              self._updateSpeakerIdInLcms(speakerId, generatedSpeakerId)
+                .then(function() {
+                  resolve(data);
+                })
+                .catch(function(err) {
+                  reject(err);
+                });
+            },
+            failure: function (err) {
+              var error;
+              var parsedErr = JSON.parse(err);
+              switch(parsedErr.status) {
+                case 400:
+                case 404:
+                  error = connect.VoiceIdError(connect.VoiceIdErrorTypes.SESSION_NOT_EXISTS, "updateSpeakerIdInVoiceId failed, session not exists", err);
+                  connect.getLog().error("updateSpeakerIdInVoiceId failed, session not exists").withObject({ err: err }).sendInternalLogToServer();
+                  break;
+                default:
+                  error = connect.VoiceIdError(connect.VoiceIdErrorTypes.UPDATE_SPEAKER_ID_FAILED, "updateSpeakerIdInVoiceId failed", err);
+                  connect.getLog().error("updateSpeakerIdInVoiceId failed").withObject({ err: err }).sendInternalLogToServer();
+              }
+              reject(error);
+            }
+          });
+      }).catch(function(err) {
+        reject(err);
+      });
+    });
+  };
+
+  VoiceId.prototype.syncSpeakerId = function () {
+    connect.getLog().info("syncSpeakerId called").sendInternalLogToServer();
+    var self = this;
+    return new Promise(function (resolve, reject) {
+      self.getSpeakerId().then(function(data){
+        self.updateSpeakerIdInVoiceId(data.speakerId).then(function(data){
+          resolve(data);
+        }).catch(function(err) {
+          reject(err);
+        })
+      }).catch(function(err){
+        reject(err);
+      });
+    })
+  }
+
+  VoiceId.prototype.getDomainId = function() {
+    return new Promise(function (resolve, reject) {
+      const agent = new connect.Agent();
+      if (!agent.getPermissions().includes(connect.AgentPermissions.VOICE_ID)) {
+        reject(new Error("Agent doesn't have the permission for Voice ID"));
+      } else if (connect.core.voiceIdDomainId) {
+        resolve(connect.core.voiceIdDomainId);
+      } else {
+        var client = connect.core.getClient();
+        const params = {
+          "InstanceId": connect.core.getAgentDataProvider().getInstanceId(),
+          "IntegrationType": "VOICE_ID"
+        };
+        connect.getLog().info("getDomainId called").withObject(params).sendInternalLogToServer();
+        client.call(connect.AgentAppClientMethods.LIST_INTEGRATION_ASSOCIATIONS, params, {
+          success: function (data) {
+            try {
+              var domainId;
+              if (data.IntegrationAssociationSummaryList.length >= 1) {
+                var integrationArn = data.IntegrationAssociationSummaryList[0].IntegrationArn;
+                domainId = integrationArn.replace(/^.*domain\//i, '');
+              }
+              if (!domainId) {
+                connect.getLog().info("getDomainId: no domainId found").sendInternalLogToServer();
+                var error = connect.VoiceIdError(connect.VoiceIdErrorTypes.NO_DOMAIN_ID_FOUND);
+                reject(error);
+                return;
+              }
+              connect.getLog().info("getDomainId succeeded").withObject(data).sendInternalLogToServer();
+              connect.core.getUpstream().sendUpstream(connect.EventType.BROADCAST, {
+                event: connect.VoiceIdEvents.UPDATE_DOMAIN_ID,
+                data: { domainId: domainId }
+              });
+              resolve(domainId);
+            } catch(err) {
+              connect.getLog().error("getDomainId failed").withObject({ err: err }).sendInternalLogToServer();
+              var error = connect.VoiceIdError(connect.VoiceIdErrorTypes.GET_DOMAIN_ID_FAILED, "getDomainId failed", err);
+              reject(error);
+            }
+          },
+          failure: function (err) {
+            connect.getLog().error("getDomainId failed").withObject({ err: err }).sendInternalLogToServer();
+            var error = connect.VoiceIdError(connect.VoiceIdErrorTypes.GET_DOMAIN_ID_FAILED, "getDomainId failed", err);
+            reject(error);
+          }
+        });
+      }
+    });
+  }
+
+  VoiceId.prototype.checkConferenceCall = function(){
+    var self = this;
+    var isConferenceCall = connect.core.getAgentDataProvider().getContactData(self.contactId).connections.filter(function (conn) {
+      return connect.contains(connect.CONNECTION_ACTIVE_STATES, conn.state.type);
+    }).length > 2;
+    if(isConferenceCall){
+      throw new connect.NotImplementedError("VoiceId is not supported for conference calls");
+    }
+  }
+
+  VoiceId.prototype.isAuthEnabled = function(authResult) {
+    return authResult !== connect.ContactFlowAuthenticationDecision.NOT_ENABLED;
+  }
+
+  VoiceId.prototype.isAuthResultNotEnoughSpeech = function(authResult) {
+    return authResult === connect.VoiceIdAuthenticationDecision.NOT_ENOUGH_SPEECH;
+  }
+
+  VoiceId.prototype.isAuthResultInconclusive = function(authResult) {
+    return authResult === connect.ContactFlowAuthenticationDecision.INCONCLUSIVE;
+  }
+
+  VoiceId.prototype.isFraudEnabled = function(fraudResult) {
+    return fraudResult !== connect.ContactFlowFraudDetectionDecision.NOT_ENABLED;
+  }
+
+  VoiceId.prototype.isFraudResultNotEnoughSpeech = function(fraudResult) {
+    return fraudResult === connect.VoiceIdFraudDetectionDecision.NOT_ENOUGH_SPEECH;
+  }
+
+  VoiceId.prototype.isFraudResultInconclusive = function(fraudResult) {
+    return fraudResult === connect.ContactFlowFraudDetectionDecision.INCONCLUSIVE;
+  }
+
+  /**
+   * @class VoiceConnection
+   * @param {number} contactId
+   * @param {number} connectionId
+   * @description - Provides voice media specific operations
+   */
+  var VoiceConnection = function (contactId, connectionId) {
+    this._speakerAuthenticator = new VoiceId(contactId);
+    Connection.call(this, contactId, connectionId);
+  };
+
+  VoiceConnection.prototype = Object.create(Connection.prototype);
+  VoiceConnection.prototype.constructor = VoiceConnection;
+
+  /**
+  * @deprecated
+  * Please use getMediaInfo
+  */
+  VoiceConnection.prototype.getSoftphoneMediaInfo = function () {
+    return this._getData().softphoneMediaInfo;
+  };
+
+  VoiceConnection.prototype.getMediaInfo = function () {
+    return this._getData().softphoneMediaInfo;
+  };
+
+  VoiceConnection.prototype.getMediaType = function () {
+    return connect.MediaType.SOFTPHONE;
+  };
+
+  VoiceConnection.prototype.getMediaController = function () {
+    return connect.core.mediaFactory.get(this);
+  }
+
+  VoiceConnection.prototype.getVoiceIdSpeakerId = function() {
+    return this._speakerAuthenticator.getSpeakerId();
+  }
+
+  VoiceConnection.prototype.getVoiceIdSpeakerStatus = function() {
+    return this._speakerAuthenticator.getSpeakerStatus();
+  }
+
+  VoiceConnection.prototype.optOutVoiceIdSpeaker = function() {
+
+    return this._speakerAuthenticator.optOutSpeaker();
+  }
+
+  VoiceConnection.prototype.deleteVoiceIdSpeaker = function() {
+    return this._speakerAuthenticator.deleteSpeaker();
+  }
+
+  VoiceConnection.prototype.evaluateSpeakerWithVoiceId = function(startNew) {
+    return this._speakerAuthenticator.evaluateSpeaker(startNew);
+  }
+
+  VoiceConnection.prototype.enrollSpeakerInVoiceId = function(callbackOnAudioCollectionComplete) {
+    return this._speakerAuthenticator.enrollSpeaker(callbackOnAudioCollectionComplete);
+  }
+
+  VoiceConnection.prototype.updateVoiceIdSpeakerId = function(speakerId) {
+    return this._speakerAuthenticator.updateSpeakerIdInVoiceId(speakerId);
+  }
+
+  VoiceConnection.prototype.getQuickConnectName = function () {
+    return this._getData().quickConnectName;
+  };
+
+  VoiceConnection.prototype.isSilentMonitor = function () {
+    return this.getMonitorStatus() === connect.MonitoringMode.SILENT_MONITOR;
+  };
+
+  VoiceConnection.prototype.isBarge = function () {
+    return this.getMonitorStatus() === connect.MonitoringMode.BARGE;
+  };
+
+  VoiceConnection.prototype.isBargeEnabled = function () {
+    var monitoringCapabilities = this.getMonitorCapabilities();
+    return monitoringCapabilities && monitoringCapabilities.includes(connect.MonitoringMode.BARGE);
+  };
+
+  VoiceConnection.prototype.isSilentMonitorEnabled = function () {
+    var monitoringCapabilities = this.getMonitorCapabilities();
+    return monitoringCapabilities && monitoringCapabilities.includes(connect.MonitoringMode.SILENT_MONITOR);
+  };
+
+  VoiceConnection.prototype.getMonitorCapabilities = function () {
+    return this._getData().monitorCapabilities;
+  };
+
+  VoiceConnection.prototype.getMonitorStatus = function () {
+    return this._getData().monitorStatus;
+  };
+
+  VoiceConnection.prototype.isMute = function () {
+    return this._getData().mute;
+  };
+
+  VoiceConnection.prototype.isForcedMute = function () {
+    return this._getData().forcedMute;
+  };
+
+  VoiceConnection.prototype.muteParticipant = function (callbacks) {
+    var client = connect.core.getClient();
+    client.call(connect.ClientMethods.MUTE_PARTICIPANT, {
+      contactId: this.getContactId(),
+      connectionId: this.getConnectionId()
+    }, callbacks);
+  };
+
+  VoiceConnection.prototype.unmuteParticipant = function (callbacks) {
+    var client = connect.core.getClient();
+    client.call(connect.ClientMethods.UNMUTE_PARTICIPANT, {
+      contactId: this.getContactId(),
+      connectionId: this.getConnectionId()
+    }, callbacks);
+  };
+
+
+  /**
+   * @class ChatConnection
+   * @param {*} contactId
+   * @param {*} connectionId
+   * @description adds the chat media specific functionality
+   */
+  var ChatConnection = function (contactId, connectionId) {
+    Connection.call(this, contactId, connectionId);
+  };
+
+  ChatConnection.prototype = Object.create(Connection.prototype);
+  ChatConnection.prototype.constructor = ChatConnection;
+
+  ChatConnection.prototype.getMediaInfo = function () {
+    var data = this._getData().chatMediaInfo;
+    if (!data) {
+      return null;
+    } else {
+      var contactData = connect.core.getAgentDataProvider().getContactData(this.contactId);
+      var mediaObject = {
+        contactId: this.contactId,
+        initialContactId: contactData.initialContactId || this.contactId,
+        participantId: this.connectionId,
+        getConnectionToken: connect.hitch(this, this.getConnectionToken)
+      };
+      if (data.connectionData) {
+        try {
+          mediaObject.participantToken = JSON.parse(data.connectionData).ConnectionAuthenticationToken;
+        } catch (e) {
+          connect.getLog().error(connect.LogComponent.CHAT, "Connection data is invalid")
+            .withObject(data)
+            .withException(e)
+            .sendInternalLogToServer();
+          mediaObject.participantToken = null;
+        }
+      }
+      mediaObject.participantToken = mediaObject.participantToken || null;
+      /** Just to keep the data accessible */
+      mediaObject.originalInfo = this._getData().chatMediaInfo;
+      return mediaObject;
+    }
+  };
+
+  /**
+  * Provides the chat connectionToken through the create_transport API for a specific contact and participant Id.
+  * @returns a promise which, upon success, returns the response from the createTransport API.
+  * Usage:
+  * connection.getConnectionToken()
+  *  .then(response => {})
+  *  .catch(error => {})
+  */
+  ChatConnection.prototype.getConnectionToken = function () {
+    var client = connect.core.getClient();
+    var contactData = connect.core.getAgentDataProvider().getContactData(this.contactId);
+    var transportDetails = {
+      transportType: connect.TRANSPORT_TYPES.CHAT_TOKEN,
+      participantId: this.connectionId,
+      contactId: contactData.initialContactId || this.contactId
+    };
+    return new Promise(function (resolve, reject) {
+      client.call(connect.ClientMethods.CREATE_TRANSPORT, transportDetails, {
+        success: function (data) {
+          connect.getLog().info("getConnectionToken succeeded").sendInternalLogToServer();
+          resolve(data);
+        },
+        failure: function (err, data) {
+          connect.getLog().error("getConnectionToken failed").sendInternalLogToServer()
+            .withObject({
+              err: err,
+              data: data
+            });
+          reject(Error("getConnectionToken failed"));
+        }
+      });
+    });
+  };
+
+  ChatConnection.prototype.getMediaType = function () {
+    return connect.MediaType.CHAT;
+  };
+
+  ChatConnection.prototype.getMediaController = function () {
+    return connect.core.mediaFactory.get(this);
+  };
+
+  ChatConnection.prototype._initMediaController = function () {
+    // Note that a chat media controller only needs to be produced for agent type connections.
+    if (this._isAgentConnectionType()) {
+      connect.core.mediaFactory.get(this).catch(function () { });
+    }
+  }
+
+  /**
+   * @class TaskConnection
+   * @param {*} contactId
+   * @param {*} connectionId
+   * @description adds the task media specific functionality
+   */
+  var TaskConnection = function (contactId, connectionId) {
+    Connection.call(this, contactId, connectionId);
+  };
+  TaskConnection.prototype = Object.create(Connection.prototype);
+  TaskConnection.prototype.constructor = TaskConnection;
+
+  TaskConnection.prototype.getMediaType = function () {
+    return connect.MediaType.TASK;
+  }
+
+  TaskConnection.prototype.getMediaInfo = function () {
+      var contactData = connect.core.getAgentDataProvider().getContactData(this.contactId);
+      var mediaObject = {
+        contactId: this.contactId,
+        initialContactId: contactData.initialContactId || this.contactId,
+      };
+      return mediaObject;
+  };
+
+  TaskConnection.prototype.getMediaController = function () {
+    return connect.core.mediaFactory.get(this);
+  };
+
+  /*----------------------------------------------------------------
+   * class ConnectionSnapshot
+   */
+  var ConnectionSnapshot = function (connectionData) {
+    connect.Connection.call(this, connectionData.contactId, connectionData.connectionId);
+    this.connectionData = connectionData;
+  };
+  ConnectionSnapshot.prototype = Object.create(Connection.prototype);
+  ConnectionSnapshot.prototype.constructor = ConnectionSnapshot;
+
+  ConnectionSnapshot.prototype._getData = function () {
+    return this.connectionData;
+  };
+
+  ConnectionSnapshot.prototype._initMediaController = function () { };
+
+  var Endpoint = function (paramsIn) {
+    var params = paramsIn || {};
+    this.endpointARN = params.endpointId || params.endpointARN || null;
+    this.endpointId = this.endpointARN;
+    this.type = params.type || null;
+    this.name = params.name || null;
+    this.phoneNumber = params.phoneNumber || null;
+    this.agentLogin = params.agentLogin || null;
+    this.queue = params.queue || null;
+  };
+
+  /**
+   * Strip the SIP endpoint components from the phoneNumber field.
+   */
+  Endpoint.prototype.stripPhoneNumber = function () {
+    return this.phoneNumber ? this.phoneNumber.replace(/sip:([^@]*)@.*/, "$1") : "";
+  };
+
+  /**
+   * Create an Endpoint object from the given phone number and name.
+   */
+  Endpoint.byPhoneNumber = function (number, name) {
+    return new Endpoint({
+      type: connect.EndpointType.PHONE_NUMBER,
+      phoneNumber: number,
+      name: name || null
+    });
+  };
+
+  /*----------------------------------------------------------------
+   * class SoftphoneError
+   */
+  var SoftphoneError = function (errorType, errorMessage, endPointUrl) {
+    this.errorType = errorType;
+    this.errorMessage = errorMessage;
+    this.endPointUrl = endPointUrl;
+  };
+  SoftphoneError.prototype.getErrorType = function () {
+    return this.errorType;
+  };
+  SoftphoneError.prototype.getErrorMessage = function () {
+    return this.errorMessage;
+  };
+  SoftphoneError.prototype.getEndPointUrl = function () {
+    return this.endPointUrl;
+  };
+
+  /*----------------------------------------------------------------
+   * Root Subscription APIs.
+   */
+  connect.agent = function (f) {
+    var bus = connect.core.getEventBus();
+    var sub = bus.subscribe(connect.AgentEvents.INIT, f);
+    if (connect.agent.initialized) {
+      f(new connect.Agent());
+    }
+    return sub;
+  };
+  connect.agent.initialized = false;
+
+  connect.contact = function (f) {
+    var bus = connect.core.getEventBus();
+    return bus.subscribe(connect.ContactEvents.INIT, f);
+  };
+
+  connect.onWebsocketInitFailure = function (f) {
+    var bus = connect.core.getEventBus();
+    var sub = bus.subscribe(connect.WebSocketEvents.INIT_FAILURE, f);
+    if (connect.webSocketInitFailed) {
+      f();
+    }
+    return sub;
+  };
+
+  /**
+   * Starts the given function asynchronously only if the shared worker
+   * says we are the master for the given topic.  If there is no master for
+   * the given topic, we become the master and start the function unless
+   * shouldNotBecomeMasterIfNone is true.
+   *
+   * @param topic The master topic we are concerned about.
+   * @param f_true The callback to be invoked if we are the master.
+   * @param f_else [optional] A callback to be invoked if we are not the master.
+   * @param shouldNotBecomeMasterIfNone [optional] if true, this tab won't become master.
+   */
+  connect.ifMaster = function (topic, f_true, f_else, shouldNotBecomeMasterIfNone) {
+    connect.assertNotNull(topic, "A topic must be provided.");
+    connect.assertNotNull(f_true, "A true callback must be provided.");
+
+    if (!connect.core.masterClient) {
+      // We can't be the master because there is no master client!
+      connect.getLog().warn("We can't be the master for topic '%s' because there is no master client!", topic).sendInternalLogToServer();
+      if (f_else) {
+        f_else();
+      }
+      return;
+    }
+
+    var masterClient = connect.core.getMasterClient();
+    masterClient.call(connect.MasterMethods.CHECK_MASTER, {
+      topic: topic,
+      shouldNotBecomeMasterIfNone: shouldNotBecomeMasterIfNone
+    }, {
+        success: function (data) {
+          if (data.isMaster) {
+            f_true();
+
+          } else if (f_else) {
+            f_else();
+          }
+        }
+      });
+  };
+
+  /**
+   * Notify the shared worker and other CCP tabs that we are now the master for the given topic.
+   */
+  connect.becomeMaster = function (topic, successCallback, failureCallback) {
+    connect.assertNotNull(topic, "A topic must be provided.");
+
+    if (!connect.core.masterClient) {
+      // We can't be the master because there is no master client!
+      connect.getLog().warn("We can't be the master for topic '%s' because there is no master client!", topic);
+      if (failureCallback) {
+        failureCallback();
+      }
+    } else {
+      var masterClient = connect.core.getMasterClient();
+      masterClient.call(connect.MasterMethods.BECOME_MASTER, {
+        topic: topic
+      }, {
+        success: function () {
+          if (successCallback) {
+            successCallback();
+          }
+        }
+      });
+    }
+  };
+
+  connect.Agent = Agent;
+  connect.AgentSnapshot = AgentSnapshot;
+  connect.Contact = Contact;
+  connect.ContactSnapshot = ContactSnapshot;
+  /** Default will get the Voice connection */
+  connect.Connection = VoiceConnection;
+  connect.BaseConnection = Connection;
+  connect.VoiceConnection = VoiceConnection;
+  connect.ChatConnection = ChatConnection;
+  connect.TaskConnection = TaskConnection;
+  connect.ConnectionSnapshot = ConnectionSnapshot;
+  connect.Endpoint = Endpoint;
+  connect.Address = Endpoint;
+  connect.SoftphoneError = SoftphoneError;
+  connect.VoiceId = VoiceId;
+})();
+
+
+
+/***/ }),
+
+/***/ 827:
+/***/ ((module, exports, __webpack_require__) => {
+
+var __WEBPACK_AMD_DEFINE_RESULT__;// AWS SDK for JavaScript v2.1200.0
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // License at https://sdk.amazonaws.com/js/BUNDLE_LICENSE.txt
-(function(){function r(e,n,t){function o(i,f){if(!n[i]){if(!e[i]){var c="function"==typeof require&&require;if(!f&&c)return c(i,!0);if(u)return u(i,!0);var a=new Error("Cannot find module '"+i+"'");throw a.code="MODULE_NOT_FOUND",a}var p=n[i]={exports:{}};e[i][0].call(p.exports,function(r){var n=e[i][1][r];return o(n||r)},p,p.exports,r,e,n,t)}return n[i].exports}for(var u="function"==typeof require&&require,i=0;i<t.length;i++)o(t[i]);return o}return r})()({1:[function(require,module,exports){
+(function(){function r(e,n,t){function o(i,f){if(!n[i]){if(!e[i]){var c=undefined;if(!f&&c)return require(i,!0);if(u)return u(i,!0);var a=new Error("Cannot find module '"+i+"'");throw a.code="MODULE_NOT_FOUND",a}var p=n[i]={exports:{}};e[i][0].call(p.exports,function(r){var n=e[i][1][r];return o(n||r)},p,p.exports,r,e,n,t)}return n[i].exports}for(var u=undefined,i=0;i<t.length;i++)o(t[i]);return o}return r})()({1:[function(require,module,exports){
 module.exports={
   "version": "2.0",
   "metadata": {
@@ -28,26 +2619,29 @@ module.exports={
           "AllowUnauthenticatedIdentities": {
             "type": "boolean"
           },
+          "AllowClassicFlow": {
+            "type": "boolean"
+          },
           "SupportedLoginProviders": {
-            "shape": "S4"
+            "shape": "S5"
           },
           "DeveloperProviderName": {},
           "OpenIdConnectProviderARNs": {
-            "shape": "S8"
+            "shape": "S9"
           },
           "CognitoIdentityProviders": {
-            "shape": "Sa"
+            "shape": "Sb"
           },
           "SamlProviderARNs": {
-            "shape": "Sf"
+            "shape": "Sg"
           },
           "IdentityPoolTags": {
-            "shape": "Sg"
+            "shape": "Sh"
           }
         }
       },
       "output": {
-        "shape": "Sj"
+        "shape": "Sk"
       }
     },
     "DeleteIdentities": {
@@ -101,7 +2695,7 @@ module.exports={
         }
       },
       "output": {
-        "shape": "Su"
+        "shape": "Sv"
       }
     },
     "DescribeIdentityPool": {
@@ -115,7 +2709,7 @@ module.exports={
         }
       },
       "output": {
-        "shape": "Sj"
+        "shape": "Sk"
       }
     },
     "GetCredentialsForIdentity": {
@@ -127,7 +2721,7 @@ module.exports={
         "members": {
           "IdentityId": {},
           "Logins": {
-            "shape": "Sz"
+            "shape": "S10"
           },
           "CustomRoleArn": {}
         }
@@ -148,7 +2742,8 @@ module.exports={
             }
           }
         }
-      }
+      },
+      "authtype": "none"
     },
     "GetId": {
       "input": {
@@ -160,7 +2755,7 @@ module.exports={
           "AccountId": {},
           "IdentityPoolId": {},
           "Logins": {
-            "shape": "Sz"
+            "shape": "S10"
           }
         }
       },
@@ -169,7 +2764,8 @@ module.exports={
         "members": {
           "IdentityId": {}
         }
-      }
+      },
+      "authtype": "none"
     },
     "GetIdentityPoolRoles": {
       "input": {
@@ -186,10 +2782,10 @@ module.exports={
         "members": {
           "IdentityPoolId": {},
           "Roles": {
-            "shape": "S1b"
+            "shape": "S1c"
           },
           "RoleMappings": {
-            "shape": "S1d"
+            "shape": "S1e"
           }
         }
       }
@@ -203,7 +2799,7 @@ module.exports={
         "members": {
           "IdentityId": {},
           "Logins": {
-            "shape": "Sz"
+            "shape": "S10"
           }
         }
       },
@@ -213,7 +2809,8 @@ module.exports={
           "IdentityId": {},
           "Token": {}
         }
-      }
+      },
+      "authtype": "none"
     },
     "GetOpenIdTokenForDeveloperIdentity": {
       "input": {
@@ -226,7 +2823,10 @@ module.exports={
           "IdentityPoolId": {},
           "IdentityId": {},
           "Logins": {
-            "shape": "Sz"
+            "shape": "S10"
+          },
+          "PrincipalTags": {
+            "shape": "S1s"
           },
           "TokenDuration": {
             "type": "long"
@@ -238,6 +2838,32 @@ module.exports={
         "members": {
           "IdentityId": {},
           "Token": {}
+        }
+      }
+    },
+    "GetPrincipalTagAttributeMap": {
+      "input": {
+        "type": "structure",
+        "required": [
+          "IdentityPoolId",
+          "IdentityProviderName"
+        ],
+        "members": {
+          "IdentityPoolId": {},
+          "IdentityProviderName": {}
+        }
+      },
+      "output": {
+        "type": "structure",
+        "members": {
+          "IdentityPoolId": {},
+          "IdentityProviderName": {},
+          "UseDefaults": {
+            "type": "boolean"
+          },
+          "PrincipalTags": {
+            "shape": "S1s"
+          }
         }
       }
     },
@@ -266,7 +2892,7 @@ module.exports={
           "Identities": {
             "type": "list",
             "member": {
-              "shape": "Su"
+              "shape": "Sv"
             }
           },
           "NextToken": {}
@@ -317,7 +2943,7 @@ module.exports={
         "type": "structure",
         "members": {
           "Tags": {
-            "shape": "Sg"
+            "shape": "Sh"
           }
         }
       }
@@ -383,10 +3009,42 @@ module.exports={
         "members": {
           "IdentityPoolId": {},
           "Roles": {
-            "shape": "S1b"
+            "shape": "S1c"
           },
           "RoleMappings": {
-            "shape": "S1d"
+            "shape": "S1e"
+          }
+        }
+      }
+    },
+    "SetPrincipalTagAttributeMap": {
+      "input": {
+        "type": "structure",
+        "required": [
+          "IdentityPoolId",
+          "IdentityProviderName"
+        ],
+        "members": {
+          "IdentityPoolId": {},
+          "IdentityProviderName": {},
+          "UseDefaults": {
+            "type": "boolean"
+          },
+          "PrincipalTags": {
+            "shape": "S1s"
+          }
+        }
+      },
+      "output": {
+        "type": "structure",
+        "members": {
+          "IdentityPoolId": {},
+          "IdentityProviderName": {},
+          "UseDefaults": {
+            "type": "boolean"
+          },
+          "PrincipalTags": {
+            "shape": "S1s"
           }
         }
       }
@@ -395,12 +3053,13 @@ module.exports={
       "input": {
         "type": "structure",
         "required": [
-          "ResourceArn"
+          "ResourceArn",
+          "Tags"
         ],
         "members": {
           "ResourceArn": {},
           "Tags": {
-            "shape": "Sg"
+            "shape": "Sh"
           }
         }
       },
@@ -437,19 +3096,21 @@ module.exports={
         "members": {
           "IdentityId": {},
           "Logins": {
-            "shape": "Sz"
+            "shape": "S10"
           },
           "LoginsToRemove": {
-            "shape": "Sv"
+            "shape": "Sw"
           }
         }
-      }
+      },
+      "authtype": "none"
     },
     "UntagResource": {
       "input": {
         "type": "structure",
         "required": [
-          "ResourceArn"
+          "ResourceArn",
+          "TagKeys"
         ],
         "members": {
           "ResourceArn": {},
@@ -466,24 +3127,24 @@ module.exports={
     },
     "UpdateIdentityPool": {
       "input": {
-        "shape": "Sj"
+        "shape": "Sk"
       },
       "output": {
-        "shape": "Sj"
+        "shape": "Sk"
       }
     }
   },
   "shapes": {
-    "S4": {
+    "S5": {
       "type": "map",
       "key": {},
       "value": {}
     },
-    "S8": {
+    "S9": {
       "type": "list",
       "member": {}
     },
-    "Sa": {
+    "Sb": {
       "type": "list",
       "member": {
         "type": "structure",
@@ -496,16 +3157,16 @@ module.exports={
         }
       }
     },
-    "Sf": {
+    "Sg": {
       "type": "list",
       "member": {}
     },
-    "Sg": {
+    "Sh": {
       "type": "map",
       "key": {},
       "value": {}
     },
-    "Sj": {
+    "Sk": {
       "type": "structure",
       "required": [
         "IdentityPoolId",
@@ -518,30 +3179,33 @@ module.exports={
         "AllowUnauthenticatedIdentities": {
           "type": "boolean"
         },
+        "AllowClassicFlow": {
+          "type": "boolean"
+        },
         "SupportedLoginProviders": {
-          "shape": "S4"
+          "shape": "S5"
         },
         "DeveloperProviderName": {},
         "OpenIdConnectProviderARNs": {
-          "shape": "S8"
+          "shape": "S9"
         },
         "CognitoIdentityProviders": {
-          "shape": "Sa"
+          "shape": "Sb"
         },
         "SamlProviderARNs": {
-          "shape": "Sf"
+          "shape": "Sg"
         },
         "IdentityPoolTags": {
-          "shape": "Sg"
+          "shape": "Sh"
         }
       }
     },
-    "Su": {
+    "Sv": {
       "type": "structure",
       "members": {
         "IdentityId": {},
         "Logins": {
-          "shape": "Sv"
+          "shape": "Sw"
         },
         "CreationDate": {
           "type": "timestamp"
@@ -551,21 +3215,21 @@ module.exports={
         }
       }
     },
-    "Sv": {
+    "Sw": {
       "type": "list",
       "member": {}
     },
-    "Sz": {
+    "S10": {
       "type": "map",
       "key": {},
       "value": {}
     },
-    "S1b": {
+    "S1c": {
       "type": "map",
       "key": {},
       "value": {}
     },
-    "S1d": {
+    "S1e": {
       "type": "map",
       "key": {},
       "value": {
@@ -604,15 +3268,25 @@ module.exports={
           }
         }
       }
+    },
+    "S1s": {
+      "type": "map",
+      "key": {},
+      "value": {}
     }
   }
 }
 },{}],2:[function(require,module,exports){
 module.exports={
   "pagination": {
+    "ListIdentityPools": {
+      "input_token": "NextToken",
+      "limit_key": "MaxResults",
+      "output_token": "NextToken",
+      "result_key": "IdentityPools"
+    }
   }
 }
-
 },{}],3:[function(require,module,exports){
 module.exports={
   "version": "2.0",
@@ -639,6 +3313,21 @@ module.exports={
           "authentication": {
             "shape": "S2"
           },
+          "contactId": {}
+        }
+      },
+      "output": {
+        "type": "structure",
+        "members": {}
+      }
+    },
+    "ClearContact": {
+      "input": {
+        "type": "structure",
+        "required": [
+          "contactId"
+        ],
+        "members": {
           "contactId": {}
         }
       },
@@ -695,7 +3384,7 @@ module.exports={
           },
           "contactId": {},
           "endpoint": {
-            "shape": "Sc"
+            "shape": "Se"
           }
         }
       },
@@ -716,7 +3405,7 @@ module.exports={
             "shape": "S2"
           },
           "endpoint": {
-            "shape": "Sc"
+            "shape": "Se"
           },
           "queueARN": {}
         }
@@ -724,6 +3413,36 @@ module.exports={
       "output": {
         "type": "structure",
         "members": {}
+      }
+    },
+    "CreateTaskContact": {
+      "input": {
+        "type": "structure",
+        "required": [
+          "endpoint",
+          "name"
+        ],
+        "members": {
+          "endpoint": {
+            "shape": "Se"
+          },
+          "previousContactId": {},
+          "name": {},
+          "description": {},
+          "references": {
+            "shape": "Sr"
+          },
+          "idempotencyToken": {},
+          "scheduledTime": {
+            "type": "long"
+          }
+        }
+      },
+      "output": {
+        "type": "structure",
+        "members": {
+          "contactId": {}
+        }
       }
     },
     "CreateTransport": {
@@ -841,7 +3560,7 @@ module.exports={
         ],
         "members": {
           "configuration": {
-            "shape": "S19"
+            "shape": "S1h"
           }
         }
       }
@@ -908,7 +3627,19 @@ module.exports={
             ],
             "members": {
               "state": {
-                "shape": "S1s"
+                "shape": "S20"
+              },
+              "nextState": {
+                "shape": "S20"
+              },
+              "agentAvailabilityState": {
+                "type": "structure",
+                "members": {
+                  "state": {},
+                  "timeStamp": {
+                    "type": "timestamp"
+                  }
+                }
               },
               "contacts": {
                 "type": "list",
@@ -918,7 +3649,6 @@ module.exports={
                     "contactId",
                     "type",
                     "state",
-                    "queueTimestamp",
                     "connections",
                     "attributes"
                   ],
@@ -940,7 +3670,7 @@ module.exports={
                       }
                     },
                     "queue": {
-                      "shape": "Si"
+                      "shape": "Sk"
                     },
                     "queueTimestamp": {
                       "type": "timestamp"
@@ -958,7 +3688,7 @@ module.exports={
                         "members": {
                           "connectionId": {},
                           "endpoint": {
-                            "shape": "Sc"
+                            "shape": "Se"
                           },
                           "state": {
                             "type": "structure",
@@ -1012,12 +3742,68 @@ module.exports={
                                 "type": "timestamp"
                               }
                             }
-                          }
+                          },
+                          "mute": {
+                            "type": "boolean"
+                          },
+                          "forcedMute": {
+                            "type": "boolean"
+                          },
+                          "quickConnectName": {},
+                          "monitorCapabilities": {
+                            "type": "list",
+                            "member": {}
+                          },
+                          "monitorStatus": {}
                         }
                       }
                     },
                     "attributes": {
-                      "shape": "S2c"
+                      "type": "map",
+                      "key": {},
+                      "value": {
+                        "type": "structure",
+                        "required": [
+                          "name"
+                        ],
+                        "members": {
+                          "name": {},
+                          "value": {}
+                        }
+                      }
+                    },
+                    "contactDuration": {},
+                    "name": {},
+                    "description": {},
+                    "references": {
+                      "shape": "Sr"
+                    },
+                    "initiationMethod": {},
+                    "contactFeatures": {
+                      "type": "structure",
+                      "members": {
+                        "attachmentsEnabled": {
+                          "type": "boolean"
+                        },
+                        "messagingMarkdownEnabled": {
+                          "type": "boolean"
+                        },
+                        "multiPartyConferenceEnabled": {
+                          "type": "boolean"
+                        }
+                      }
+                    },
+                    "channelContext": {
+                      "type": "structure",
+                      "members": {
+                        "scheduledTime": {
+                          "type": "long"
+                        },
+                        "taskTemplateId": {},
+                        "taskTemplateVersion": {
+                          "type": "integer"
+                        }
+                      }
                     }
                   }
                 }
@@ -1056,7 +3842,7 @@ module.exports={
           "states": {
             "type": "list",
             "member": {
-              "shape": "S1s"
+              "shape": "S20"
             }
           },
           "nextToken": {}
@@ -1120,7 +3906,7 @@ module.exports={
           "endpoints": {
             "type": "list",
             "member": {
-              "shape": "Sc"
+              "shape": "Se"
             }
           },
           "nextToken": {}
@@ -1178,7 +3964,7 @@ module.exports={
           "queues": {
             "type": "list",
             "member": {
-              "shape": "Si"
+              "shape": "Sk"
             }
           },
           "nextToken": {}
@@ -1186,6 +3972,27 @@ module.exports={
       }
     },
     "HoldConnection": {
+      "input": {
+        "type": "structure",
+        "required": [
+          "authentication",
+          "contactId",
+          "connectionId"
+        ],
+        "members": {
+          "authentication": {
+            "shape": "S2"
+          },
+          "contactId": {},
+          "connectionId": {}
+        }
+      },
+      "output": {
+        "type": "structure",
+        "members": {}
+      }
+    },
+    "MuteParticipant": {
       "input": {
         "type": "structure",
         "required": [
@@ -1240,8 +4047,26 @@ module.exports={
             "shape": "S2"
           },
           "state": {
-            "shape": "S1s"
+            "shape": "S20"
+          },
+          "enqueueNextState": {
+            "type": "boolean"
           }
+        }
+      },
+      "output": {
+        "type": "structure",
+        "members": {}
+      }
+    },
+    "RejectContact": {
+      "input": {
+        "type": "structure",
+        "required": [
+          "contactId"
+        ],
+        "members": {
+          "contactId": {}
         }
       },
       "output": {
@@ -1337,8 +4162,9 @@ module.exports={
             "shape": "S2"
           },
           "contactId": {},
+          "ccpVersion": {},
           "softphoneStreamStatistics": {
-            "shape": "S3b"
+            "shape": "S3v"
           }
         }
       },
@@ -1360,6 +4186,7 @@ module.exports={
             "shape": "S2"
           },
           "contactId": {},
+          "ccpVersion": {},
           "report": {
             "type": "structure",
             "members": {
@@ -1370,7 +4197,7 @@ module.exports={
                 "type": "timestamp"
               },
               "softphoneStreamStatistics": {
-                "shape": "S3b"
+                "shape": "S3v"
               },
               "gumTimeMillis": {
                 "type": "long"
@@ -1459,6 +4286,27 @@ module.exports={
         "members": {}
       }
     },
+    "UnmuteParticipant": {
+      "input": {
+        "type": "structure",
+        "required": [
+          "authentication",
+          "contactId",
+          "connectionId"
+        ],
+        "members": {
+          "authentication": {
+            "shape": "S2"
+          },
+          "contactId": {},
+          "connectionId": {}
+        }
+      },
+      "output": {
+        "type": "structure",
+        "members": {}
+      }
+    },
     "UpdateAgentConfiguration": {
       "input": {
         "type": "structure",
@@ -1471,7 +4319,7 @@ module.exports={
             "shape": "S2"
           },
           "configuration": {
-            "shape": "S19"
+            "shape": "S1h"
           }
         }
       },
@@ -1480,22 +4328,16 @@ module.exports={
         "members": {}
       }
     },
-    "UpdateContactAttributes": {
+    "UpdateMonitorParticipantState": {
       "input": {
         "type": "structure",
         "required": [
-          "authentication",
           "contactId",
-          "attributes"
+          "targetMonitorMode"
         ],
         "members": {
-          "authentication": {
-            "shape": "S2"
-          },
           "contactId": {},
-          "attributes": {
-            "shape": "S2c"
-          }
+          "targetMonitorMode": {}
         }
       },
       "output": {
@@ -1512,7 +4354,7 @@ module.exports={
         "authToken": {}
       }
     },
-    "Sc": {
+    "Se": {
       "type": "structure",
       "required": [
         "type"
@@ -1524,18 +4366,33 @@ module.exports={
         "phoneNumber": {},
         "agentLogin": {},
         "queue": {
-          "shape": "Si"
+          "shape": "Sk"
         }
       }
     },
-    "Si": {
+    "Sk": {
       "type": "structure",
       "members": {
         "queueARN": {},
         "name": {}
       }
     },
-    "S19": {
+    "Sr": {
+      "type": "map",
+      "key": {},
+      "value": {
+        "type": "structure",
+        "required": [
+          "value",
+          "type"
+        ],
+        "members": {
+          "value": {},
+          "type": {}
+        }
+      }
+    },
+    "S1h": {
       "type": "structure",
       "required": [
         "name",
@@ -1560,7 +4417,7 @@ module.exports={
             "name": {},
             "routingProfileARN": {},
             "defaultOutboundQueue": {
-              "shape": "Si"
+              "shape": "Sk"
             },
             "channelConcurrencyMap": {
               "type": "map",
@@ -1578,7 +4435,7 @@ module.exports={
         }
       }
     },
-    "S1s": {
+    "S20": {
       "type": "structure",
       "required": [
         "type",
@@ -1593,21 +4450,7 @@ module.exports={
         }
       }
     },
-    "S2c": {
-      "type": "map",
-      "key": {},
-      "value": {
-        "type": "structure",
-        "required": [
-          "name"
-        ],
-        "members": {
-          "name": {},
-          "value": {}
-        }
-      }
-    },
-    "S3b": {
+    "S3v": {
       "type": "list",
       "member": {
         "type": "structure",
@@ -1695,7 +4538,8 @@ module.exports={
       "2017-03-25*",
       "2017-10-30*",
       "2018-06-18*",
-      "2018-11-05*"
+      "2018-11-05*",
+      "2019-03-26*"
     ],
     "cors": true
   },
@@ -1765,10 +4609,6 @@ module.exports={
   "configservice": {
     "prefix": "config",
     "name": "ConfigService",
-    "cors": true
-  },
-  "connect": {
-    "name": "Connect",
     "cors": true
   },
   "cur": {
@@ -2003,7 +4843,8 @@ module.exports={
   },
   "s3control": {
     "name": "S3Control",
-    "dualstackAvailable": true
+    "dualstackAvailable": true,
+    "xmlNoDefaultLists": true
   },
   "servicecatalog": {
     "name": "ServiceCatalog",
@@ -2089,7 +4930,8 @@ module.exports={
     "name": "MarketplaceEntitlementService"
   },
   "athena": {
-    "name": "Athena"
+    "name": "Athena",
+    "cors": true
   },
   "greengrass": {
     "name": "Greengrass"
@@ -2102,7 +4944,8 @@ module.exports={
     "name": "MigrationHub"
   },
   "cloudhsmv2": {
-    "name": "CloudHSMV2"
+    "name": "CloudHSMV2",
+    "cors": true
   },
   "glue": {
     "name": "Glue"
@@ -2208,7 +5051,8 @@ module.exports={
     "name": "TranscribeService"
   },
   "connect": {
-    "name": "Connect"
+    "name": "Connect",
+    "cors": true
   },
   "acmpca": {
     "prefix": "acm-pca",
@@ -2223,7 +5067,7 @@ module.exports={
   },
   "iotanalytics": {
     "name": "IoTAnalytics",
-    "cors": true	
+    "cors": true
   },
   "iot1clickdevicesservice": {
     "prefix": "iot1click-devices",
@@ -2411,9 +5255,425 @@ module.exports={
   },
   "workmailmessageflow": {
     "name": "WorkMailMessageFlow"
+  },
+  "codestarnotifications": {
+    "prefix": "codestar-notifications",
+    "name": "CodeStarNotifications"
+  },
+  "savingsplans": {
+    "name": "SavingsPlans"
+  },
+  "sso": {
+    "name": "SSO"
+  },
+  "ssooidc": {
+    "prefix": "sso-oidc",
+    "name": "SSOOIDC"
+  },
+  "marketplacecatalog": {
+    "prefix": "marketplace-catalog",
+    "name": "MarketplaceCatalog"
+  },
+  "dataexchange": {
+    "name": "DataExchange"
+  },
+  "sesv2": {
+    "name": "SESV2"
+  },
+  "migrationhubconfig": {
+    "prefix": "migrationhub-config",
+    "name": "MigrationHubConfig"
+  },
+  "connectparticipant": {
+    "name": "ConnectParticipant"
+  },
+  "appconfig": {
+    "name": "AppConfig"
+  },
+  "iotsecuretunneling": {
+    "name": "IoTSecureTunneling"
+  },
+  "wafv2": {
+    "name": "WAFV2"
+  },
+  "elasticinference": {
+    "prefix": "elastic-inference",
+    "name": "ElasticInference"
+  },
+  "imagebuilder": {
+    "name": "Imagebuilder"
+  },
+  "schemas": {
+    "name": "Schemas"
+  },
+  "accessanalyzer": {
+    "name": "AccessAnalyzer"
+  },
+  "codegurureviewer": {
+    "prefix": "codeguru-reviewer",
+    "name": "CodeGuruReviewer"
+  },
+  "codeguruprofiler": {
+    "name": "CodeGuruProfiler"
+  },
+  "computeoptimizer": {
+    "prefix": "compute-optimizer",
+    "name": "ComputeOptimizer"
+  },
+  "frauddetector": {
+    "name": "FraudDetector"
+  },
+  "kendra": {
+    "name": "Kendra"
+  },
+  "networkmanager": {
+    "name": "NetworkManager"
+  },
+  "outposts": {
+    "name": "Outposts"
+  },
+  "augmentedairuntime": {
+    "prefix": "sagemaker-a2i-runtime",
+    "name": "AugmentedAIRuntime"
+  },
+  "ebs": {
+    "name": "EBS"
+  },
+  "kinesisvideosignalingchannels": {
+    "prefix": "kinesis-video-signaling",
+    "name": "KinesisVideoSignalingChannels",
+    "cors": true
+  },
+  "detective": {
+    "name": "Detective"
+  },
+  "codestarconnections": {
+    "prefix": "codestar-connections",
+    "name": "CodeStarconnections"
+  },
+  "synthetics": {
+    "name": "Synthetics"
+  },
+  "iotsitewise": {
+    "name": "IoTSiteWise"
+  },
+  "macie2": {
+    "name": "Macie2"
+  },
+  "codeartifact": {
+    "name": "CodeArtifact"
+  },
+  "honeycode": {
+    "name": "Honeycode"
+  },
+  "ivs": {
+    "name": "IVS"
+  },
+  "braket": {
+    "name": "Braket"
+  },
+  "identitystore": {
+    "name": "IdentityStore"
+  },
+  "appflow": {
+    "name": "Appflow"
+  },
+  "redshiftdata": {
+    "prefix": "redshift-data",
+    "name": "RedshiftData"
+  },
+  "ssoadmin": {
+    "prefix": "sso-admin",
+    "name": "SSOAdmin"
+  },
+  "timestreamquery": {
+    "prefix": "timestream-query",
+    "name": "TimestreamQuery"
+  },
+  "timestreamwrite": {
+    "prefix": "timestream-write",
+    "name": "TimestreamWrite"
+  },
+  "s3outposts": {
+    "name": "S3Outposts"
+  },
+  "databrew": {
+    "name": "DataBrew"
+  },
+  "servicecatalogappregistry": {
+    "prefix": "servicecatalog-appregistry",
+    "name": "ServiceCatalogAppRegistry"
+  },
+  "networkfirewall": {
+    "prefix": "network-firewall",
+    "name": "NetworkFirewall"
+  },
+  "mwaa": {
+    "name": "MWAA"
+  },
+  "amplifybackend": {
+    "name": "AmplifyBackend"
+  },
+  "appintegrations": {
+    "name": "AppIntegrations"
+  },
+  "connectcontactlens": {
+    "prefix": "connect-contact-lens",
+    "name": "ConnectContactLens"
+  },
+  "devopsguru": {
+    "prefix": "devops-guru",
+    "name": "DevOpsGuru"
+  },
+  "ecrpublic": {
+    "prefix": "ecr-public",
+    "name": "ECRPUBLIC"
+  },
+  "lookoutvision": {
+    "name": "LookoutVision"
+  },
+  "sagemakerfeaturestoreruntime": {
+    "prefix": "sagemaker-featurestore-runtime",
+    "name": "SageMakerFeatureStoreRuntime"
+  },
+  "customerprofiles": {
+    "prefix": "customer-profiles",
+    "name": "CustomerProfiles"
+  },
+  "auditmanager": {
+    "name": "AuditManager"
+  },
+  "emrcontainers": {
+    "prefix": "emr-containers",
+    "name": "EMRcontainers"
+  },
+  "healthlake": {
+    "name": "HealthLake"
+  },
+  "sagemakeredge": {
+    "prefix": "sagemaker-edge",
+    "name": "SagemakerEdge"
+  },
+  "amp": {
+    "name": "Amp"
+  },
+  "greengrassv2": {
+    "name": "GreengrassV2"
+  },
+  "iotdeviceadvisor": {
+    "name": "IotDeviceAdvisor"
+  },
+  "iotfleethub": {
+    "name": "IoTFleetHub"
+  },
+  "iotwireless": {
+    "name": "IoTWireless"
+  },
+  "location": {
+    "name": "Location",
+    "cors": true
+  },
+  "wellarchitected": {
+    "name": "WellArchitected"
+  },
+  "lexmodelsv2": {
+    "prefix": "models.lex.v2",
+    "name": "LexModelsV2"
+  },
+  "lexruntimev2": {
+    "prefix": "runtime.lex.v2",
+    "name": "LexRuntimeV2",
+    "cors": true
+  },
+  "fis": {
+    "name": "Fis"
+  },
+  "lookoutmetrics": {
+    "name": "LookoutMetrics"
+  },
+  "mgn": {
+    "name": "Mgn"
+  },
+  "lookoutequipment": {
+    "name": "LookoutEquipment"
+  },
+  "nimble": {
+    "name": "Nimble"
+  },
+  "finspace": {
+    "name": "Finspace"
+  },
+  "finspacedata": {
+    "prefix": "finspace-data",
+    "name": "Finspacedata"
+  },
+  "ssmcontacts": {
+    "prefix": "ssm-contacts",
+    "name": "SSMContacts"
+  },
+  "ssmincidents": {
+    "prefix": "ssm-incidents",
+    "name": "SSMIncidents"
+  },
+  "applicationcostprofiler": {
+    "name": "ApplicationCostProfiler"
+  },
+  "apprunner": {
+    "name": "AppRunner"
+  },
+  "proton": {
+    "name": "Proton"
+  },
+  "route53recoverycluster": {
+    "prefix": "route53-recovery-cluster",
+    "name": "Route53RecoveryCluster"
+  },
+  "route53recoverycontrolconfig": {
+    "prefix": "route53-recovery-control-config",
+    "name": "Route53RecoveryControlConfig"
+  },
+  "route53recoveryreadiness": {
+    "prefix": "route53-recovery-readiness",
+    "name": "Route53RecoveryReadiness"
+  },
+  "chimesdkidentity": {
+    "prefix": "chime-sdk-identity",
+    "name": "ChimeSDKIdentity"
+  },
+  "chimesdkmessaging": {
+    "prefix": "chime-sdk-messaging",
+    "name": "ChimeSDKMessaging"
+  },
+  "snowdevicemanagement": {
+    "prefix": "snow-device-management",
+    "name": "SnowDeviceManagement"
+  },
+  "memorydb": {
+    "name": "MemoryDB"
+  },
+  "opensearch": {
+    "name": "OpenSearch"
+  },
+  "kafkaconnect": {
+    "name": "KafkaConnect"
+  },
+  "voiceid": {
+    "prefix": "voice-id",
+    "name": "VoiceID"
+  },
+  "wisdom": {
+    "name": "Wisdom"
+  },
+  "account": {
+    "name": "Account"
+  },
+  "cloudcontrol": {
+    "name": "CloudControl"
+  },
+  "grafana": {
+    "name": "Grafana"
+  },
+  "panorama": {
+    "name": "Panorama"
+  },
+  "chimesdkmeetings": {
+    "prefix": "chime-sdk-meetings",
+    "name": "ChimeSDKMeetings"
+  },
+  "resiliencehub": {
+    "name": "Resiliencehub"
+  },
+  "migrationhubstrategy": {
+    "name": "MigrationHubStrategy"
+  },
+  "appconfigdata": {
+    "name": "AppConfigData"
+  },
+  "drs": {
+    "name": "Drs"
+  },
+  "migrationhubrefactorspaces": {
+    "prefix": "migration-hub-refactor-spaces",
+    "name": "MigrationHubRefactorSpaces"
+  },
+  "evidently": {
+    "name": "Evidently"
+  },
+  "inspector2": {
+    "name": "Inspector2"
+  },
+  "rbin": {
+    "name": "Rbin"
+  },
+  "rum": {
+    "name": "RUM"
+  },
+  "backupgateway": {
+    "prefix": "backup-gateway",
+    "name": "BackupGateway"
+  },
+  "iottwinmaker": {
+    "name": "IoTTwinMaker"
+  },
+  "workspacesweb": {
+    "prefix": "workspaces-web",
+    "name": "WorkSpacesWeb"
+  },
+  "amplifyuibuilder": {
+    "name": "AmplifyUIBuilder"
+  },
+  "keyspaces": {
+    "name": "Keyspaces"
+  },
+  "billingconductor": {
+    "name": "Billingconductor"
+  },
+  "gamesparks": {
+    "name": "GameSparks"
+  },
+  "pinpointsmsvoicev2": {
+    "prefix": "pinpoint-sms-voice-v2",
+    "name": "PinpointSMSVoiceV2"
+  },
+  "ivschat": {
+    "name": "Ivschat"
+  },
+  "chimesdkmediapipelines": {
+    "prefix": "chime-sdk-media-pipelines",
+    "name": "ChimeSDKMediaPipelines"
+  },
+  "emrserverless": {
+    "prefix": "emr-serverless",
+    "name": "EMRServerless"
+  },
+  "m2": {
+    "name": "M2"
+  },
+  "connectcampaigns": {
+    "name": "ConnectCampaigns"
+  },
+  "redshiftserverless": {
+    "prefix": "redshift-serverless",
+    "name": "RedshiftServerless"
+  },
+  "rolesanywhere": {
+    "name": "RolesAnywhere"
+  },
+  "licensemanagerusersubscriptions": {
+    "prefix": "license-manager-user-subscriptions",
+    "name": "LicenseManagerUserSubscriptions"
+  },
+  "backupstorage": {
+    "name": "BackupStorage"
+  },
+  "privatenetworks": {
+    "name": "PrivateNetworks"
+  },
+  "supportapp": {
+    "prefix": "support-app",
+    "name": "SupportApp"
   }
 }
-
 },{}],5:[function(require,module,exports){
 module.exports={
   "version": "2.0",
@@ -2447,9 +5707,17 @@ module.exports={
           "DurationSeconds": {
             "type": "integer"
           },
+          "Tags": {
+            "shape": "S8"
+          },
+          "TransitiveTagKeys": {
+            "type": "list",
+            "member": {}
+          },
           "ExternalId": {},
           "SerialNumber": {},
-          "TokenCode": {}
+          "TokenCode": {},
+          "SourceIdentity": {}
         }
       },
       "output": {
@@ -2457,14 +5725,15 @@ module.exports={
         "type": "structure",
         "members": {
           "Credentials": {
-            "shape": "Sc"
+            "shape": "Si"
           },
           "AssumedRoleUser": {
-            "shape": "Sh"
+            "shape": "Sn"
           },
           "PackedPolicySize": {
             "type": "integer"
-          }
+          },
+          "SourceIdentity": {}
         }
       }
     },
@@ -2494,10 +5763,10 @@ module.exports={
         "type": "structure",
         "members": {
           "Credentials": {
-            "shape": "Sc"
+            "shape": "Si"
           },
           "AssumedRoleUser": {
-            "shape": "Sh"
+            "shape": "Sn"
           },
           "PackedPolicySize": {
             "type": "integer"
@@ -2506,7 +5775,8 @@ module.exports={
           "SubjectType": {},
           "Issuer": {},
           "Audience": {},
-          "NameQualifier": {}
+          "NameQualifier": {},
+          "SourceIdentity": {}
         }
       }
     },
@@ -2537,17 +5807,18 @@ module.exports={
         "type": "structure",
         "members": {
           "Credentials": {
-            "shape": "Sc"
+            "shape": "Si"
           },
           "SubjectFromWebIdentityToken": {},
           "AssumedRoleUser": {
-            "shape": "Sh"
+            "shape": "Sn"
           },
           "PackedPolicySize": {
             "type": "integer"
           },
           "Provider": {},
-          "Audience": {}
+          "Audience": {},
+          "SourceIdentity": {}
         }
       }
     },
@@ -2616,6 +5887,9 @@ module.exports={
           },
           "DurationSeconds": {
             "type": "integer"
+          },
+          "Tags": {
+            "shape": "S8"
           }
         }
       },
@@ -2624,7 +5898,7 @@ module.exports={
         "type": "structure",
         "members": {
           "Credentials": {
-            "shape": "Sc"
+            "shape": "Si"
           },
           "FederatedUser": {
             "type": "structure",
@@ -2659,7 +5933,7 @@ module.exports={
         "type": "structure",
         "members": {
           "Credentials": {
-            "shape": "Sc"
+            "shape": "Si"
           }
         }
       }
@@ -2675,7 +5949,21 @@ module.exports={
         }
       }
     },
-    "Sc": {
+    "S8": {
+      "type": "list",
+      "member": {
+        "type": "structure",
+        "required": [
+          "Key",
+          "Value"
+        ],
+        "members": {
+          "Key": {},
+          "Value": {}
+        }
+      }
+    },
+    "Si": {
       "type": "structure",
       "required": [
         "AccessKeyId",
@@ -2692,7 +5980,7 @@ module.exports={
         }
       }
     },
-    "Sh": {
+    "Sn": {
       "type": "structure",
       "required": [
         "AssumedRoleId",
@@ -2706,8 +5994,12 @@ module.exports={
   }
 }
 },{}],6:[function(require,module,exports){
-arguments[4][2][0].apply(exports,arguments)
-},{"dup":2}],7:[function(require,module,exports){
+module.exports={
+  "pagination": {
+  }
+}
+
+},{}],7:[function(require,module,exports){
 require('../lib/node_loader');
 var AWS = require('../lib/core');
 var Service = AWS.Service;
@@ -2715,7 +6007,6 @@ var apiLoader = AWS.apiLoader;
 
 apiLoader.services['cognitoidentity'] = {};
 AWS.CognitoIdentity = Service.defineService('cognitoidentity', ['2014-06-30']);
-require('../lib/services/cognitoidentity');
 Object.defineProperty(apiLoader.services['cognitoidentity'], '2014-06-30', {
   get: function get() {
     var model = require('../apis/cognito-identity-2014-06-30.min.json');
@@ -2728,7 +6019,7 @@ Object.defineProperty(apiLoader.services['cognitoidentity'], '2014-06-30', {
 
 module.exports = AWS.CognitoIdentity;
 
-},{"../apis/cognito-identity-2014-06-30.min.json":1,"../apis/cognito-identity-2014-06-30.paginators.json":2,"../lib/core":18,"../lib/node_loader":16,"../lib/services/cognitoidentity":60}],8:[function(require,module,exports){
+},{"../apis/cognito-identity-2014-06-30.min.json":1,"../apis/cognito-identity-2014-06-30.paginators.json":2,"../lib/core":19,"../lib/node_loader":16}],8:[function(require,module,exports){
 require('../lib/node_loader');
 var AWS = require('../lib/core');
 var Service = AWS.Service;
@@ -2749,7 +6040,7 @@ Object.defineProperty(apiLoader.services['sts'], '2011-06-15', {
 
 module.exports = AWS.STS;
 
-},{"../apis/sts-2011-06-15.min.json":5,"../apis/sts-2011-06-15.paginators.json":6,"../lib/core":18,"../lib/node_loader":16,"../lib/services/sts":61}],9:[function(require,module,exports){
+},{"../apis/sts-2011-06-15.min.json":5,"../apis/sts-2011-06-15.paginators.json":6,"../lib/core":19,"../lib/node_loader":16,"../lib/services/sts":62}],9:[function(require,module,exports){
 function apiLoader(svc, version) {
   if (!apiLoader.services.hasOwnProperty(svc)) {
     throw new Error('InvalidService: Failed to load api for ' + svc);
@@ -2876,7 +6167,7 @@ module.exports = exports = {
     convertToBuffer: convertToBuffer,
 };
 
-},{"buffer/":83}],12:[function(require,module,exports){
+},{"buffer/":85}],12:[function(require,module,exports){
 var hashUtils = require('./browserHashUtils');
 
 /**
@@ -3127,7 +6418,7 @@ function ii(a, b, c, d, x, s, t) {
     return cmn(c ^ (b | (~d)), a, b, x, s, t);
 }
 
-},{"./browserHashUtils":11,"buffer/":83}],14:[function(require,module,exports){
+},{"./browserHashUtils":11,"buffer/":85}],14:[function(require,module,exports){
 var Buffer = require('buffer/').Buffer;
 var hashUtils = require('./browserHashUtils');
 
@@ -3295,7 +6586,7 @@ Sha1.prototype.processBlock = function processBlock() {
     }
 };
 
-},{"./browserHashUtils":11,"buffer/":83}],15:[function(require,module,exports){
+},{"./browserHashUtils":11,"buffer/":85}],15:[function(require,module,exports){
 var Buffer = require('buffer/').Buffer;
 var hashUtils = require('./browserHashUtils');
 
@@ -3536,8 +6827,8 @@ Sha256.prototype.hashBuffer = function () {
     state[7] += state7;
 };
 
-},{"./browserHashUtils":11,"buffer/":83}],16:[function(require,module,exports){
-(function (process){
+},{"./browserHashUtils":11,"buffer/":85}],16:[function(require,module,exports){
+(function (process){(function (){
 var util = require('./util');
 
 // browser specific modules
@@ -3578,8 +6869,8 @@ if (typeof process === 'undefined') {
   };
 }
 
-}).call(this,require('_process'))
-},{"./browserCryptoLib":10,"./core":18,"./credentials":19,"./credentials/chainable_temporary_credentials":20,"./credentials/cognito_identity_credentials":21,"./credentials/credential_provider_chain":22,"./credentials/saml_credentials":23,"./credentials/temporary_credentials":24,"./credentials/web_identity_credentials":25,"./event-stream/buffered-create-event-stream":27,"./http/xhr":35,"./realclock/browserClock":52,"./util":71,"./xml/browser_parser":72,"_process":87,"buffer/":83,"querystring/":94,"url/":96}],17:[function(require,module,exports){
+}).call(this)}).call(this,require('_process'))
+},{"./browserCryptoLib":10,"./core":19,"./credentials":20,"./credentials/chainable_temporary_credentials":21,"./credentials/cognito_identity_credentials":22,"./credentials/credential_provider_chain":23,"./credentials/saml_credentials":24,"./credentials/temporary_credentials":25,"./credentials/web_identity_credentials":26,"./event-stream/buffered-create-event-stream":28,"./http/xhr":36,"./realclock/browserClock":53,"./util":72,"./xml/browser_parser":73,"_process":90,"buffer/":85,"querystring/":96,"url/":98}],17:[function(require,module,exports){
 var AWS = require('./core');
 require('./credentials');
 require('./credentials/credential_provider_chain');
@@ -3636,7 +6927,7 @@ var PromisesDependency;
  *
  * @!attribute computeChecksums
  *   @return [Boolean] whether to compute checksums for payload bodies when
- *     the service accepts it (currently supported in S3 only).
+ *     the service accepts it (currently supported in S3 and SQS only).
  *
  * @!attribute convertResponseTypes
  *   @return [Boolean] whether types are converted when parsing response data.
@@ -3664,6 +6955,16 @@ var PromisesDependency;
  *   @return [Boolean] whether to disable S3 body signing when using signature version `v4`.
  *     Body signing can only be disabled when using https. Defaults to `true`.
  *
+ * @!attribute s3UsEast1RegionalEndpoint
+ *   @return ['legacy'|'regional'] when region is set to 'us-east-1', whether to send s3
+ *     request to global endpoints or 'us-east-1' regional endpoints. This config is only
+ *     applicable to S3 client;
+ *     Defaults to 'legacy'
+ * @!attribute s3UseArnRegion
+ *   @return [Boolean] whether to override the request region with the region inferred
+ *     from requested resource's ARN. Only available for S3 buckets
+ *     Defaults to `true`
+ *
  * @!attribute useAccelerateEndpoint
  *   @note This configuration option is only compatible with S3 while accessing
  *     dns-compatible buckets.
@@ -3675,7 +6976,7 @@ var PromisesDependency;
  *     AWS.config.update({retryDelayOptions: {base: 300}});
  *     // Delays with maxRetries = 3: 300, 600, 1200
  *   @example Set a custom backoff function to provide delay values on retries
- *     AWS.config.update({retryDelayOptions: {customBackoff: function(retryCount) {
+ *     AWS.config.update({retryDelayOptions: {customBackoff: function(retryCount, err) {
  *       // returns delay in ms
  *     }}});
  *   @return [map] A set of options to configure the retry delay on retryable errors.
@@ -3684,9 +6985,12 @@ var PromisesDependency;
  *     * **base** [Integer] &mdash; The base number of milliseconds to use in the
  *       exponential backoff for operation retries. Defaults to 100 ms for all services except
  *       DynamoDB, where it defaults to 50ms.
- *     * **customBackoff ** [function] &mdash; A custom function that accepts a retry count
- *       and returns the amount of time to delay in milliseconds. The `base` option will be
- *       ignored if this option is supplied.
+ *
+ *     * **customBackoff ** [function] &mdash; A custom function that accepts a
+ *       retry count and error and returns the amount of time to delay in
+ *       milliseconds. If the result is a non-zero negative value, no further
+ *       retry attempts will be made. The `base` option will be ignored if this
+ *       option is supplied. The function is only called for retryable errors.
  *
  * @!attribute httpOptions
  *   @return [map] A set of options to pass to the low-level HTTP request.
@@ -3702,9 +7006,9 @@ var PromisesDependency;
  *       failing to establish a connection with the server after
  *       `connectTimeout` milliseconds. This timeout has no effect once a socket
  *       connection has been established.
- *     * **timeout** [Integer] &mdash; Sets the socket to timeout after timeout
- *       milliseconds of inactivity on the socket. Defaults to two minutes
- *       (120000)
+ *     * **timeout** [Integer] &mdash; The number of milliseconds a request can
+ *       take before automatically being terminated.
+ *       Defaults to two minutes (120000).
  *     * **xhrAsync** [Boolean] &mdash; Whether the SDK will send asynchronous
  *       HTTP requests. Used in the browser environment only. Set to false to
  *       send requests synchronously. Defaults to true (async on).
@@ -3733,9 +7037,13 @@ var PromisesDependency;
  *     Defaults to `true`.
  *
  * @!attribute endpointDiscoveryEnabled
- *   @return [Boolean] whether to enable endpoint discovery for operations that
- *     allow optionally using an endpoint returned by the service.
- *     Defaults to 'false'
+ *   @return [Boolean|undefined] whether to call operations with endpoints
+ *     given by service dynamically. Setting this config to `true` will enable
+ *     endpoint discovery for all applicable operations. Setting it to `false`
+ *     will explicitly disable endpoint discovery even though operations that
+ *     require endpoint discovery will presumably fail. Leaving it to
+ *     `undefined` means SDK only do endpoint discovery when it's required.
+ *     Defaults to `undefined`
  *
  * @!attribute endpointCacheSize
  *   @return [Number] the size of the global cache storing endpoints from endpoint
@@ -3750,7 +7058,13 @@ var PromisesDependency;
  * @!attribute stsRegionalEndpoints
  *   @return ['legacy'|'regional'] whether to send sts request to global endpoints or
  *     regional endpoints.
- *     Defaults to 'legacy'
+ *     Defaults to 'legacy'.
+ *
+ * @!attribute useFipsEndpoint
+ *   @return [Boolean] Enables FIPS compatible endpoints. Defaults to `false`.
+ *
+ * @!attribute useDualstackEndpoint
+ *   @return [Boolean] Enables IPv6 dualstack endpoint. Defaults to `false`.
  */
 AWS.Config = AWS.util.inherit({
   /**
@@ -3817,6 +7131,13 @@ AWS.Config = AWS.util.inherit({
    * @option options s3DisableBodySigning [Boolean] whether S3 body signing
    *   should be disabled when using signature version `v4`. Body signing
    *   can only be disabled when using https. Defaults to `true`.
+   * @option options s3UsEast1RegionalEndpoint ['legacy'|'regional'] when region
+   *   is set to 'us-east-1', whether to send s3 request to global endpoints or
+   *   'us-east-1' regional endpoints. This config is only applicable to S3 client.
+   *   Defaults to `legacy`
+   * @option options s3UseArnRegion [Boolean] whether to override the request region
+   *   with the region inferred from requested resource's ARN. Only available for S3 buckets
+   *   Defaults to `true`
    *
    * @option options retryDelayOptions [map] A set of options to configure
    *   the retry delay on retryable errors. Currently supported options are:
@@ -3824,9 +7145,11 @@ AWS.Config = AWS.util.inherit({
    *   * **base** [Integer] &mdash; The base number of milliseconds to use in the
    *     exponential backoff for operation retries. Defaults to 100 ms for all
    *     services except DynamoDB, where it defaults to 50ms.
-   *   * **customBackoff ** [function] &mdash; A custom function that accepts a retry count
-   *     and returns the amount of time to delay in milliseconds. The `base` option will be
-   *     ignored if this option is supplied.
+   *   * **customBackoff ** [function] &mdash; A custom function that accepts a
+   *     retry count and error and returns the amount of time to delay in
+   *     milliseconds. If the result is a non-zero negative value, no further
+   *     retry attempts will be made. The `base` option will be ignored if this
+   *     option is supplied. The function is only called for retryable errors.
    * @option options httpOptions [map] A set of options to pass to the low-level
    *   HTTP request. Currently supported options are:
    *
@@ -3879,10 +7202,13 @@ AWS.Config = AWS.util.inherit({
    *   S3 Transfer Acceleration endpoint with the S3 service. Default: `false`.
    * @option options clientSideMonitoring [Boolean] whether to collect and
    *   publish this client's performance metrics of all its API requests.
-   * @option options endpointDiscoveryEnabled [Boolean] whether to enable endpoint
-   *   discovery for operations that allow optionally using an endpoint returned by
-   *   the service.
-   *   Defaults to 'false'
+   * @option options endpointDiscoveryEnabled [Boolean|undefined] whether to
+   *   call operations with endpoints given by service dynamically. Setting this
+   * config to `true` will enable endpoint discovery for all applicable operations.
+   *   Setting it to `false` will explicitly disable endpoint discovery even though
+   *   operations that require endpoint discovery will presumably fail. Leaving it
+   *   to `undefined` means SDK will only do endpoint discovery when it's required.
+   *   Defaults to `undefined`
    * @option options endpointCacheSize [Number] the size of the global cache storing
    *   endpoints from endpoint discovery operations. Once endpoint cache is created,
    *   updating this setting cannot change existing cache size.
@@ -3893,6 +7219,10 @@ AWS.Config = AWS.util.inherit({
    * @option options stsRegionalEndpoints ['legacy'|'regional'] whether to send sts request
    *   to global endpoints or regional endpoints.
    *   Defaults to 'legacy'.
+   * @option options useFipsEndpoint [Boolean] Enables FIPS compatible endpoints.
+   *   Defaults to `false`.
+   * @option options useDualstackEndpoint [Boolean] Enables IPv6 dualstack endpoint.
+   *   Defaults to `false`.
    */
   constructor: function Config(options) {
     if (options === undefined) options = {};
@@ -4100,6 +7430,8 @@ AWS.Config = AWS.util.inherit({
     s3ForcePathStyle: false,
     s3BucketEndpoint: false,
     s3DisableBodySigning: true,
+    s3UsEast1RegionalEndpoint: 'legacy',
+    s3UseArnRegion: undefined,
     computeChecksums: true,
     convertResponseTypes: true,
     correctClockSkew: false,
@@ -4111,10 +7443,12 @@ AWS.Config = AWS.util.inherit({
     retryDelayOptions: {},
     useAccelerateEndpoint: false,
     clientSideMonitoring: false,
-    endpointDiscoveryEnabled: false,
+    endpointDiscoveryEnabled: undefined,
     endpointCacheSize: 1000,
     hostPrefixEnabled: true,
-    stsRegionalEndpoints: null
+    stsRegionalEndpoints: 'legacy',
+    useFipsEndpoint: false,
+    useDualstackEndpoint: false
   },
 
   /**
@@ -4168,7 +7502,78 @@ AWS.Config = AWS.util.inherit({
  */
 AWS.config = new AWS.Config();
 
-},{"./core":18,"./credentials":19,"./credentials/credential_provider_chain":22}],18:[function(require,module,exports){
+},{"./core":19,"./credentials":20,"./credentials/credential_provider_chain":23}],18:[function(require,module,exports){
+(function (process){(function (){
+var AWS = require('./core');
+/**
+ * @api private
+ */
+function validateRegionalEndpointsFlagValue(configValue, errorOptions) {
+  if (typeof configValue !== 'string') return undefined;
+  else if (['legacy', 'regional'].indexOf(configValue.toLowerCase()) >= 0) {
+    return configValue.toLowerCase();
+  } else {
+    throw AWS.util.error(new Error(), errorOptions);
+  }
+}
+
+/**
+ * Resolve the configuration value for regional endpoint from difference sources: client
+ * config, environmental variable, shared config file. Value can be case-insensitive
+ * 'legacy' or 'reginal'.
+ * @param originalConfig user-supplied config object to resolve
+ * @param options a map of config property names from individual configuration source
+ *  - env: name of environmental variable that refers to the config
+ *  - sharedConfig: name of shared configuration file property that refers to the config
+ *  - clientConfig: name of client configuration property that refers to the config
+ *
+ * @api private
+ */
+function resolveRegionalEndpointsFlag(originalConfig, options) {
+  originalConfig = originalConfig || {};
+  //validate config value
+  var resolved;
+  if (originalConfig[options.clientConfig]) {
+    resolved = validateRegionalEndpointsFlagValue(originalConfig[options.clientConfig], {
+      code: 'InvalidConfiguration',
+      message: 'invalid "' + options.clientConfig + '" configuration. Expect "legacy" ' +
+      ' or "regional". Got "' + originalConfig[options.clientConfig] + '".'
+    });
+    if (resolved) return resolved;
+  }
+  if (!AWS.util.isNode()) return resolved;
+  //validate environmental variable
+  if (Object.prototype.hasOwnProperty.call(process.env, options.env)) {
+    var envFlag = process.env[options.env];
+    resolved = validateRegionalEndpointsFlagValue(envFlag, {
+      code: 'InvalidEnvironmentalVariable',
+      message: 'invalid ' + options.env + ' environmental variable. Expect "legacy" ' +
+      ' or "regional". Got "' + process.env[options.env] + '".'
+    });
+    if (resolved) return resolved;
+  }
+  //validate shared config file
+  var profile = {};
+  try {
+    var profiles = AWS.util.getProfilesFromSharedConfig(AWS.util.iniLoader);
+    profile = profiles[process.env.AWS_PROFILE || AWS.util.defaultProfile];
+  } catch (e) {};
+  if (profile && Object.prototype.hasOwnProperty.call(profile, options.sharedConfig)) {
+    var fileFlag = profile[options.sharedConfig];
+    resolved = validateRegionalEndpointsFlagValue(fileFlag, {
+      code: 'InvalidConfiguration',
+      message: 'invalid ' + options.sharedConfig + ' profile config. Expect "legacy" ' +
+      ' or "regional". Got "' + profile[options.sharedConfig] + '".'
+    });
+    if (resolved) return resolved;
+  }
+  return resolved;
+}
+
+module.exports = resolveRegionalEndpointsFlag;
+
+}).call(this)}).call(this,require('_process'))
+},{"./core":19,"_process":90}],19:[function(require,module,exports){
 /**
  * The main AWS namespace
  */
@@ -4191,7 +7596,7 @@ AWS.util.update(AWS, {
   /**
    * @constant
    */
-  VERSION: '2.553.0',
+  VERSION: '2.1200.0',
 
   /**
    * @api private
@@ -4279,7 +7684,7 @@ AWS.util.memoizedProperty(AWS, 'endpointCache', function() {
   return new AWS.EndpointCache(AWS.config.endpointCacheSize);
 }, true);
 
-},{"../vendor/endpoint-cache":105,"./api_loader":9,"./config":17,"./event_listeners":33,"./http":34,"./json/builder":36,"./json/parser":37,"./model/api":38,"./model/operation":40,"./model/paginator":41,"./model/resource_waiter":42,"./model/shape":43,"./param_validator":44,"./protocol/json":46,"./protocol/query":47,"./protocol/rest":48,"./protocol/rest_json":49,"./protocol/rest_xml":50,"./request":55,"./resource_waiter":56,"./response":57,"./sequential_executor":58,"./service":59,"./signers/request_signer":63,"./util":71,"./xml/builder":73}],19:[function(require,module,exports){
+},{"../vendor/endpoint-cache":109,"./api_loader":9,"./config":17,"./event_listeners":34,"./http":35,"./json/builder":37,"./json/parser":38,"./model/api":39,"./model/operation":41,"./model/paginator":42,"./model/resource_waiter":43,"./model/shape":44,"./param_validator":45,"./protocol/json":47,"./protocol/query":48,"./protocol/rest":49,"./protocol/rest_json":50,"./protocol/rest_xml":51,"./request":57,"./resource_waiter":58,"./response":59,"./sequential_executor":60,"./service":61,"./signers/request_signer":64,"./util":72,"./xml/builder":74}],20:[function(require,module,exports){
 var AWS = require('./core');
 
 /**
@@ -4527,7 +7932,7 @@ AWS.Credentials.deletePromisesFromClass = function deletePromisesFromClass() {
 
 AWS.util.addPromises(AWS.Credentials);
 
-},{"./core":18}],20:[function(require,module,exports){
+},{"./core":19}],21:[function(require,module,exports){
 var AWS = require('../core');
 var STS = require('../../clients/sts');
 
@@ -4729,7 +8134,7 @@ AWS.ChainableTemporaryCredentials = AWS.util.inherit(AWS.Credentials, {
   }
 });
 
-},{"../../clients/sts":8,"../core":18}],21:[function(require,module,exports){
+},{"../../clients/sts":8,"../core":19}],22:[function(require,module,exports){
 var AWS = require('../core');
 var CognitoIdentity = require('../../clients/cognitoidentity');
 var STS = require('../../clients/sts');
@@ -5116,7 +8521,7 @@ AWS.CognitoIdentityCredentials = AWS.util.inherit(AWS.Credentials, {
   })()
 });
 
-},{"../../clients/cognitoidentity":7,"../../clients/sts":8,"../core":18}],22:[function(require,module,exports){
+},{"../../clients/cognitoidentity":7,"../../clients/sts":8,"../core":19}],23:[function(require,module,exports){
 var AWS = require('../core');
 
 /**
@@ -5271,6 +8676,7 @@ AWS.CredentialProviderChain = AWS.util.inherit(AWS.Credentials, {
  * AWS.CredentialProviderChain.defaultProviders = [
  *   function () { return new AWS.EnvironmentCredentials('AWS'); },
  *   function () { return new AWS.EnvironmentCredentials('AMAZON'); },
+ *   function () { return new AWS.SsoCredentials(); },
  *   function () { return new AWS.SharedIniFileCredentials(); },
  *   function () { return new AWS.ECSCredentials(); },
  *   function () { return new AWS.ProcessCredentials(); },
@@ -5297,7 +8703,7 @@ AWS.CredentialProviderChain.deletePromisesFromClass = function deletePromisesFro
 
 AWS.util.addPromises(AWS.CredentialProviderChain);
 
-},{"../core":18}],23:[function(require,module,exports){
+},{"../core":19}],24:[function(require,module,exports){
 var AWS = require('../core');
 var STS = require('../../clients/sts');
 
@@ -5393,7 +8799,7 @@ AWS.SAMLCredentials = AWS.util.inherit(AWS.Credentials, {
 
 });
 
-},{"../../clients/sts":8,"../core":18}],24:[function(require,module,exports){
+},{"../../clients/sts":8,"../core":19}],25:[function(require,module,exports){
 var AWS = require('../core');
 var STS = require('../../clients/sts');
 
@@ -5524,7 +8930,7 @@ AWS.TemporaryCredentials = AWS.util.inherit(AWS.Credentials, {
 
 });
 
-},{"../../clients/sts":8,"../core":18}],25:[function(require,module,exports){
+},{"../../clients/sts":8,"../core":19}],26:[function(require,module,exports){
 var AWS = require('../core');
 var STS = require('../../clients/sts');
 
@@ -5641,8 +9047,8 @@ AWS.WebIdentityCredentials = AWS.util.inherit(AWS.Credentials, {
 
 });
 
-},{"../../clients/sts":8,"../core":18}],26:[function(require,module,exports){
-(function (process){
+},{"../../clients/sts":8,"../core":19}],27:[function(require,module,exports){
+(function (process){(function (){
 var AWS = require('./core');
 var util = require('./util');
 var endpointDiscoveryEnabledEnvs = ['AWS_ENABLE_ENDPOINT_DISCOVERY', 'AWS_ENDPOINT_DISCOVERY_ENABLED'];
@@ -5812,19 +9218,14 @@ function requiredDiscoverEndpoint(request, done) {
     }]);
     endpointRequest.send(function(err, data) {
       if (err) {
-        var errorParams = {
-          code: 'EndpointDiscoveryException',
-          message: 'Request cannot be fulfilled without specifying an endpoint',
-          retryable: false
-        };
-        request.response.error = util.error(err, errorParams);
+        request.response.error = util.error(err, { retryable: false });
         AWS.endpointCache.remove(cacheKey);
 
         //fail all the pending requests in batch
         if (requestQueue[cacheKeyStr]) {
           var pendingRequests = requestQueue[cacheKeyStr];
           util.arrayEach(pendingRequests, function(requestContext) {
-            requestContext.request.response.error = util.error(err, errorParams);
+            requestContext.request.response.error = util.error(err, { retryable: false });
             requestContext.callback();
           });
           delete requestQueue[cacheKeyStr];
@@ -5909,23 +9310,28 @@ function isFalsy(value) {
 }
 
 /**
- * If endpoint discovery should perform for this request when endpoint discovery is optional.
+ * If endpoint discovery should perform for this request when no operation requires endpoint
+ * discovery for the given service.
  * SDK performs config resolution in order like below:
- * 1. If turned on client configuration(default to off) then turn on endpoint discovery.
- * 2. If turned on in env AWS_ENABLE_ENDPOINT_DISCOVERY then turn on endpoint discovery.
- * 3. If turned on in shared ini config file with key 'endpoint_discovery_enabled', then
- *   turn on endpoint discovery.
+ * 1. If set in client configuration.
+ * 2. If set in env AWS_ENABLE_ENDPOINT_DISCOVERY.
+ * 3. If set in shared ini config file with key 'endpoint_discovery_enabled'.
  * @param [object] request request object.
+ * @returns [boolean|undefined] if endpoint discovery config is not set in any source, this
+ *  function returns undefined
  * @api private
  */
-function isEndpointDiscoveryApplicable(request) {
+function resolveEndpointDiscoveryConfig(request) {
   var service = request.service || {};
-  if (service.config.endpointDiscoveryEnabled === true) return true;
+  if (service.config.endpointDiscoveryEnabled !== undefined) {
+    return service.config.endpointDiscoveryEnabled;
+  }
 
   //shared ini file is only available in Node
   //not to check env in browser
-  if (util.isBrowser()) return false;
+  if (util.isBrowser()) return undefined;
 
+  // If any of recognized endpoint discovery config env is set
   for (var i = 0; i < endpointDiscoveryEnabledEnvs.length; i++) {
     var env = endpointDiscoveryEnabledEnvs[i];
     if (Object.prototype.hasOwnProperty.call(process.env, env)) {
@@ -5935,7 +9341,7 @@ function isEndpointDiscoveryApplicable(request) {
           message: 'environmental variable ' + env + ' cannot be set to nothing'
         });
       }
-      if (!isFalsy(process.env[env])) return true;
+      return !isFalsy(process.env[env]);
     }
   }
 
@@ -5956,9 +9362,9 @@ function isEndpointDiscoveryApplicable(request) {
         message: 'config file entry \'endpoint_discovery_enabled\' cannot be set to nothing'
       });
     }
-    if (!isFalsy(sharedFileConfig.endpoint_discovery_enabled)) return true;
+    return !isFalsy(sharedFileConfig.endpoint_discovery_enabled);
   }
-  return false;
+  return undefined;
 }
 
 /**
@@ -5970,20 +9376,38 @@ function discoverEndpoint(request, done) {
   var service = request.service || {};
   if (hasCustomEndpoint(service) || request.isPresigned()) return done();
 
-  if (!isEndpointDiscoveryApplicable(request)) return done();
-
-  request.httpRequest.appendToUserAgent('endpoint-discovery');
-
   var operations = service.api.operations || {};
   var operationModel = operations[request.operation];
   var isEndpointDiscoveryRequired = operationModel ? operationModel.endpointDiscoveryRequired : 'NULL';
+  var isEnabled = resolveEndpointDiscoveryConfig(request);
+  var hasRequiredEndpointDiscovery = service.api.hasRequiredEndpointDiscovery;
+  if (isEnabled || hasRequiredEndpointDiscovery) {
+    // Once a customer enables endpoint discovery, the SDK should start appending
+    // the string endpoint-discovery to the user-agent on all requests.
+    request.httpRequest.appendToUserAgent('endpoint-discovery');
+  }
   switch (isEndpointDiscoveryRequired) {
     case 'OPTIONAL':
-      optionalDiscoverEndpoint(request);
-      request.addNamedListener('INVALIDATE_CACHED_ENDPOINTS', 'extractError', invalidateCachedEndpoints);
+      if (isEnabled || hasRequiredEndpointDiscovery) {
+        // For a given service; if at least one operation requires endpoint discovery then the SDK must enable endpoint discovery
+        // by default for all operations of that service, including operations where endpoint discovery is optional.
+        optionalDiscoverEndpoint(request);
+        request.addNamedListener('INVALIDATE_CACHED_ENDPOINTS', 'extractError', invalidateCachedEndpoints);
+      }
       done();
       break;
     case 'REQUIRED':
+      if (isEnabled === false) {
+        // For a given operation; if endpoint discovery is required and it has been disabled on the SDK client,
+        // then the SDK must return a clear and actionable exception.
+        request.response.error = util.error(new Error(), {
+          code: 'ConfigurationException',
+          message: 'Endpoint Discovery is disabled but ' + service.api.className + '.' + request.operation +
+                    '() requires it. Please check your configurations.'
+        });
+        done();
+        break;
+      }
       request.addNamedListener('INVALIDATE_CACHED_ENDPOINTS', 'extractError', invalidateCachedEndpoints);
       requiredDiscoverEndpoint(request, done);
       break;
@@ -6003,8 +9427,8 @@ module.exports = {
   invalidateCachedEndpoint: invalidateCachedEndpoints,
 };
 
-}).call(this,require('_process'))
-},{"./core":18,"./util":71,"_process":87}],27:[function(require,module,exports){
+}).call(this)}).call(this,require('_process'))
+},{"./core":19,"./util":72,"_process":90}],28:[function(require,module,exports){
 var eventMessageChunker = require('../event-stream/event-message-chunker').eventMessageChunker;
 var parseEvent = require('./parse-event').parseEvent;
 
@@ -6027,7 +9451,7 @@ module.exports = {
     createEventStream: createEventStream
 };
 
-},{"../event-stream/event-message-chunker":28,"./parse-event":30}],28:[function(require,module,exports){
+},{"../event-stream/event-message-chunker":29,"./parse-event":31}],29:[function(require,module,exports){
 /**
  * Takes in a buffer of event messages and splits them into individual messages.
  * @param {Buffer} buffer
@@ -6059,7 +9483,7 @@ module.exports = {
     eventMessageChunker: eventMessageChunker
 };
 
-},{}],29:[function(require,module,exports){
+},{}],30:[function(require,module,exports){
 var util = require('../core').util;
 var toBuffer = util.buffer.toBuffer;
 
@@ -6154,7 +9578,7 @@ module.exports = {
     Int64: Int64
 };
 
-},{"../core":18}],30:[function(require,module,exports){
+},{"../core":19}],31:[function(require,module,exports){
 var parseMessage = require('./parse-message').parseMessage;
 
 /**
@@ -6229,7 +9653,7 @@ module.exports = {
     parseEvent: parseEvent
 };
 
-},{"./parse-message":31}],31:[function(require,module,exports){
+},{"./parse-message":32}],32:[function(require,module,exports){
 var Int64 = require('./int64').Int64;
 
 var splitMessage = require('./split-message').splitMessage;
@@ -6359,7 +9783,7 @@ module.exports = {
     parseMessage: parseMessage
 };
 
-},{"./int64":29,"./split-message":32}],32:[function(require,module,exports){
+},{"./int64":30,"./split-message":33}],33:[function(require,module,exports){
 var util = require('../core').util;
 var toBuffer = util.buffer.toBuffer;
 
@@ -6431,7 +9855,8 @@ module.exports = {
     splitMessage: splitMessage
 };
 
-},{"../core":18}],33:[function(require,module,exports){
+},{"../core":19}],34:[function(require,module,exports){
+(function (process){(function (){
 var AWS = require('./core');
 var SequentialExecutor = require('./sequential_executor');
 var DISCOVER_ENDPOINT = require('./discover_endpoint').discoverEndpoint;
@@ -6515,16 +9940,22 @@ AWS.EventListeners = {
       req.service.config.getCredentials(function(err) {
         if (err) {
           req.response.error = AWS.util.error(err,
-            {code: 'CredentialsError', message: 'Missing credentials in config'});
+            {code: 'CredentialsError', message: 'Missing credentials in config, if using AWS_CONFIG_FILE, set AWS_SDK_LOAD_CONFIG=1'});
         }
         done();
       });
     });
 
     add('VALIDATE_REGION', 'validate', function VALIDATE_REGION(req) {
-      if (!req.service.config.region && !req.service.isGlobalEndpoint) {
-        req.response.error = AWS.util.error(new Error(),
-          {code: 'ConfigError', message: 'Missing region in config'});
+      if (!req.service.isGlobalEndpoint) {
+        var dnsHostRegex = new RegExp(/^([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9])$/);
+        if (!req.service.config.region) {
+          req.response.error = AWS.util.error(new Error(),
+            {code: 'ConfigError', message: 'Missing region in config'});
+        } else if (!dnsHostRegex.test(req.service.config.region)) {
+          req.response.error = AWS.util.error(new Error(),
+            {code: 'ConfigError', message: 'Invalid region in config'});
+        }
       }
     });
 
@@ -6558,6 +9989,28 @@ AWS.EventListeners = {
       var rules = req.service.api.operations[req.operation].input;
       var validation = req.service.config.paramValidation;
       new AWS.ParamValidator(validation).validate(rules, req.params);
+    });
+
+    add('COMPUTE_CHECKSUM', 'afterBuild', function COMPUTE_CHECKSUM(req) {
+      if (!req.service.api.operations) {
+        return;
+      }
+      var operation = req.service.api.operations[req.operation];
+      if (!operation) {
+        return;
+      }
+      var body = req.httpRequest.body;
+      var isNonStreamingPayload = body && (AWS.util.Buffer.isBuffer(body) || typeof body === 'string');
+      var headers = req.httpRequest.headers;
+      if (
+        operation.httpChecksumRequired &&
+        req.service.config.computeChecksums &&
+        isNonStreamingPayload &&
+        !headers['Content-MD5']
+      ) {
+        var md5 = AWS.util.crypto.md5(body, 'base64');
+        headers['Content-MD5'] = md5;
+      }
     });
 
     addAsync('COMPUTE_SHA256', 'afterBuild', function COMPUTE_SHA256(req, done) {
@@ -6617,6 +10070,24 @@ AWS.EventListeners = {
       req.httpRequest.headers['Host'] = req.httpRequest.endpoint.host;
     });
 
+    add('SET_TRACE_ID', 'afterBuild', function SET_TRACE_ID(req) {
+      var traceIdHeaderName = 'X-Amzn-Trace-Id';
+      if (AWS.util.isNode() && !Object.hasOwnProperty.call(req.httpRequest.headers, traceIdHeaderName)) {
+        var ENV_LAMBDA_FUNCTION_NAME = 'AWS_LAMBDA_FUNCTION_NAME';
+        var ENV_TRACE_ID = '_X_AMZN_TRACE_ID';
+        var functionName = process.env[ENV_LAMBDA_FUNCTION_NAME];
+        var traceId = process.env[ENV_TRACE_ID];
+        if (
+          typeof functionName === 'string' &&
+          functionName.length > 0 &&
+          typeof traceId === 'string' &&
+          traceId.length > 0
+        ) {
+          req.httpRequest.headers[traceIdHeaderName] = traceId;
+        }
+      }
+    });
+
     add('RESTART', 'restart', function RESTART() {
       var err = this.response.error;
       if (!err || !err.retryable) return;
@@ -6653,7 +10124,7 @@ AWS.EventListeners = {
           var date = service.getSkewCorrectedDate();
           var SignerClass = service.getSignerClass(req);
           var signer = new SignerClass(req.httpRequest,
-            service.api.signingName || service.api.endpointPrefix,
+            service.getSigningName(req),
             {
               signatureCache: service.config.signatureCache,
               operation: operation,
@@ -6686,6 +10157,16 @@ AWS.EventListeners = {
           {code: 'UnknownError', message: 'An unknown error occurred.'});
       }
     });
+
+    add('ERROR', 'error', function ERROR(err, resp) {
+      var errorCodeMapping = resp.request.service.api.errorCodeMapping;
+      if (errorCodeMapping && err && err.code) {
+        var mapping = errorCodeMapping[err.code];
+        if (mapping) {
+          resp.error.code = mapping.code;
+        }
+      }
+    }, true);
 
     addAsync('SEND', 'send', function SEND(resp, done) {
       resp.httpResponse._abortCallback = done;
@@ -6888,7 +10369,7 @@ AWS.EventListeners = {
         if (resp.error.redirect && resp.redirectCount < resp.maxRedirects) {
           resp.error.retryDelay = 0;
         } else if (resp.retryCount < resp.maxRetries) {
-          resp.error.retryDelay = this.service.retryDelays(resp.retryCount) || 0;
+          resp.error.retryDelay = this.service.retryDelays(resp.retryCount, resp.error) || 0;
         }
       }
     });
@@ -6907,7 +10388,8 @@ AWS.EventListeners = {
         }
       }
 
-      if (willRetry) {
+      // delay < 0 is a signal from customBackoff to skip retries
+      if (willRetry && delay >= 0) {
         resp.error = null;
         setTimeout(done, delay);
       } else {
@@ -6921,8 +10403,14 @@ AWS.EventListeners = {
     add('EXTRACT_REQUEST_ID', 'extractError', AWS.util.extractRequestId);
 
     add('ENOTFOUND_ERROR', 'httpError', function ENOTFOUND_ERROR(err) {
-      if (err.code === 'NetworkingError' && err.errno === 'ENOTFOUND') {
-        var message = 'Inaccessible host: `' + err.hostname +
+      function isDNSError(err) {
+        return err.errno === 'ENOTFOUND' ||
+          typeof err.errno === 'number' &&
+          typeof AWS.util.getSystemErrorName === 'function' &&
+          ['EAI_NONAME', 'EAI_NODATA'].indexOf(AWS.util.getSystemErrorName(err.errno) >= 0);
+      }
+      if (err.code === 'NetworkingError' && isDNSError(err)) {
+        var message = 'Inaccessible host: `' + err.hostname + '\' at port `' + err.port +
           '\'. This service may not be available in the `' + err.region +
           '\' region.';
         this.response.error = AWS.util.error(new Error(message), {
@@ -6944,6 +10432,9 @@ AWS.EventListeners = {
       function filterSensitiveLog(inputShape, shape) {
         if (!shape) {
           return shape;
+        }
+        if (inputShape.isSensitive) {
+          return '***SensitiveInformation***';
         }
         switch (inputShape.type) {
           case 'structure':
@@ -6969,11 +10460,7 @@ AWS.EventListeners = {
             });
             return map;
           default:
-            if (inputShape.isSensitive) {
-              return '***SensitiveInformation***';
-            } else {
-              return shape;
-            }
+            return shape;
         }
       }
 
@@ -7048,7 +10535,8 @@ AWS.EventListeners = {
   })
 };
 
-},{"./core":18,"./discover_endpoint":26,"./protocol/json":46,"./protocol/query":47,"./protocol/rest":48,"./protocol/rest_json":49,"./protocol/rest_xml":50,"./sequential_executor":58,"util":99}],34:[function(require,module,exports){
+}).call(this)}).call(this,require('_process'))
+},{"./core":19,"./discover_endpoint":27,"./protocol/json":47,"./protocol/query":48,"./protocol/rest":49,"./protocol/rest_json":50,"./protocol/rest_xml":51,"./sequential_executor":60,"_process":90,"util":84}],35:[function(require,module,exports){
 var AWS = require('./core');
 var inherit = AWS.util.inherit;
 
@@ -7212,6 +10700,9 @@ AWS.HttpRequest = inherit({
     var newEndpoint = new AWS.Endpoint(endpointStr);
     this.endpoint = newEndpoint;
     this.path = newEndpoint.path || '/';
+    if (this.headers['Host']) {
+      this.headers['Host'] = newEndpoint.host;
+    }
   }
 });
 
@@ -7285,7 +10776,7 @@ AWS.HttpClient.getInstance = function getInstance() {
   return this.singleton;
 };
 
-},{"./core":18}],35:[function(require,module,exports){
+},{"./core":19}],36:[function(require,module,exports){
 var AWS = require('../core');
 var EventEmitter = require('events').EventEmitter;
 require('../http');
@@ -7423,7 +10914,7 @@ AWS.HttpClient.prototype = AWS.XHRClient.prototype;
  */
 AWS.HttpClient.streamsApiVersion = 1;
 
-},{"../core":18,"../http":34,"events":81}],36:[function(require,module,exports){
+},{"../core":19,"../http":35,"events":86}],37:[function(require,module,exports){
 var util = require('../util');
 
 function JsonBuilder() { }
@@ -7444,6 +10935,9 @@ function translate(value, shape) {
 }
 
 function translateStructure(structure, shape) {
+  if (shape.isDocument) {
+    return structure;
+  }
   var struct = {};
   util.each(structure, function(name, value) {
     var memberShape = shape.members[name];
@@ -7484,7 +10978,7 @@ function translateScalar(value, shape) {
  */
 module.exports = JsonBuilder;
 
-},{"../util":71}],37:[function(require,module,exports){
+},{"../util":72}],38:[function(require,module,exports){
 var util = require('../util');
 
 function JsonParser() { }
@@ -7506,6 +11000,7 @@ function translate(value, shape) {
 
 function translateStructure(structure, shape) {
   if (structure == null) return undefined;
+  if (shape.isDocument) return structure;
 
   var struct = {};
   var shapeMembers = shape.members;
@@ -7553,12 +11048,13 @@ function translateScalar(value, shape) {
  */
 module.exports = JsonParser;
 
-},{"../util":71}],38:[function(require,module,exports){
+},{"../util":72}],39:[function(require,module,exports){
 var Collection = require('./collection');
 var Operation = require('./operation');
 var Shape = require('./shape');
 var Paginator = require('./paginator');
 var ResourceWaiter = require('./resource_waiter');
+var metadata = require('../../apis/metadata.json');
 
 var util = require('../util');
 var property = util.property;
@@ -7571,6 +11067,9 @@ function Api(api, options) {
   options.api = this;
 
   api.metadata = api.metadata || {};
+
+  var serviceIdentifier = options.serviceIdentifier;
+  delete options.serviceIdentifier;
 
   property(this, 'isApi', true, false);
   property(this, 'apiVersion', api.metadata.apiVersion);
@@ -7586,6 +11085,9 @@ function Api(api, options) {
   property(this, 'abbreviation', api.metadata.serviceAbbreviation);
   property(this, 'fullName', api.metadata.serviceFullName);
   property(this, 'serviceId', api.metadata.serviceId);
+  if (serviceIdentifier && metadata[serviceIdentifier]) {
+      property(this, 'xmlNoDefaultLists', metadata[serviceIdentifier].xmlNoDefaultLists, false);
+  }
 
   memoizedProperty(this, 'className', function() {
     var name = api.metadata.serviceAbbreviation || api.metadata.serviceFullName;
@@ -7599,6 +11101,13 @@ function Api(api, options) {
   function addEndpointOperation(name, operation) {
     if (operation.endpointoperation === true) {
       property(self, 'endpointOperation', util.string.lowerFirst(name));
+    }
+    if (operation.endpointdiscovery && !self.hasRequiredEndpointDiscovery) {
+      property(
+        self,
+        'hasRequiredEndpointDiscovery',
+        operation.endpointdiscovery.required === true
+      );
     }
   }
 
@@ -7622,6 +11131,7 @@ function Api(api, options) {
     property(this, 'documentation', api.documentation);
     property(this, 'documentationUrl', api.documentationUrl);
   }
+  property(this, 'errorCodeMapping', api.awsQueryCompatible);
 }
 
 /**
@@ -7629,7 +11139,7 @@ function Api(api, options) {
  */
 module.exports = Api;
 
-},{"../util":71,"./collection":39,"./operation":40,"./paginator":41,"./resource_waiter":42,"./shape":43}],39:[function(require,module,exports){
+},{"../../apis/metadata.json":4,"../util":72,"./collection":40,"./operation":41,"./paginator":42,"./resource_waiter":43,"./shape":44}],40:[function(require,module,exports){
 var memoizedProperty = require('../util').memoizedProperty;
 
 function memoize(name, value, factory, nameTr) {
@@ -7655,7 +11165,7 @@ function Collection(iterable, options, factory, nameTr, callback) {
  */
 module.exports = Collection;
 
-},{"../util":71}],40:[function(require,module,exports){
+},{"../util":72}],41:[function(require,module,exports){
 var Shape = require('./shape');
 
 var util = require('../util');
@@ -7681,6 +11191,12 @@ function Operation(name, operation, options) {
       (operation.endpointdiscovery.required ? 'REQUIRED' : 'OPTIONAL') :
     'NULL'
   );
+
+  // httpChecksum replaces usage of httpChecksumRequired, but some APIs
+  // (s3control) still uses old trait.
+  var httpChecksumRequired = operation.httpChecksumRequired
+    || (operation.httpChecksum && operation.httpChecksum.requestChecksumRequired);
+  property(this, 'httpChecksumRequired', httpChecksumRequired, false);
 
   memoizedProperty(this, 'input', function() {
     if (!operation.input) {
@@ -7770,7 +11286,7 @@ function hasEventStream(topLevelShape) {
  */
 module.exports = Operation;
 
-},{"../util":71,"./shape":43}],41:[function(require,module,exports){
+},{"../util":72,"./shape":44}],42:[function(require,module,exports){
 var property = require('../util').property;
 
 function Paginator(name, paginator) {
@@ -7786,7 +11302,7 @@ function Paginator(name, paginator) {
  */
 module.exports = Paginator;
 
-},{"../util":71}],42:[function(require,module,exports){
+},{"../util":72}],43:[function(require,module,exports){
 var util = require('../util');
 var property = util.property;
 
@@ -7821,7 +11337,7 @@ function ResourceWaiter(name, waiter, options) {
  */
 module.exports = ResourceWaiter;
 
-},{"../util":71}],43:[function(require,module,exports){
+},{"../util":72}],44:[function(require,module,exports){
 var Collection = require('./collection');
 
 var util = require('../util');
@@ -7990,6 +11506,7 @@ function StructureShape(shape, options) {
     property(this, 'memberNames', []);
     property(this, 'required', []);
     property(this, 'isRequired', function() { return false; });
+    property(this, 'isDocument', Boolean(shape.document));
   }
 
   if (shape.members) {
@@ -8229,7 +11746,7 @@ Shape.shapes = {
  */
 module.exports = Shape;
 
-},{"../util":71,"./collection":39}],44:[function(require,module,exports){
+},{"../util":72,"./collection":40}],45:[function(require,module,exports){
 var AWS = require('./core');
 
 /**
@@ -8283,8 +11800,9 @@ AWS.ParamValidator = AWS.util.inherit({
   },
 
   validateStructure: function validateStructure(shape, params, context) {
-    this.validateType(params, context, ['object'], 'structure');
+    if (shape.isDocument) return true;
 
+    this.validateType(params, context, ['object'], 'structure');
     var paramName;
     for (var i = 0; shape.required && i < shape.required.length; i++) {
       paramName = shape.required[i];
@@ -8305,7 +11823,7 @@ AWS.ParamValidator = AWS.util.inherit({
       if (memberShape !== undefined) {
         var memberContext = [context, paramName].join('.');
         this.validateMember(memberShape, paramValue, memberContext);
-      } else {
+      } else if (paramValue !== undefined && paramValue !== null) {
         this.fail('UnexpectedParameter',
           'Unexpected key \'' + paramName + '\' found in ' + context);
       }
@@ -8501,7 +12019,7 @@ AWS.ParamValidator = AWS.util.inherit({
   }
 });
 
-},{"./core":18}],45:[function(require,module,exports){
+},{"./core":19}],46:[function(require,module,exports){
 var util =  require('../util');
 var AWS = require('../core');
 
@@ -8592,7 +12110,7 @@ module.exports = {
   populateHostPrefix: populateHostPrefix
 };
 
-},{"../core":18,"../util":71}],46:[function(require,module,exports){
+},{"../core":19,"../util":72}],47:[function(require,module,exports){
 var util = require('../util');
 var JsonBuilder = require('../json/builder');
 var JsonParser = require('../json/parser');
@@ -8626,8 +12144,9 @@ function extractError(resp) {
   if (httpResponse.body.length > 0) {
     try {
       var e = JSON.parse(httpResponse.body.toString());
-      if (e.__type || e.code) {
-        error.code = (e.__type || e.code).split('#').pop();
+      var code = e.__type || e.code || e.Code;
+      if (code) {
+        error.code = code.split('#').pop();
       }
       if (error.code === 'RequestEntityTooLarge') {
         error.message = 'Request body must be less than 1 MB';
@@ -8667,7 +12186,7 @@ module.exports = {
   extractData: extractData
 };
 
-},{"../json/builder":36,"../json/parser":37,"../util":71,"./helpers":45}],47:[function(require,module,exports){
+},{"../json/builder":37,"../json/parser":38,"../util":72,"./helpers":46}],48:[function(require,module,exports){
 var AWS = require('../core');
 var util = require('../util');
 var QueryParamSerializer = require('../query/query_param_serializer');
@@ -8779,7 +12298,7 @@ module.exports = {
   extractData: extractData
 };
 
-},{"../core":18,"../model/shape":43,"../query/query_param_serializer":51,"../util":71,"./helpers":45}],48:[function(require,module,exports){
+},{"../core":19,"../model/shape":44,"../query/query_param_serializer":52,"../util":72,"./helpers":46}],49:[function(require,module,exports){
 var util = require('../util');
 var populateHostPrefix = require('./helpers').populateHostPrefix;
 
@@ -8929,7 +12448,7 @@ module.exports = {
   generateURI: generateURI
 };
 
-},{"../util":71,"./helpers":45}],49:[function(require,module,exports){
+},{"../util":72,"./helpers":46}],50:[function(require,module,exports){
 var util = require('../util');
 var Rest = require('./rest');
 var Json = require('./json');
@@ -8944,30 +12463,24 @@ function populateBody(req) {
     var params = {};
     var payloadShape = input.members[input.payload];
     params = req.params[input.payload];
-    if (params === undefined) return;
 
     if (payloadShape.type === 'structure') {
-      req.httpRequest.body = builder.build(params, payloadShape);
+      req.httpRequest.body = builder.build(params || {}, payloadShape);
       applyContentTypeHeader(req);
-    } else { // non-JSON payload
+    } else if (params !== undefined) {
+      // non-JSON payload
       req.httpRequest.body = params;
       if (payloadShape.type === 'binary' || payloadShape.isStreaming) {
         applyContentTypeHeader(req, true);
       }
     }
   } else {
-    var body = builder.build(req.params, input);
-    if (body !== '{}' || req.httpRequest.method !== 'GET') { //don't send empty body for GET method
-      req.httpRequest.body = body;
-    }
+    req.httpRequest.body = builder.build(req.params, input);
     applyContentTypeHeader(req);
   }
 }
 
 function applyContentTypeHeader(req, isBinary) {
-  var operation = req.service.api.operations[req.operation];
-  var input = operation.input;
-
   if (!req.httpRequest.headers['Content-Type']) {
     var type = isBinary ? 'binary/octet-stream' : 'application/json';
     req.httpRequest.headers['Content-Type'] = type;
@@ -8977,8 +12490,8 @@ function applyContentTypeHeader(req, isBinary) {
 function buildRequest(req) {
   Rest.buildRequest(req);
 
-  // never send body payload on HEAD/DELETE
-  if (['HEAD', 'DELETE'].indexOf(req.httpRequest.method) < 0) {
+  // never send body payload on GET/HEAD/DELETE
+  if (['GET', 'HEAD', 'DELETE'].indexOf(req.httpRequest.method) < 0) {
     populateBody(req);
   }
 }
@@ -9030,7 +12543,7 @@ module.exports = {
   extractData: extractData
 };
 
-},{"../json/builder":36,"../json/parser":37,"../util":71,"./json":46,"./rest":48}],50:[function(require,module,exports){
+},{"../json/builder":37,"../json/parser":38,"../util":72,"./json":47,"./rest":49}],51:[function(require,module,exports){
 var AWS = require('../core');
 var util = require('../util');
 var Rest = require('./rest');
@@ -9140,7 +12653,7 @@ module.exports = {
   extractData: extractData
 };
 
-},{"../core":18,"../util":71,"./rest":48}],51:[function(require,module,exports){
+},{"../core":19,"../util":72,"./rest":49}],52:[function(require,module,exports){
 var util = require('../util');
 
 function QueryParamSerializer() {
@@ -9226,7 +12739,7 @@ function serializeMember(name, value, rules, fn) {
  */
 module.exports = QueryParamSerializer;
 
-},{"../util":71}],52:[function(require,module,exports){
+},{"../util":72}],53:[function(require,module,exports){
 module.exports = {
   //provide realtime clock for performance measurement
   now: function now() {
@@ -9237,13 +12750,35 @@ module.exports = {
   }
 };
 
-},{}],53:[function(require,module,exports){
+},{}],54:[function(require,module,exports){
+function isFipsRegion(region) {
+  return typeof region === 'string' && (region.startsWith('fips-') || region.endsWith('-fips'));
+}
+
+function isGlobalRegion(region) {
+  return typeof region === 'string' && ['aws-global', 'aws-us-gov-global'].includes(region);
+}
+
+function getRealRegion(region) {
+  return ['fips-aws-global', 'aws-fips', 'aws-global'].includes(region)
+      ? 'us-east-1'
+      : ['fips-aws-us-gov-global', 'aws-us-gov-global'].includes(region)
+      ? 'us-gov-west-1'
+      : region.replace(/fips-(dkr-|prod-)?|-fips/, '');
+}
+
+module.exports = {
+  isFipsRegion: isFipsRegion,
+  isGlobalRegion: isGlobalRegion,
+  getRealRegion: getRealRegion
+};
+
+},{}],55:[function(require,module,exports){
 var util = require('./util');
 var regionConfig = require('./region_config_data.json');
 
 function generateRegionPrefix(region) {
   if (!region) return null;
-
   var parts = region.split('-');
   if (parts.length < 3) return null;
   return parts.slice(0, parts.length - 2).join('-') + '-*';
@@ -9277,24 +12812,31 @@ function applyConfig(service, config) {
 
 function configureEndpoint(service) {
   var keys = derivedKeys(service);
+  var useFipsEndpoint = service.config.useFipsEndpoint;
+  var useDualstackEndpoint = service.config.useDualstackEndpoint;
   for (var i = 0; i < keys.length; i++) {
     var key = keys[i];
     if (!key) continue;
 
-    if (Object.prototype.hasOwnProperty.call(regionConfig.rules, key)) {
-      var config = regionConfig.rules[key];
+    var rules = useFipsEndpoint
+      ? useDualstackEndpoint
+        ? regionConfig.dualstackFipsRules
+        : regionConfig.fipsRules
+      : useDualstackEndpoint
+      ? regionConfig.dualstackRules
+      : regionConfig.rules;
+
+    if (Object.prototype.hasOwnProperty.call(rules, key)) {
+      var config = rules[key];
       if (typeof config === 'string') {
         config = regionConfig.patterns[config];
       }
 
-      // set dualstack endpoint
-      if (service.config.useDualstack && util.isDualstackAvailable(service)) {
-        config = util.copy(config);
-        config.endpoint = '{service}.dualstack.{region}.amazonaws.com';
-      }
-
       // set global endpoint
       service.isGlobalEndpoint = !!config.globalEndpoint;
+      if (config.signingRegion) {
+        service.signingRegion = config.signingRegion;
+      }
 
       // signature version
       if (!config.signatureVersion) config.signatureVersion = 'v4';
@@ -9306,12 +12848,33 @@ function configureEndpoint(service) {
   }
 }
 
+function getEndpointSuffix(region) {
+  var regionRegexes = {
+    '^(us|eu|ap|sa|ca|me)\\-\\w+\\-\\d+$': 'amazonaws.com',
+    '^cn\\-\\w+\\-\\d+$': 'amazonaws.com.cn',
+    '^us\\-gov\\-\\w+\\-\\d+$': 'amazonaws.com',
+    '^us\\-iso\\-\\w+\\-\\d+$': 'c2s.ic.gov',
+    '^us\\-isob\\-\\w+\\-\\d+$': 'sc2s.sgov.gov'
+  };
+  var defaultSuffix = 'amazonaws.com';
+  var regexes = Object.keys(regionRegexes);
+  for (var i = 0; i < regexes.length; i++) {
+    var regionPattern = RegExp(regexes[i]);
+    var dnsSuffix = regionRegexes[regexes[i]];
+    if (regionPattern.test(region)) return dnsSuffix;
+  }
+  return defaultSuffix;
+}
+
 /**
  * @api private
  */
-module.exports = configureEndpoint;
+module.exports = {
+  configureEndpoint: configureEndpoint,
+  getEndpointSuffix: getEndpointSuffix,
+};
 
-},{"./region_config_data.json":54,"./util":71}],54:[function(require,module,exports){
+},{"./region_config_data.json":56,"./util":72}],56:[function(require,module,exports){
 module.exports={
   "rules": {
     "*/*": {
@@ -9320,22 +12883,45 @@ module.exports={
     "cn-*/*": {
       "endpoint": "{service}.{region}.amazonaws.com.cn"
     },
+    "us-iso-*/*": "usIso",
+    "us-isob-*/*": "usIsob",
     "*/budgets": "globalSSL",
     "*/cloudfront": "globalSSL",
-    "*/iam": "globalSSL",
     "*/sts": "globalSSL",
     "*/importexport": {
       "endpoint": "{service}.amazonaws.com",
       "signatureVersion": "v2",
       "globalEndpoint": true
     },
-    "*/route53": {
-      "endpoint": "https://{service}.amazonaws.com",
-      "signatureVersion": "v3https",
-      "globalEndpoint": true
+
+    "*/route53": "globalSSL",
+    "cn-*/route53": {
+      "endpoint": "{service}.amazonaws.com.cn",
+      "globalEndpoint": true,
+      "signingRegion": "cn-northwest-1"
     },
+    "us-gov-*/route53": "globalGovCloud",
+    "us-iso-*/route53": {
+      "endpoint": "{service}.c2s.ic.gov",
+      "globalEndpoint": true,
+      "signingRegion": "us-iso-east-1"
+    },
+    "us-isob-*/route53": {
+      "endpoint": "{service}.sc2s.sgov.gov",
+      "globalEndpoint": true,
+      "signingRegion": "us-isob-east-1"
+    },
+
     "*/waf": "globalSSL",
+
+    "*/iam": "globalSSL",
+    "cn-*/iam": {
+      "endpoint": "{service}.cn-north-1.amazonaws.com.cn",
+      "globalEndpoint": true,
+      "signingRegion": "cn-north-1"
+    },
     "us-gov-*/iam": "globalGovCloud",
+
     "us-gov-*/sts": {
       "endpoint": "{service}.{region}.amazonaws.com"
     },
@@ -9361,23 +12947,165 @@ module.exports={
     }
   },
 
+  "fipsRules": {
+    "*/*": "fipsStandard",
+    "us-gov-*/*": "fipsStandard",
+    "us-iso-*/*": {
+      "endpoint": "{service}-fips.{region}.c2s.ic.gov"
+    },
+    "us-iso-*/dms": "usIso",
+    "us-isob-*/*": {
+      "endpoint": "{service}-fips.{region}.sc2s.sgov.gov"
+    },
+    "us-isob-*/dms": "usIsob",
+    "cn-*/*": {
+      "endpoint": "{service}-fips.{region}.amazonaws.com.cn"
+    },
+    "*/api.ecr": "fips.api.ecr",
+    "*/api.sagemaker": "fips.api.sagemaker",
+    "*/batch": "fipsDotPrefix",
+    "*/eks": "fipsDotPrefix",
+    "*/models.lex": "fips.models.lex",
+    "*/runtime.lex": "fips.runtime.lex",
+    "*/runtime.sagemaker": {
+      "endpoint": "runtime-fips.sagemaker.{region}.amazonaws.com"
+    },
+    "*/iam": "fipsWithoutRegion",
+    "*/route53": "fipsWithoutRegion",
+    "*/transcribe": "fipsDotPrefix",
+    "*/waf": "fipsWithoutRegion",
+
+    "us-gov-*/transcribe": "fipsDotPrefix",
+    "us-gov-*/api.ecr": "fips.api.ecr",
+    "us-gov-*/api.sagemaker": "fips.api.sagemaker",
+    "us-gov-*/models.lex": "fips.models.lex",
+    "us-gov-*/runtime.lex": "fips.runtime.lex",
+    "us-gov-*/acm-pca": "fipsWithServiceOnly",
+    "us-gov-*/batch": "fipsWithServiceOnly",
+    "us-gov-*/config": "fipsWithServiceOnly",
+    "us-gov-*/eks": "fipsWithServiceOnly",
+    "us-gov-*/elasticmapreduce": "fipsWithServiceOnly",
+    "us-gov-*/identitystore": "fipsWithServiceOnly",
+    "us-gov-*/dynamodb": "fipsWithServiceOnly",
+    "us-gov-*/elasticloadbalancing": "fipsWithServiceOnly",
+    "us-gov-*/guardduty": "fipsWithServiceOnly",
+    "us-gov-*/monitoring": "fipsWithServiceOnly",
+    "us-gov-*/resource-groups": "fipsWithServiceOnly",
+    "us-gov-*/runtime.sagemaker": "fipsWithServiceOnly",
+    "us-gov-*/servicecatalog-appregistry": "fipsWithServiceOnly",
+    "us-gov-*/servicequotas": "fipsWithServiceOnly",
+    "us-gov-*/ssm": "fipsWithServiceOnly",
+    "us-gov-*/sts": "fipsWithServiceOnly",
+    "us-gov-*/support": "fipsWithServiceOnly",
+    "us-gov-west-1/states": "fipsWithServiceOnly",
+    "us-iso-east-1/elasticfilesystem": {
+      "endpoint": "elasticfilesystem-fips.{region}.c2s.ic.gov"
+    },
+    "us-gov-west-1/organizations": "fipsWithServiceOnly",
+    "us-gov-west-1/route53": {
+      "endpoint": "route53.us-gov.amazonaws.com"
+    }
+  },
+
+  "dualstackRules": {
+    "*/*": {
+      "endpoint": "{service}.{region}.api.aws"
+    },
+    "cn-*/*": {
+      "endpoint": "{service}.{region}.api.amazonwebservices.com.cn"
+    },
+
+    "*/s3": "dualstackLegacy",
+    "cn-*/s3": "dualstackLegacyCn",
+    "*/s3-control": "dualstackLegacy",
+    "cn-*/s3-control": "dualstackLegacyCn",
+
+    "ap-south-1/ec2": "dualstackLegacyEc2",
+    "eu-west-1/ec2": "dualstackLegacyEc2",
+    "sa-east-1/ec2": "dualstackLegacyEc2",
+    "us-east-1/ec2": "dualstackLegacyEc2",
+    "us-east-2/ec2": "dualstackLegacyEc2",
+    "us-west-2/ec2": "dualstackLegacyEc2"
+  },
+
+  "dualstackFipsRules": {
+    "*/*": {
+      "endpoint": "{service}-fips.{region}.api.aws"
+    },
+    "cn-*/*": {
+      "endpoint": "{service}-fips.{region}.api.amazonwebservices.com.cn"
+    },
+    "*/s3": "dualstackFipsLegacy",
+    "cn-*/s3": "dualstackFipsLegacyCn",
+    "*/s3-control": "dualstackFipsLegacy",
+    "cn-*/s3-control": "dualstackFipsLegacyCn"
+  },
+
   "patterns": {
     "globalSSL": {
       "endpoint": "https://{service}.amazonaws.com",
-      "globalEndpoint": true
+      "globalEndpoint": true,
+      "signingRegion": "us-east-1"
     },
     "globalGovCloud": {
-      "endpoint": "{service}.us-gov.amazonaws.com"
+      "endpoint": "{service}.us-gov.amazonaws.com",
+      "globalEndpoint": true,
+      "signingRegion": "us-gov-west-1"
     },
     "s3signature": {
       "endpoint": "{service}.{region}.amazonaws.com",
       "signatureVersion": "s3"
+    },
+    "usIso": {
+      "endpoint": "{service}.{region}.c2s.ic.gov"
+    },
+    "usIsob": {
+      "endpoint": "{service}.{region}.sc2s.sgov.gov"
+    },
+    "fipsStandard": {
+      "endpoint": "{service}-fips.{region}.amazonaws.com"
+    },
+    "fipsDotPrefix": {
+      "endpoint": "fips.{service}.{region}.amazonaws.com"
+    },
+    "fipsWithoutRegion": {
+      "endpoint": "{service}-fips.amazonaws.com"
+    },
+    "fips.api.ecr": {
+      "endpoint": "ecr-fips.{region}.amazonaws.com"
+    },
+    "fips.api.sagemaker": {
+      "endpoint": "api-fips.sagemaker.{region}.amazonaws.com"
+    },
+    "fips.models.lex": {
+      "endpoint": "models-fips.lex.{region}.amazonaws.com"
+    },
+    "fips.runtime.lex": {
+      "endpoint": "runtime-fips.lex.{region}.amazonaws.com"
+    },
+    "fipsWithServiceOnly": {
+      "endpoint": "{service}.{region}.amazonaws.com"
+    },
+    "dualstackLegacy": {
+      "endpoint": "{service}.dualstack.{region}.amazonaws.com"
+    },
+    "dualstackLegacyCn": {
+      "endpoint": "{service}.dualstack.{region}.amazonaws.com.cn"
+    },
+    "dualstackFipsLegacy": {
+      "endpoint": "{service}-fips.dualstack.{region}.amazonaws.com"
+    },
+    "dualstackFipsLegacyCn": {
+      "endpoint": "{service}-fips.dualstack.{region}.amazonaws.com.cn"
+    },
+    "dualstackLegacyEc2": {
+      "endpoint": "api.ec2.{region}.aws"
     }
   }
 }
 
-},{}],55:[function(require,module,exports){
-(function (process){
+},{}],57:[function(require,module,exports){
+(function (process){(function (){
 var AWS = require('./core');
 var AcceptorStateMachine = require('./state_machine');
 var inherit = AWS.util.inherit;
@@ -9693,8 +13421,11 @@ AWS.Request = inherit({
     var region = service.config.region;
     var customUserAgent = service.config.customUserAgent;
 
-    // global endpoints sign as us-east-1
-    if (service.isGlobalEndpoint) region = 'us-east-1';
+    if (service.signingRegion) {
+      region = service.signingRegion;
+    } else if (service.isGlobalEndpoint) {
+      region = 'us-east-1';
+    }
 
     this.domain = domain && domain.active;
     this.service = service;
@@ -10160,7 +13891,7 @@ AWS.Request.addPromisesToClass = function addPromisesToClass(PromiseDependency) 
         if (resp.error) {
           reject(resp.error);
         } else {
-          // define $response property so that it is not enumberable
+          // define $response property so that it is not enumerable
           // this prevents circular reference errors when stringifying the JSON object
           resolve(Object.defineProperty(
             resp.data || {},
@@ -10185,8 +13916,8 @@ AWS.util.addPromises(AWS.Request);
 
 AWS.util.mixin(AWS.Request, AWS.SequentialExecutor);
 
-}).call(this,require('_process'))
-},{"./core":18,"./state_machine":70,"_process":87,"jmespath":86}],56:[function(require,module,exports){
+}).call(this)}).call(this,require('_process'))
+},{"./core":19,"./state_machine":71,"_process":90,"jmespath":89}],58:[function(require,module,exports){
 /**
  * Copyright 2012-2013 Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
@@ -10392,7 +14123,7 @@ AWS.ResourceWaiter = inherit({
   }
 });
 
-},{"./core":18,"jmespath":86}],57:[function(require,module,exports){
+},{"./core":19,"jmespath":89}],59:[function(require,module,exports){
 var AWS = require('./core');
 var inherit = AWS.util.inherit;
 var jmespath = require('jmespath');
@@ -10595,7 +14326,7 @@ AWS.Response = inherit({
 
 });
 
-},{"./core":18,"jmespath":86}],58:[function(require,module,exports){
+},{"./core":19,"jmespath":89}],60:[function(require,module,exports){
 var AWS = require('./core');
 
 /**
@@ -10832,14 +14563,15 @@ AWS.SequentialExecutor.prototype.addListener = AWS.SequentialExecutor.prototype.
  */
 module.exports = AWS.SequentialExecutor;
 
-},{"./core":18}],59:[function(require,module,exports){
-(function (process){
+},{"./core":19}],61:[function(require,module,exports){
+(function (process){(function (){
 var AWS = require('./core');
 var Api = require('./model/api');
 var regionConfig = require('./region_config');
 
 var inherit = AWS.util.inherit;
 var clientCount = 0;
+var region_utils = require('./region/utils');
 
 /**
  * The service class representing an AWS service.
@@ -10861,6 +14593,24 @@ AWS.Service = inherit({
       throw AWS.util.error(new Error(),
         'Service must be constructed with `new\' operator');
     }
+
+    if (config) {
+      if (config.region) {
+        var region = config.region;
+        if (region_utils.isFipsRegion(region)) {
+          config.region = region_utils.getRealRegion(region);
+          config.useFipsEndpoint = true;
+        }
+        if (region_utils.isGlobalRegion(region)) {
+          config.region = region_utils.getRealRegion(region);
+        }
+      }
+      if (typeof config.useDualstack === 'boolean'
+        && typeof config.useDualstackEndpoint !== 'boolean') {
+        config.useDualstackEndpoint = config.useDualstack;
+      }
+    }
+
     var ServiceClass = this.loadServiceClass(config || {});
     if (ServiceClass) {
       var originalConfig = AWS.util.copy(config);
@@ -10886,7 +14636,7 @@ AWS.Service = inherit({
     if (config) this.config.update(config, true);
 
     this.validateService();
-    if (!this.config.endpoint) regionConfig(this);
+    if (!this.config.endpoint) regionConfig.configureEndpoint(this);
 
     this.config.endpoint = this.endpointFromTemplate(this.config.endpoint);
     this.setEndpoint(this.config.endpoint);
@@ -11269,6 +15019,8 @@ AWS.Service = inherit({
       apiCallEvent.Latency = latency >= 0 ? latency : 0;
       var response = request.response;
       if (
+        response.error &&
+        response.error.retryable &&
         typeof response.retryCount === 'number' &&
         typeof response.maxRetries === 'number' &&
         (response.retryCount >= response.maxRetries)
@@ -11286,6 +15038,14 @@ AWS.Service = inherit({
    * @method_abstract This is an abstract method.
    */
   setupRequestListeners: function setupRequestListeners(request) {
+  },
+
+  /**
+   * Gets the signing name for a given request
+   * @api private
+   */
+  getSigningName: function getSigningName() {
+    return this.api.signingName || this.api.endpointPrefix;
   },
 
   /**
@@ -11353,8 +15113,8 @@ AWS.Service = inherit({
   /**
    * @api private
    */
-  retryDelays: function retryDelays(retryCount) {
-    return AWS.util.calculateRetryDelay(retryCount, this.config.retryDelayOptions);
+  retryDelays: function retryDelays(retryCount, err) {
+    return AWS.util.calculateRetryDelay(retryCount, this.config.retryDelayOptions, err);
   },
 
   /**
@@ -11428,7 +15188,7 @@ AWS.Service = inherit({
    */
   isClockSkewed: function isClockSkewed(newServerTime) {
     if (newServerTime) {
-      return Math.abs(this.getSkewCorrectedDate().getTime() - newServerTime) >= 30000;
+      return Math.abs(this.getSkewCorrectedDate().getTime() - newServerTime) >= 300000;
     }
   },
 
@@ -11447,6 +15207,7 @@ AWS.Service = inherit({
       case 'RequestThrottledException':
       case 'TooManyRequestsException':
       case 'TransactionInProgressException': //dynamodb
+      case 'EC2ThrottledException':
         return true;
       default:
         return false;
@@ -11587,7 +15348,9 @@ AWS.util.update(AWS.Service, {
       if (api.isApi) {
         svc.prototype.api = api;
       } else {
-        svc.prototype.api = new Api(api);
+        svc.prototype.api = new Api(api, {
+          serviceIdentifier: superclass.serviceIdentifier
+        });
       }
     }
 
@@ -11655,28 +15418,10 @@ AWS.util.mixin(AWS.Service, AWS.SequentialExecutor);
  */
 module.exports = AWS.Service;
 
-}).call(this,require('_process'))
-},{"./core":18,"./model/api":38,"./region_config":53,"_process":87}],60:[function(require,module,exports){
+}).call(this)}).call(this,require('_process'))
+},{"./core":19,"./model/api":39,"./region/utils":54,"./region_config":55,"_process":90}],62:[function(require,module,exports){
 var AWS = require('../core');
-
-AWS.util.update(AWS.CognitoIdentity.prototype, {
-  getOpenIdToken: function getOpenIdToken(params, callback) {
-    return this.makeUnauthenticatedRequest('getOpenIdToken', params, callback);
-  },
-
-  getId: function getId(params, callback) {
-    return this.makeUnauthenticatedRequest('getId', params, callback);
-  },
-
-  getCredentialsForIdentity: function getCredentialsForIdentity(params, callback) {
-    return this.makeUnauthenticatedRequest('getCredentialsForIdentity', params, callback);
-  }
-});
-
-},{"../core":18}],61:[function(require,module,exports){
-(function (process){
-var AWS = require('../core');
-var regionConfig = require('../region_config');
+var resolveRegionalEndpointsFlag = require('../config_regional_endpoint');
 var ENV_REGIONAL_ENDPOINT_ENABLED = 'AWS_STS_REGIONAL_ENDPOINTS';
 var CONFIG_REGIONAL_ENDPOINT_ENABLED = 'sts_regional_endpoints';
 
@@ -11728,83 +15473,41 @@ AWS.util.update(AWS.STS.prototype, {
   /**
    * @api private
    */
-  validateRegionalEndpointsFlagValue: function validateRegionalEndpointsFlagValue(configValue, errorOptions) {
-    if (typeof configValue === 'string' && ['legacy', 'regional'].indexOf(configValue.toLowerCase()) >= 0) {
-      this.config.stsRegionalEndpoints = configValue.toLowerCase();
-      return;
-    } else {
-      throw AWS.util.error(new Error(), errorOptions);
-    }
+  setupRequestListeners: function setupRequestListeners(request) {
+    request.addListener('validate', this.optInRegionalEndpoint, true);
   },
 
   /**
    * @api private
    */
-  validateRegionalEndpointsFlag: function validateRegionalEndpointsFlag() {
-    //validate config value
-    var config = this.config;
-    if (config.stsRegionalEndpoints) {
-      this.validateRegionalEndpointsFlagValue(config.stsRegionalEndpoints, {
-        code: 'InvalidConfiguration',
-        message: 'invalid "stsRegionalEndpoints" configuration. Expect "legacy" ' +
-        ' or "regional". Got "' + config.stsRegionalEndpoints + '".'
-      });
-    }
-    if (!AWS.util.isNode()) return;
-    //validate environmental variable
-    if (Object.prototype.hasOwnProperty.call(process.env, ENV_REGIONAL_ENDPOINT_ENABLED)) {
-      var envFlag = process.env[ENV_REGIONAL_ENDPOINT_ENABLED];
-      this.validateRegionalEndpointsFlagValue(envFlag, {
-        code: 'InvalidEnvironmentalVariable',
-        message: 'invalid ' + ENV_REGIONAL_ENDPOINT_ENABLED + ' environmental variable. Expect "legacy" ' +
-        ' or "regional". Got "' + process.env[ENV_REGIONAL_ENDPOINT_ENABLED] + '".'
-      });
-    }
-    //validate shared config file
-    var profile = {};
-    try {
-      var profiles = AWS.util.getProfilesFromSharedConfig(AWS.util.iniLoader);
-      profile = profiles[process.env.AWS_PROFILE || AWS.util.defaultProfile];
-    } catch (e) {};
-    if (profile && Object.prototype.hasOwnProperty.call(profile, CONFIG_REGIONAL_ENDPOINT_ENABLED)) {
-      var fileFlag = profile[CONFIG_REGIONAL_ENDPOINT_ENABLED];
-      this.validateRegionalEndpointsFlagValue(fileFlag, {
-        code: 'InvalidConfiguration',
-        message: 'invalid '+CONFIG_REGIONAL_ENDPOINT_ENABLED+' profile config. Expect "legacy" ' +
-        ' or "regional". Got "' + profile[CONFIG_REGIONAL_ENDPOINT_ENABLED] + '".'
-      });
-    }
-  },
-
-  /**
-   * @api private
-   */
-  optInRegionalEndpoint: function optInRegionalEndpoint() {
-    this.validateRegionalEndpointsFlag();
-    var config = this.config;
-    if (config.stsRegionalEndpoints === 'regional') {
-      regionConfig(this);
-      if (!this.isGlobalEndpoint) return;
-      this.isGlobalEndpoint = false;
+  optInRegionalEndpoint: function optInRegionalEndpoint(req) {
+    var service = req.service;
+    var config = service.config;
+    config.stsRegionalEndpoints = resolveRegionalEndpointsFlag(service._originalConfig, {
+      env: ENV_REGIONAL_ENDPOINT_ENABLED,
+      sharedConfig: CONFIG_REGIONAL_ENDPOINT_ENABLED,
+      clientConfig: 'stsRegionalEndpoints'
+    });
+    if (
+      config.stsRegionalEndpoints === 'regional' &&
+      service.isGlobalEndpoint
+    ) {
       //client will throw if region is not supplied; request will be signed with specified region
       if (!config.region) {
         throw AWS.util.error(new Error(),
           {code: 'ConfigError', message: 'Missing region in config'});
       }
       var insertPoint = config.endpoint.indexOf('.amazonaws.com');
-      config.endpoint = config.endpoint.substring(0, insertPoint) +
+      var regionalEndpoint = config.endpoint.substring(0, insertPoint) +
         '.' + config.region + config.endpoint.substring(insertPoint);
+      req.httpRequest.updateEndpoint(regionalEndpoint);
+      req.httpRequest.region = config.region;
     }
-  },
-
-  validateService: function validateService() {
-    this.optInRegionalEndpoint();
   }
 
 });
 
-}).call(this,require('_process'))
-},{"../core":18,"../region_config":53,"_process":87}],62:[function(require,module,exports){
+},{"../config_regional_endpoint":18,"../core":19}],63:[function(require,module,exports){
 var AWS = require('../core');
 var inherit = AWS.util.inherit;
 
@@ -11859,8 +15562,8 @@ function signedUrlSigner(request) {
   var auth = request.httpRequest.headers['Authorization'].split(' ');
   if (auth[0] === 'AWS') {
     auth = auth[1].split(':');
-    queryParams['AWSAccessKeyId'] = auth[0];
-    queryParams['Signature'] = auth[1];
+    queryParams['Signature'] = auth.pop();
+    queryParams['AWSAccessKeyId'] = auth.join(':');
 
     AWS.util.each(request.httpRequest.headers, function (key, value) {
       if (key === expiresHeader) key = 'Expires';
@@ -11925,7 +15628,7 @@ AWS.Signers.Presign = inherit({
  */
 module.exports = AWS.Signers.Presign;
 
-},{"../core":18}],63:[function(require,module,exports){
+},{"../core":19}],64:[function(require,module,exports){
 var AWS = require('../core');
 
 var inherit = AWS.util.inherit;
@@ -11966,7 +15669,7 @@ require('./v4');
 require('./s3');
 require('./presign');
 
-},{"../core":18,"./presign":62,"./s3":64,"./v2":65,"./v3":66,"./v3https":67,"./v4":68}],64:[function(require,module,exports){
+},{"../core":19,"./presign":63,"./s3":65,"./v2":66,"./v3":67,"./v3https":68,"./v4":69}],65:[function(require,module,exports){
 var AWS = require('../core');
 var inherit = AWS.util.inherit;
 
@@ -12143,7 +15846,7 @@ AWS.Signers.S3 = inherit(AWS.Signers.RequestSigner, {
  */
 module.exports = AWS.Signers.S3;
 
-},{"../core":18}],65:[function(require,module,exports){
+},{"../core":19}],66:[function(require,module,exports){
 var AWS = require('../core');
 var inherit = AWS.util.inherit;
 
@@ -12193,7 +15896,7 @@ AWS.Signers.V2 = inherit(AWS.Signers.RequestSigner, {
  */
 module.exports = AWS.Signers.V2;
 
-},{"../core":18}],66:[function(require,module,exports){
+},{"../core":19}],67:[function(require,module,exports){
 var AWS = require('../core');
 var inherit = AWS.util.inherit;
 
@@ -12272,7 +15975,7 @@ AWS.Signers.V3 = inherit(AWS.Signers.RequestSigner, {
  */
 module.exports = AWS.Signers.V3;
 
-},{"../core":18}],67:[function(require,module,exports){
+},{"../core":19}],68:[function(require,module,exports){
 var AWS = require('../core');
 var inherit = AWS.util.inherit;
 
@@ -12299,7 +16002,7 @@ AWS.Signers.V3Https = inherit(AWS.Signers.V3, {
  */
 module.exports = AWS.Signers.V3Https;
 
-},{"../core":18,"./v3":66}],68:[function(require,module,exports){
+},{"../core":19,"./v3":67}],69:[function(require,module,exports){
 var AWS = require('../core');
 var v4Credentials = require('./v4_credentials');
 var inherit = AWS.util.inherit;
@@ -12481,7 +16184,7 @@ AWS.Signers.V4 = inherit(AWS.Signers.RequestSigner, {
 
   hexEncodedBodyHash: function hexEncodedBodyHash() {
     var request = this.request;
-    if (this.isPresigned() && this.serviceName === 's3' && !request.body) {
+    if (this.isPresigned() && (['s3', 's3-object-lambda'].indexOf(this.serviceName) > -1) && !request.body) {
       return 'UNSIGNED-PAYLOAD';
     } else if (request.headers['X-Amz-Content-Sha256']) {
       return request.headers['X-Amz-Content-Sha256'];
@@ -12516,7 +16219,7 @@ AWS.Signers.V4 = inherit(AWS.Signers.RequestSigner, {
  */
 module.exports = AWS.Signers.V4;
 
-},{"../core":18,"./v4_credentials":69}],69:[function(require,module,exports){
+},{"../core":19,"./v4_credentials":70}],70:[function(require,module,exports){
 var AWS = require('../core');
 
 /**
@@ -12618,7 +16321,7 @@ module.exports = {
   }
 };
 
-},{"../core":18}],70:[function(require,module,exports){
+},{"../core":19}],71:[function(require,module,exports){
 function AcceptorStateMachine(states, state) {
   this.currentState = state || null;
   this.states = states || {};
@@ -12665,8 +16368,8 @@ AcceptorStateMachine.prototype.addState = function addState(name, acceptState, f
  */
 module.exports = AcceptorStateMachine;
 
-},{}],71:[function(require,module,exports){
-(function (process,setImmediate){
+},{}],72:[function(require,module,exports){
+(function (process,setImmediate){(function (){
 /* eslint guard-for-in:0 */
 var AWS;
 
@@ -12884,15 +16587,28 @@ var util = {
     parse: function string(ini) {
       var currentSection, map = {};
       util.arrayEach(ini.split(/\r?\n/), function(line) {
-        line = line.split(/(^|\s)[;#]/)[0]; // remove comments
-        var section = line.match(/^\s*\[([^\[\]]+)\]\s*$/);
-        if (section) {
-          currentSection = section[1];
+        line = line.split(/(^|\s)[;#]/)[0].trim(); // remove comments and trim
+        var isSection = line[0] === '[' && line[line.length - 1] === ']';
+        if (isSection) {
+          currentSection = line.substring(1, line.length - 1);
+          if (currentSection === '__proto__' || currentSection.split(/\s/)[1] === '__proto__') {
+            throw util.error(
+              new Error('Cannot load profile name \'' + currentSection + '\' from shared ini file.')
+            );
+          }
         } else if (currentSection) {
-          var item = line.match(/^\s*(.+?)\s*=\s*(.+?)\s*$/);
-          if (item) {
+          var indexOfEqualsSign = line.indexOf('=');
+          var start = 0;
+          var end = line.length - 1;
+          var isAssignment =
+            indexOfEqualsSign !== -1 && indexOfEqualsSign !== start && indexOfEqualsSign !== end;
+
+          if (isAssignment) {
+            var name = line.substring(0, indexOfEqualsSign).trim();
+            var value = line.substring(indexOfEqualsSign + 1).trim();
+
             map[currentSection] = map[currentSection] || {};
-            map[currentSection][item[1]] = item[2];
+            map[currentSection][name] = value;
           }
         }
       });
@@ -13263,7 +16979,7 @@ var util = {
       Object.defineProperty(err, 'message', {enumerable: true});
     }
 
-    err.name = options && options.name || err.name || err.code || 'Error';
+    err.name = String(options && options.name || err.name || err.code || 'Error');
     err.time = new Date();
 
     if (originalError) err.originalError = originalError;
@@ -13519,11 +17235,11 @@ var util = {
   /**
    * @api private
    */
-  calculateRetryDelay: function calculateRetryDelay(retryCount, retryDelayOptions) {
+  calculateRetryDelay: function calculateRetryDelay(retryCount, retryDelayOptions, err) {
     if (!retryDelayOptions) retryDelayOptions = {};
     var customBackoff = retryDelayOptions.customBackoff || null;
     if (typeof customBackoff === 'function') {
-      return customBackoff(retryCount);
+      return customBackoff(retryCount, err);
     }
     var base = typeof retryDelayOptions.base === 'number' ? retryDelayOptions.base : 100;
     var delay = Math.random() * (Math.pow(2, retryCount) * base);
@@ -13542,13 +17258,17 @@ var util = {
     var errCallback = function(err) {
       var maxRetries = options.maxRetries || 0;
       if (err && err.code === 'TimeoutError') err.retryable = true;
+
+      // Call `calculateRetryDelay()` only when relevant, see #3401
       if (err && err.retryable && retryCount < maxRetries) {
-        retryCount++;
-        var delay = util.calculateRetryDelay(retryCount, options.retryDelayOptions);
-        setTimeout(sendRequest, delay + (err.retryAfter || 0));
-      } else {
-        cb(err);
+        var delay = util.calculateRetryDelay(retryCount, options.retryDelayOptions, err);
+        if (delay >= 0) {
+          retryCount++;
+          setTimeout(sendRequest, delay + (err.retryAfter || 0));
+          return;
+        }
       }
+      cb(err);
     };
 
     var sendRequest = function() {
@@ -13562,7 +17282,10 @@ var util = {
           } else {
             var retryAfter = parseInt(httpResponse.headers['retry-after'], 10) * 1000 || 0;
             var err = util.error(new Error(),
-              { retryable: statusCode >= 500 || statusCode === 429 }
+              {
+                statusCode: statusCode,
+                retryable: statusCode >= 500 || statusCode === 429
+              }
             );
             if (retryAfter && err.retryable) err.retryAfter = retryAfter;
             errCallback(err);
@@ -13628,17 +17351,62 @@ var util = {
         filename: process.env[util.sharedConfigFileEnv]
       });
     }
-    var profilesFromCreds = iniLoader.loadFrom({
-      filename: filename ||
-        (process.env[util.configOptInEnv] && process.env[util.sharedCredentialsFileEnv])
-    });
+    var profilesFromCreds= {};
+    try {
+      var profilesFromCreds = iniLoader.loadFrom({
+        filename: filename ||
+          (process.env[util.configOptInEnv] && process.env[util.sharedCredentialsFileEnv])
+      });
+    } catch (error) {
+      // if using config, assume it is fully descriptive without a credentials file:
+      if (!process.env[util.configOptInEnv]) throw error;
+    }
     for (var i = 0, profileNames = Object.keys(profilesFromConfig); i < profileNames.length; i++) {
-      profiles[profileNames[i]] = profilesFromConfig[profileNames[i]];
+      profiles[profileNames[i]] = objectAssign(profiles[profileNames[i]] || {}, profilesFromConfig[profileNames[i]]);
     }
     for (var i = 0, profileNames = Object.keys(profilesFromCreds); i < profileNames.length; i++) {
-      profiles[profileNames[i]] = profilesFromCreds[profileNames[i]];
+      profiles[profileNames[i]] = objectAssign(profiles[profileNames[i]] || {}, profilesFromCreds[profileNames[i]]);
     }
     return profiles;
+
+    /**
+     * Roughly the semantics of `Object.assign(target, source)`
+     */
+    function objectAssign(target, source) {
+      for (var i = 0, keys = Object.keys(source); i < keys.length; i++) {
+        target[keys[i]] = source[keys[i]];
+      }
+      return target;
+    }
+  },
+
+  /**
+   * @api private
+   */
+  ARN: {
+    validate: function validateARN(str) {
+      return str && str.indexOf('arn:') === 0 && str.split(':').length >= 6;
+    },
+    parse: function parseARN(arn) {
+      var matched = arn.split(':');
+      return {
+        partition: matched[1],
+        service: matched[2],
+        region: matched[3],
+        accountId: matched[4],
+        resource: matched.slice(5).join(':')
+      };
+    },
+    build: function buildARN(arnObject) {
+      if (
+        arnObject.service === undefined ||
+        arnObject.region === undefined ||
+        arnObject.accountId === undefined ||
+        arnObject.resource === undefined
+      ) throw util.error(new Error('Input ARN object is invalid'));
+      return 'arn:'+ (arnObject.partition || 'aws') + ':' + arnObject.service +
+        ':' + arnObject.region + ':' + arnObject.accountId + ':' + arnObject.resource;
+    }
   },
 
   /**
@@ -13672,8 +17440,8 @@ var util = {
  */
 module.exports = util;
 
-}).call(this,require('_process'),require("timers").setImmediate)
-},{"../apis/metadata.json":4,"./core":18,"_process":87,"fs":79,"timers":95,"uuid":100}],72:[function(require,module,exports){
+}).call(this)}).call(this,require('_process'),require("timers").setImmediate)
+},{"../apis/metadata.json":4,"./core":19,"_process":90,"fs":80,"timers":97,"uuid":100}],73:[function(require,module,exports){
 var util = require('../util');
 var Shape = require('../model/shape');
 
@@ -13784,7 +17552,10 @@ function parseStructure(xml, shape) {
         getElementByTagName(xml, memberShape.name);
       if (xmlChild) {
         data[memberName] = parseXml(xmlChild, memberShape);
-      } else if (!memberShape.flattened && memberShape.type === 'list') {
+      } else if (
+        !memberShape.flattened &&
+        memberShape.type === 'list' &&
+        !shape.api.xmlNoDefaultLists) {
         data[memberName] = memberShape.defaultValue;
       }
     }
@@ -13873,7 +17644,7 @@ function parseUnknown(xml) {
  */
 module.exports = DomXmlParser;
 
-},{"../model/shape":43,"../util":71}],73:[function(require,module,exports){
+},{"../model/shape":44,"../util":72}],74:[function(require,module,exports){
 var util = require('../util');
 var XmlNode = require('./xml-node').XmlNode;
 var XmlText = require('./xml-text').XmlText;
@@ -13977,7 +17748,7 @@ function applyNamespaces(xml, shape, isRoot) {
  */
 module.exports = XmlBuilder;
 
-},{"../util":71,"./xml-node":76,"./xml-text":77}],74:[function(require,module,exports){
+},{"../util":72,"./xml-node":77,"./xml-text":78}],75:[function(require,module,exports){
 /**
  * Escapes characters that can not be in an XML attribute.
  */
@@ -13992,12 +17763,18 @@ module.exports = {
     escapeAttribute: escapeAttribute
 };
 
-},{}],75:[function(require,module,exports){
+},{}],76:[function(require,module,exports){
 /**
  * Escapes characters that can not be in an XML element.
  */
 function escapeElement(value) {
-    return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return value.replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/\r/g, '&#x0D;')
+                .replace(/\n/g, '&#x0A;')
+                .replace(/\u0085/g, '&#x85;')
+                .replace(/\u2028/, '&#x2028;');
 }
 
 /**
@@ -14007,7 +17784,7 @@ module.exports = {
     escapeElement: escapeElement
 };
 
-},{}],76:[function(require,module,exports){
+},{}],77:[function(require,module,exports){
 var escapeAttribute = require('./escape-attribute').escapeAttribute;
 
 /**
@@ -14054,7 +17831,7 @@ module.exports = {
     XmlNode: XmlNode
 };
 
-},{"./escape-attribute":74}],77:[function(require,module,exports){
+},{"./escape-attribute":75}],78:[function(require,module,exports){
 var escapeElement = require('./escape-element').escapeElement;
 
 /**
@@ -14076,7 +17853,7 @@ module.exports = {
     XmlText: XmlText
 };
 
-},{"./escape-element":75}],78:[function(require,module,exports){
+},{"./escape-element":76}],79:[function(require,module,exports){
 'use strict'
 
 exports.byteLength = byteLength
@@ -14204,9 +17981,7 @@ function fromByteArray (uint8) {
 
   // go through the array every three bytes, we'll deal with trailing stuff later
   for (var i = 0, len2 = len - extraBytes; i < len2; i += maxChunkLength) {
-    parts.push(encodeChunk(
-      uint8, i, (i + maxChunkLength) > len2 ? len2 : (i + maxChunkLength)
-    ))
+    parts.push(encodeChunk(uint8, i, (i + maxChunkLength) > len2 ? len2 : (i + maxChunkLength)))
   }
 
   // pad the end with zeros, but make sure to not forget the extra bytes
@@ -14230,14 +18005,1159 @@ function fromByteArray (uint8) {
   return parts.join('')
 }
 
-},{}],79:[function(require,module,exports){
-
 },{}],80:[function(require,module,exports){
-(function (global,Buffer){
+
+},{}],81:[function(require,module,exports){
+if (typeof Object.create === 'function') {
+  // implementation from standard node.js 'util' module
+  module.exports = function inherits(ctor, superCtor) {
+    ctor.super_ = superCtor
+    ctor.prototype = Object.create(superCtor.prototype, {
+      constructor: {
+        value: ctor,
+        enumerable: false,
+        writable: true,
+        configurable: true
+      }
+    });
+  };
+} else {
+  // old school shim for old browsers
+  module.exports = function inherits(ctor, superCtor) {
+    ctor.super_ = superCtor
+    var TempCtor = function () {}
+    TempCtor.prototype = superCtor.prototype
+    ctor.prototype = new TempCtor()
+    ctor.prototype.constructor = ctor
+  }
+}
+
+},{}],82:[function(require,module,exports){
+(function (global){(function (){
+/*! https://mths.be/punycode v1.3.2 by @mathias */
+;(function(root) {
+
+	/** Detect free variables */
+	var freeExports = typeof exports == 'object' && exports &&
+		!exports.nodeType && exports;
+	var freeModule = typeof module == 'object' && module &&
+		!module.nodeType && module;
+	var freeGlobal = typeof global == 'object' && global;
+	if (
+		freeGlobal.global === freeGlobal ||
+		freeGlobal.window === freeGlobal ||
+		freeGlobal.self === freeGlobal
+	) {
+		root = freeGlobal;
+	}
+
+	/**
+	 * The `punycode` object.
+	 * @name punycode
+	 * @type Object
+	 */
+	var punycode,
+
+	/** Highest positive signed 32-bit float value */
+	maxInt = 2147483647, // aka. 0x7FFFFFFF or 2^31-1
+
+	/** Bootstring parameters */
+	base = 36,
+	tMin = 1,
+	tMax = 26,
+	skew = 38,
+	damp = 700,
+	initialBias = 72,
+	initialN = 128, // 0x80
+	delimiter = '-', // '\x2D'
+
+	/** Regular expressions */
+	regexPunycode = /^xn--/,
+	regexNonASCII = /[^\x20-\x7E]/, // unprintable ASCII chars + non-ASCII chars
+	regexSeparators = /[\x2E\u3002\uFF0E\uFF61]/g, // RFC 3490 separators
+
+	/** Error messages */
+	errors = {
+		'overflow': 'Overflow: input needs wider integers to process',
+		'not-basic': 'Illegal input >= 0x80 (not a basic code point)',
+		'invalid-input': 'Invalid input'
+	},
+
+	/** Convenience shortcuts */
+	baseMinusTMin = base - tMin,
+	floor = Math.floor,
+	stringFromCharCode = String.fromCharCode,
+
+	/** Temporary variable */
+	key;
+
+	/*--------------------------------------------------------------------------*/
+
+	/**
+	 * A generic error utility function.
+	 * @private
+	 * @param {String} type The error type.
+	 * @returns {Error} Throws a `RangeError` with the applicable error message.
+	 */
+	function error(type) {
+		throw RangeError(errors[type]);
+	}
+
+	/**
+	 * A generic `Array#map` utility function.
+	 * @private
+	 * @param {Array} array The array to iterate over.
+	 * @param {Function} callback The function that gets called for every array
+	 * item.
+	 * @returns {Array} A new array of values returned by the callback function.
+	 */
+	function map(array, fn) {
+		var length = array.length;
+		var result = [];
+		while (length--) {
+			result[length] = fn(array[length]);
+		}
+		return result;
+	}
+
+	/**
+	 * A simple `Array#map`-like wrapper to work with domain name strings or email
+	 * addresses.
+	 * @private
+	 * @param {String} domain The domain name or email address.
+	 * @param {Function} callback The function that gets called for every
+	 * character.
+	 * @returns {Array} A new string of characters returned by the callback
+	 * function.
+	 */
+	function mapDomain(string, fn) {
+		var parts = string.split('@');
+		var result = '';
+		if (parts.length > 1) {
+			// In email addresses, only the domain name should be punycoded. Leave
+			// the local part (i.e. everything up to `@`) intact.
+			result = parts[0] + '@';
+			string = parts[1];
+		}
+		// Avoid `split(regex)` for IE8 compatibility. See #17.
+		string = string.replace(regexSeparators, '\x2E');
+		var labels = string.split('.');
+		var encoded = map(labels, fn).join('.');
+		return result + encoded;
+	}
+
+	/**
+	 * Creates an array containing the numeric code points of each Unicode
+	 * character in the string. While JavaScript uses UCS-2 internally,
+	 * this function will convert a pair of surrogate halves (each of which
+	 * UCS-2 exposes as separate characters) into a single code point,
+	 * matching UTF-16.
+	 * @see `punycode.ucs2.encode`
+	 * @see <https://mathiasbynens.be/notes/javascript-encoding>
+	 * @memberOf punycode.ucs2
+	 * @name decode
+	 * @param {String} string The Unicode input string (UCS-2).
+	 * @returns {Array} The new array of code points.
+	 */
+	function ucs2decode(string) {
+		var output = [],
+		    counter = 0,
+		    length = string.length,
+		    value,
+		    extra;
+		while (counter < length) {
+			value = string.charCodeAt(counter++);
+			if (value >= 0xD800 && value <= 0xDBFF && counter < length) {
+				// high surrogate, and there is a next character
+				extra = string.charCodeAt(counter++);
+				if ((extra & 0xFC00) == 0xDC00) { // low surrogate
+					output.push(((value & 0x3FF) << 10) + (extra & 0x3FF) + 0x10000);
+				} else {
+					// unmatched surrogate; only append this code unit, in case the next
+					// code unit is the high surrogate of a surrogate pair
+					output.push(value);
+					counter--;
+				}
+			} else {
+				output.push(value);
+			}
+		}
+		return output;
+	}
+
+	/**
+	 * Creates a string based on an array of numeric code points.
+	 * @see `punycode.ucs2.decode`
+	 * @memberOf punycode.ucs2
+	 * @name encode
+	 * @param {Array} codePoints The array of numeric code points.
+	 * @returns {String} The new Unicode string (UCS-2).
+	 */
+	function ucs2encode(array) {
+		return map(array, function(value) {
+			var output = '';
+			if (value > 0xFFFF) {
+				value -= 0x10000;
+				output += stringFromCharCode(value >>> 10 & 0x3FF | 0xD800);
+				value = 0xDC00 | value & 0x3FF;
+			}
+			output += stringFromCharCode(value);
+			return output;
+		}).join('');
+	}
+
+	/**
+	 * Converts a basic code point into a digit/integer.
+	 * @see `digitToBasic()`
+	 * @private
+	 * @param {Number} codePoint The basic numeric code point value.
+	 * @returns {Number} The numeric value of a basic code point (for use in
+	 * representing integers) in the range `0` to `base - 1`, or `base` if
+	 * the code point does not represent a value.
+	 */
+	function basicToDigit(codePoint) {
+		if (codePoint - 48 < 10) {
+			return codePoint - 22;
+		}
+		if (codePoint - 65 < 26) {
+			return codePoint - 65;
+		}
+		if (codePoint - 97 < 26) {
+			return codePoint - 97;
+		}
+		return base;
+	}
+
+	/**
+	 * Converts a digit/integer into a basic code point.
+	 * @see `basicToDigit()`
+	 * @private
+	 * @param {Number} digit The numeric value of a basic code point.
+	 * @returns {Number} The basic code point whose value (when used for
+	 * representing integers) is `digit`, which needs to be in the range
+	 * `0` to `base - 1`. If `flag` is non-zero, the uppercase form is
+	 * used; else, the lowercase form is used. The behavior is undefined
+	 * if `flag` is non-zero and `digit` has no uppercase form.
+	 */
+	function digitToBasic(digit, flag) {
+		//  0..25 map to ASCII a..z or A..Z
+		// 26..35 map to ASCII 0..9
+		return digit + 22 + 75 * (digit < 26) - ((flag != 0) << 5);
+	}
+
+	/**
+	 * Bias adaptation function as per section 3.4 of RFC 3492.
+	 * http://tools.ietf.org/html/rfc3492#section-3.4
+	 * @private
+	 */
+	function adapt(delta, numPoints, firstTime) {
+		var k = 0;
+		delta = firstTime ? floor(delta / damp) : delta >> 1;
+		delta += floor(delta / numPoints);
+		for (/* no initialization */; delta > baseMinusTMin * tMax >> 1; k += base) {
+			delta = floor(delta / baseMinusTMin);
+		}
+		return floor(k + (baseMinusTMin + 1) * delta / (delta + skew));
+	}
+
+	/**
+	 * Converts a Punycode string of ASCII-only symbols to a string of Unicode
+	 * symbols.
+	 * @memberOf punycode
+	 * @param {String} input The Punycode string of ASCII-only symbols.
+	 * @returns {String} The resulting string of Unicode symbols.
+	 */
+	function decode(input) {
+		// Don't use UCS-2
+		var output = [],
+		    inputLength = input.length,
+		    out,
+		    i = 0,
+		    n = initialN,
+		    bias = initialBias,
+		    basic,
+		    j,
+		    index,
+		    oldi,
+		    w,
+		    k,
+		    digit,
+		    t,
+		    /** Cached calculation results */
+		    baseMinusT;
+
+		// Handle the basic code points: let `basic` be the number of input code
+		// points before the last delimiter, or `0` if there is none, then copy
+		// the first basic code points to the output.
+
+		basic = input.lastIndexOf(delimiter);
+		if (basic < 0) {
+			basic = 0;
+		}
+
+		for (j = 0; j < basic; ++j) {
+			// if it's not a basic code point
+			if (input.charCodeAt(j) >= 0x80) {
+				error('not-basic');
+			}
+			output.push(input.charCodeAt(j));
+		}
+
+		// Main decoding loop: start just after the last delimiter if any basic code
+		// points were copied; start at the beginning otherwise.
+
+		for (index = basic > 0 ? basic + 1 : 0; index < inputLength; /* no final expression */) {
+
+			// `index` is the index of the next character to be consumed.
+			// Decode a generalized variable-length integer into `delta`,
+			// which gets added to `i`. The overflow checking is easier
+			// if we increase `i` as we go, then subtract off its starting
+			// value at the end to obtain `delta`.
+			for (oldi = i, w = 1, k = base; /* no condition */; k += base) {
+
+				if (index >= inputLength) {
+					error('invalid-input');
+				}
+
+				digit = basicToDigit(input.charCodeAt(index++));
+
+				if (digit >= base || digit > floor((maxInt - i) / w)) {
+					error('overflow');
+				}
+
+				i += digit * w;
+				t = k <= bias ? tMin : (k >= bias + tMax ? tMax : k - bias);
+
+				if (digit < t) {
+					break;
+				}
+
+				baseMinusT = base - t;
+				if (w > floor(maxInt / baseMinusT)) {
+					error('overflow');
+				}
+
+				w *= baseMinusT;
+
+			}
+
+			out = output.length + 1;
+			bias = adapt(i - oldi, out, oldi == 0);
+
+			// `i` was supposed to wrap around from `out` to `0`,
+			// incrementing `n` each time, so we'll fix that now:
+			if (floor(i / out) > maxInt - n) {
+				error('overflow');
+			}
+
+			n += floor(i / out);
+			i %= out;
+
+			// Insert `n` at position `i` of the output
+			output.splice(i++, 0, n);
+
+		}
+
+		return ucs2encode(output);
+	}
+
+	/**
+	 * Converts a string of Unicode symbols (e.g. a domain name label) to a
+	 * Punycode string of ASCII-only symbols.
+	 * @memberOf punycode
+	 * @param {String} input The string of Unicode symbols.
+	 * @returns {String} The resulting Punycode string of ASCII-only symbols.
+	 */
+	function encode(input) {
+		var n,
+		    delta,
+		    handledCPCount,
+		    basicLength,
+		    bias,
+		    j,
+		    m,
+		    q,
+		    k,
+		    t,
+		    currentValue,
+		    output = [],
+		    /** `inputLength` will hold the number of code points in `input`. */
+		    inputLength,
+		    /** Cached calculation results */
+		    handledCPCountPlusOne,
+		    baseMinusT,
+		    qMinusT;
+
+		// Convert the input in UCS-2 to Unicode
+		input = ucs2decode(input);
+
+		// Cache the length
+		inputLength = input.length;
+
+		// Initialize the state
+		n = initialN;
+		delta = 0;
+		bias = initialBias;
+
+		// Handle the basic code points
+		for (j = 0; j < inputLength; ++j) {
+			currentValue = input[j];
+			if (currentValue < 0x80) {
+				output.push(stringFromCharCode(currentValue));
+			}
+		}
+
+		handledCPCount = basicLength = output.length;
+
+		// `handledCPCount` is the number of code points that have been handled;
+		// `basicLength` is the number of basic code points.
+
+		// Finish the basic string - if it is not empty - with a delimiter
+		if (basicLength) {
+			output.push(delimiter);
+		}
+
+		// Main encoding loop:
+		while (handledCPCount < inputLength) {
+
+			// All non-basic code points < n have been handled already. Find the next
+			// larger one:
+			for (m = maxInt, j = 0; j < inputLength; ++j) {
+				currentValue = input[j];
+				if (currentValue >= n && currentValue < m) {
+					m = currentValue;
+				}
+			}
+
+			// Increase `delta` enough to advance the decoder's <n,i> state to <m,0>,
+			// but guard against overflow
+			handledCPCountPlusOne = handledCPCount + 1;
+			if (m - n > floor((maxInt - delta) / handledCPCountPlusOne)) {
+				error('overflow');
+			}
+
+			delta += (m - n) * handledCPCountPlusOne;
+			n = m;
+
+			for (j = 0; j < inputLength; ++j) {
+				currentValue = input[j];
+
+				if (currentValue < n && ++delta > maxInt) {
+					error('overflow');
+				}
+
+				if (currentValue == n) {
+					// Represent delta as a generalized variable-length integer
+					for (q = delta, k = base; /* no condition */; k += base) {
+						t = k <= bias ? tMin : (k >= bias + tMax ? tMax : k - bias);
+						if (q < t) {
+							break;
+						}
+						qMinusT = q - t;
+						baseMinusT = base - t;
+						output.push(
+							stringFromCharCode(digitToBasic(t + qMinusT % baseMinusT, 0))
+						);
+						q = floor(qMinusT / baseMinusT);
+					}
+
+					output.push(stringFromCharCode(digitToBasic(q, 0)));
+					bias = adapt(delta, handledCPCountPlusOne, handledCPCount == basicLength);
+					delta = 0;
+					++handledCPCount;
+				}
+			}
+
+			++delta;
+			++n;
+
+		}
+		return output.join('');
+	}
+
+	/**
+	 * Converts a Punycode string representing a domain name or an email address
+	 * to Unicode. Only the Punycoded parts of the input will be converted, i.e.
+	 * it doesn't matter if you call it on a string that has already been
+	 * converted to Unicode.
+	 * @memberOf punycode
+	 * @param {String} input The Punycoded domain name or email address to
+	 * convert to Unicode.
+	 * @returns {String} The Unicode representation of the given Punycode
+	 * string.
+	 */
+	function toUnicode(input) {
+		return mapDomain(input, function(string) {
+			return regexPunycode.test(string)
+				? decode(string.slice(4).toLowerCase())
+				: string;
+		});
+	}
+
+	/**
+	 * Converts a Unicode string representing a domain name or an email address to
+	 * Punycode. Only the non-ASCII parts of the domain name will be converted,
+	 * i.e. it doesn't matter if you call it with a domain that's already in
+	 * ASCII.
+	 * @memberOf punycode
+	 * @param {String} input The domain name or email address to convert, as a
+	 * Unicode string.
+	 * @returns {String} The Punycode representation of the given domain name or
+	 * email address.
+	 */
+	function toASCII(input) {
+		return mapDomain(input, function(string) {
+			return regexNonASCII.test(string)
+				? 'xn--' + encode(string)
+				: string;
+		});
+	}
+
+	/*--------------------------------------------------------------------------*/
+
+	/** Define the public API */
+	punycode = {
+		/**
+		 * A string representing the current Punycode.js version number.
+		 * @memberOf punycode
+		 * @type String
+		 */
+		'version': '1.3.2',
+		/**
+		 * An object of methods to convert from JavaScript's internal character
+		 * representation (UCS-2) to Unicode code points, and back.
+		 * @see <https://mathiasbynens.be/notes/javascript-encoding>
+		 * @memberOf punycode
+		 * @type Object
+		 */
+		'ucs2': {
+			'decode': ucs2decode,
+			'encode': ucs2encode
+		},
+		'decode': decode,
+		'encode': encode,
+		'toASCII': toASCII,
+		'toUnicode': toUnicode
+	};
+
+	/** Expose `punycode` */
+	// Some AMD build optimizers, like r.js, check for specific condition patterns
+	// like the following:
+	if (
+		true
+	) {
+		!(__WEBPACK_AMD_DEFINE_RESULT__ = (function() {
+			return punycode;
+		}).call(exports, __webpack_require__, exports, module),
+		__WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
+	} else {}
+
+}(this));
+
+}).call(this)}).call(this,typeof __webpack_require__.g !== "undefined" ? __webpack_require__.g : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{}],83:[function(require,module,exports){
+module.exports = function isBuffer(arg) {
+  return arg && typeof arg === 'object'
+    && typeof arg.copy === 'function'
+    && typeof arg.fill === 'function'
+    && typeof arg.readUInt8 === 'function';
+}
+},{}],84:[function(require,module,exports){
+(function (process,global){(function (){
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+var formatRegExp = /%[sdj%]/g;
+exports.format = function(f) {
+  if (!isString(f)) {
+    var objects = [];
+    for (var i = 0; i < arguments.length; i++) {
+      objects.push(inspect(arguments[i]));
+    }
+    return objects.join(' ');
+  }
+
+  var i = 1;
+  var args = arguments;
+  var len = args.length;
+  var str = String(f).replace(formatRegExp, function(x) {
+    if (x === '%%') return '%';
+    if (i >= len) return x;
+    switch (x) {
+      case '%s': return String(args[i++]);
+      case '%d': return Number(args[i++]);
+      case '%j':
+        try {
+          return JSON.stringify(args[i++]);
+        } catch (_) {
+          return '[Circular]';
+        }
+      default:
+        return x;
+    }
+  });
+  for (var x = args[i]; i < len; x = args[++i]) {
+    if (isNull(x) || !isObject(x)) {
+      str += ' ' + x;
+    } else {
+      str += ' ' + inspect(x);
+    }
+  }
+  return str;
+};
+
+
+// Mark that a method should not be used.
+// Returns a modified function which warns once by default.
+// If --no-deprecation is set, then it is a no-op.
+exports.deprecate = function(fn, msg) {
+  // Allow for deprecating things in the process of starting up.
+  if (isUndefined(global.process)) {
+    return function() {
+      return exports.deprecate(fn, msg).apply(this, arguments);
+    };
+  }
+
+  if (process.noDeprecation === true) {
+    return fn;
+  }
+
+  var warned = false;
+  function deprecated() {
+    if (!warned) {
+      if (process.throwDeprecation) {
+        throw new Error(msg);
+      } else if (process.traceDeprecation) {
+        console.trace(msg);
+      } else {
+        console.error(msg);
+      }
+      warned = true;
+    }
+    return fn.apply(this, arguments);
+  }
+
+  return deprecated;
+};
+
+
+var debugs = {};
+var debugEnviron;
+exports.debuglog = function(set) {
+  if (isUndefined(debugEnviron))
+    debugEnviron = process.env.NODE_DEBUG || '';
+  set = set.toUpperCase();
+  if (!debugs[set]) {
+    if (new RegExp('\\b' + set + '\\b', 'i').test(debugEnviron)) {
+      var pid = process.pid;
+      debugs[set] = function() {
+        var msg = exports.format.apply(exports, arguments);
+        console.error('%s %d: %s', set, pid, msg);
+      };
+    } else {
+      debugs[set] = function() {};
+    }
+  }
+  return debugs[set];
+};
+
+
+/**
+ * Echos the value of a value. Trys to print the value out
+ * in the best way possible given the different types.
+ *
+ * @param {Object} obj The object to print out.
+ * @param {Object} opts Optional options object that alters the output.
+ */
+/* legacy: obj, showHidden, depth, colors*/
+function inspect(obj, opts) {
+  // default options
+  var ctx = {
+    seen: [],
+    stylize: stylizeNoColor
+  };
+  // legacy...
+  if (arguments.length >= 3) ctx.depth = arguments[2];
+  if (arguments.length >= 4) ctx.colors = arguments[3];
+  if (isBoolean(opts)) {
+    // legacy...
+    ctx.showHidden = opts;
+  } else if (opts) {
+    // got an "options" object
+    exports._extend(ctx, opts);
+  }
+  // set default options
+  if (isUndefined(ctx.showHidden)) ctx.showHidden = false;
+  if (isUndefined(ctx.depth)) ctx.depth = 2;
+  if (isUndefined(ctx.colors)) ctx.colors = false;
+  if (isUndefined(ctx.customInspect)) ctx.customInspect = true;
+  if (ctx.colors) ctx.stylize = stylizeWithColor;
+  return formatValue(ctx, obj, ctx.depth);
+}
+exports.inspect = inspect;
+
+
+// http://en.wikipedia.org/wiki/ANSI_escape_code#graphics
+inspect.colors = {
+  'bold' : [1, 22],
+  'italic' : [3, 23],
+  'underline' : [4, 24],
+  'inverse' : [7, 27],
+  'white' : [37, 39],
+  'grey' : [90, 39],
+  'black' : [30, 39],
+  'blue' : [34, 39],
+  'cyan' : [36, 39],
+  'green' : [32, 39],
+  'magenta' : [35, 39],
+  'red' : [31, 39],
+  'yellow' : [33, 39]
+};
+
+// Don't use 'blue' not visible on cmd.exe
+inspect.styles = {
+  'special': 'cyan',
+  'number': 'yellow',
+  'boolean': 'yellow',
+  'undefined': 'grey',
+  'null': 'bold',
+  'string': 'green',
+  'date': 'magenta',
+  // "name": intentionally not styling
+  'regexp': 'red'
+};
+
+
+function stylizeWithColor(str, styleType) {
+  var style = inspect.styles[styleType];
+
+  if (style) {
+    return '\u001b[' + inspect.colors[style][0] + 'm' + str +
+           '\u001b[' + inspect.colors[style][1] + 'm';
+  } else {
+    return str;
+  }
+}
+
+
+function stylizeNoColor(str, styleType) {
+  return str;
+}
+
+
+function arrayToHash(array) {
+  var hash = {};
+
+  array.forEach(function(val, idx) {
+    hash[val] = true;
+  });
+
+  return hash;
+}
+
+
+function formatValue(ctx, value, recurseTimes) {
+  // Provide a hook for user-specified inspect functions.
+  // Check that value is an object with an inspect function on it
+  if (ctx.customInspect &&
+      value &&
+      isFunction(value.inspect) &&
+      // Filter out the util module, it's inspect function is special
+      value.inspect !== exports.inspect &&
+      // Also filter out any prototype objects using the circular check.
+      !(value.constructor && value.constructor.prototype === value)) {
+    var ret = value.inspect(recurseTimes, ctx);
+    if (!isString(ret)) {
+      ret = formatValue(ctx, ret, recurseTimes);
+    }
+    return ret;
+  }
+
+  // Primitive types cannot have properties
+  var primitive = formatPrimitive(ctx, value);
+  if (primitive) {
+    return primitive;
+  }
+
+  // Look up the keys of the object.
+  var keys = Object.keys(value);
+  var visibleKeys = arrayToHash(keys);
+
+  if (ctx.showHidden) {
+    keys = Object.getOwnPropertyNames(value);
+  }
+
+  // IE doesn't make error fields non-enumerable
+  // http://msdn.microsoft.com/en-us/library/ie/dww52sbt(v=vs.94).aspx
+  if (isError(value)
+      && (keys.indexOf('message') >= 0 || keys.indexOf('description') >= 0)) {
+    return formatError(value);
+  }
+
+  // Some type of object without properties can be shortcutted.
+  if (keys.length === 0) {
+    if (isFunction(value)) {
+      var name = value.name ? ': ' + value.name : '';
+      return ctx.stylize('[Function' + name + ']', 'special');
+    }
+    if (isRegExp(value)) {
+      return ctx.stylize(RegExp.prototype.toString.call(value), 'regexp');
+    }
+    if (isDate(value)) {
+      return ctx.stylize(Date.prototype.toString.call(value), 'date');
+    }
+    if (isError(value)) {
+      return formatError(value);
+    }
+  }
+
+  var base = '', array = false, braces = ['{', '}'];
+
+  // Make Array say that they are Array
+  if (isArray(value)) {
+    array = true;
+    braces = ['[', ']'];
+  }
+
+  // Make functions say that they are functions
+  if (isFunction(value)) {
+    var n = value.name ? ': ' + value.name : '';
+    base = ' [Function' + n + ']';
+  }
+
+  // Make RegExps say that they are RegExps
+  if (isRegExp(value)) {
+    base = ' ' + RegExp.prototype.toString.call(value);
+  }
+
+  // Make dates with properties first say the date
+  if (isDate(value)) {
+    base = ' ' + Date.prototype.toUTCString.call(value);
+  }
+
+  // Make error with message first say the error
+  if (isError(value)) {
+    base = ' ' + formatError(value);
+  }
+
+  if (keys.length === 0 && (!array || value.length == 0)) {
+    return braces[0] + base + braces[1];
+  }
+
+  if (recurseTimes < 0) {
+    if (isRegExp(value)) {
+      return ctx.stylize(RegExp.prototype.toString.call(value), 'regexp');
+    } else {
+      return ctx.stylize('[Object]', 'special');
+    }
+  }
+
+  ctx.seen.push(value);
+
+  var output;
+  if (array) {
+    output = formatArray(ctx, value, recurseTimes, visibleKeys, keys);
+  } else {
+    output = keys.map(function(key) {
+      return formatProperty(ctx, value, recurseTimes, visibleKeys, key, array);
+    });
+  }
+
+  ctx.seen.pop();
+
+  return reduceToSingleString(output, base, braces);
+}
+
+
+function formatPrimitive(ctx, value) {
+  if (isUndefined(value))
+    return ctx.stylize('undefined', 'undefined');
+  if (isString(value)) {
+    var simple = '\'' + JSON.stringify(value).replace(/^"|"$/g, '')
+                                             .replace(/'/g, "\\'")
+                                             .replace(/\\"/g, '"') + '\'';
+    return ctx.stylize(simple, 'string');
+  }
+  if (isNumber(value))
+    return ctx.stylize('' + value, 'number');
+  if (isBoolean(value))
+    return ctx.stylize('' + value, 'boolean');
+  // For some reason typeof null is "object", so special case here.
+  if (isNull(value))
+    return ctx.stylize('null', 'null');
+}
+
+
+function formatError(value) {
+  return '[' + Error.prototype.toString.call(value) + ']';
+}
+
+
+function formatArray(ctx, value, recurseTimes, visibleKeys, keys) {
+  var output = [];
+  for (var i = 0, l = value.length; i < l; ++i) {
+    if (hasOwnProperty(value, String(i))) {
+      output.push(formatProperty(ctx, value, recurseTimes, visibleKeys,
+          String(i), true));
+    } else {
+      output.push('');
+    }
+  }
+  keys.forEach(function(key) {
+    if (!key.match(/^\d+$/)) {
+      output.push(formatProperty(ctx, value, recurseTimes, visibleKeys,
+          key, true));
+    }
+  });
+  return output;
+}
+
+
+function formatProperty(ctx, value, recurseTimes, visibleKeys, key, array) {
+  var name, str, desc;
+  desc = Object.getOwnPropertyDescriptor(value, key) || { value: value[key] };
+  if (desc.get) {
+    if (desc.set) {
+      str = ctx.stylize('[Getter/Setter]', 'special');
+    } else {
+      str = ctx.stylize('[Getter]', 'special');
+    }
+  } else {
+    if (desc.set) {
+      str = ctx.stylize('[Setter]', 'special');
+    }
+  }
+  if (!hasOwnProperty(visibleKeys, key)) {
+    name = '[' + key + ']';
+  }
+  if (!str) {
+    if (ctx.seen.indexOf(desc.value) < 0) {
+      if (isNull(recurseTimes)) {
+        str = formatValue(ctx, desc.value, null);
+      } else {
+        str = formatValue(ctx, desc.value, recurseTimes - 1);
+      }
+      if (str.indexOf('\n') > -1) {
+        if (array) {
+          str = str.split('\n').map(function(line) {
+            return '  ' + line;
+          }).join('\n').substr(2);
+        } else {
+          str = '\n' + str.split('\n').map(function(line) {
+            return '   ' + line;
+          }).join('\n');
+        }
+      }
+    } else {
+      str = ctx.stylize('[Circular]', 'special');
+    }
+  }
+  if (isUndefined(name)) {
+    if (array && key.match(/^\d+$/)) {
+      return str;
+    }
+    name = JSON.stringify('' + key);
+    if (name.match(/^"([a-zA-Z_][a-zA-Z_0-9]*)"$/)) {
+      name = name.substr(1, name.length - 2);
+      name = ctx.stylize(name, 'name');
+    } else {
+      name = name.replace(/'/g, "\\'")
+                 .replace(/\\"/g, '"')
+                 .replace(/(^"|"$)/g, "'");
+      name = ctx.stylize(name, 'string');
+    }
+  }
+
+  return name + ': ' + str;
+}
+
+
+function reduceToSingleString(output, base, braces) {
+  var numLinesEst = 0;
+  var length = output.reduce(function(prev, cur) {
+    numLinesEst++;
+    if (cur.indexOf('\n') >= 0) numLinesEst++;
+    return prev + cur.replace(/\u001b\[\d\d?m/g, '').length + 1;
+  }, 0);
+
+  if (length > 60) {
+    return braces[0] +
+           (base === '' ? '' : base + '\n ') +
+           ' ' +
+           output.join(',\n  ') +
+           ' ' +
+           braces[1];
+  }
+
+  return braces[0] + base + ' ' + output.join(', ') + ' ' + braces[1];
+}
+
+
+// NOTE: These type checking functions intentionally don't use `instanceof`
+// because it is fragile and can be easily faked with `Object.create()`.
+function isArray(ar) {
+  return Array.isArray(ar);
+}
+exports.isArray = isArray;
+
+function isBoolean(arg) {
+  return typeof arg === 'boolean';
+}
+exports.isBoolean = isBoolean;
+
+function isNull(arg) {
+  return arg === null;
+}
+exports.isNull = isNull;
+
+function isNullOrUndefined(arg) {
+  return arg == null;
+}
+exports.isNullOrUndefined = isNullOrUndefined;
+
+function isNumber(arg) {
+  return typeof arg === 'number';
+}
+exports.isNumber = isNumber;
+
+function isString(arg) {
+  return typeof arg === 'string';
+}
+exports.isString = isString;
+
+function isSymbol(arg) {
+  return typeof arg === 'symbol';
+}
+exports.isSymbol = isSymbol;
+
+function isUndefined(arg) {
+  return arg === void 0;
+}
+exports.isUndefined = isUndefined;
+
+function isRegExp(re) {
+  return isObject(re) && objectToString(re) === '[object RegExp]';
+}
+exports.isRegExp = isRegExp;
+
+function isObject(arg) {
+  return typeof arg === 'object' && arg !== null;
+}
+exports.isObject = isObject;
+
+function isDate(d) {
+  return isObject(d) && objectToString(d) === '[object Date]';
+}
+exports.isDate = isDate;
+
+function isError(e) {
+  return isObject(e) &&
+      (objectToString(e) === '[object Error]' || e instanceof Error);
+}
+exports.isError = isError;
+
+function isFunction(arg) {
+  return typeof arg === 'function';
+}
+exports.isFunction = isFunction;
+
+function isPrimitive(arg) {
+  return arg === null ||
+         typeof arg === 'boolean' ||
+         typeof arg === 'number' ||
+         typeof arg === 'string' ||
+         typeof arg === 'symbol' ||  // ES6 symbol
+         typeof arg === 'undefined';
+}
+exports.isPrimitive = isPrimitive;
+
+exports.isBuffer = require('./support/isBuffer');
+
+function objectToString(o) {
+  return Object.prototype.toString.call(o);
+}
+
+
+function pad(n) {
+  return n < 10 ? '0' + n.toString(10) : n.toString(10);
+}
+
+
+var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
+              'Oct', 'Nov', 'Dec'];
+
+// 26 Feb 16:19:34
+function timestamp() {
+  var d = new Date();
+  var time = [pad(d.getHours()),
+              pad(d.getMinutes()),
+              pad(d.getSeconds())].join(':');
+  return [d.getDate(), months[d.getMonth()], time].join(' ');
+}
+
+
+// log is just a thin wrapper to console.log that prepends a timestamp
+exports.log = function() {
+  console.log('%s - %s', timestamp(), exports.format.apply(exports, arguments));
+};
+
+
+/**
+ * Inherit the prototype methods from one constructor into another.
+ *
+ * The Function.prototype.inherits from lang.js rewritten as a standalone
+ * function (not on Function.prototype). NOTE: If this file is to be loaded
+ * during bootstrapping this function needs to be rewritten using some native
+ * functions as prototype setup using normal JavaScript does not work as
+ * expected during bootstrapping (see mirror.js in r114903).
+ *
+ * @param {function} ctor Constructor function which needs to inherit the
+ *     prototype.
+ * @param {function} superCtor Constructor function to inherit prototype from.
+ */
+exports.inherits = require('inherits');
+
+exports._extend = function(origin, add) {
+  // Don't do anything if add isn't an object
+  if (!add || !isObject(add)) return origin;
+
+  var keys = Object.keys(add);
+  var i = keys.length;
+  while (i--) {
+    origin[keys[i]] = add[keys[i]];
+  }
+  return origin;
+};
+
+function hasOwnProperty(obj, prop) {
+  return Object.prototype.hasOwnProperty.call(obj, prop);
+}
+
+}).call(this)}).call(this,require('_process'),typeof __webpack_require__.g !== "undefined" ? __webpack_require__.g : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{"./support/isBuffer":83,"_process":90,"inherits":81}],85:[function(require,module,exports){
+(function (global,Buffer){(function (){
 /*!
  * The buffer module from node.js, for the browser.
  *
- * @author   Feross Aboukhadijeh <feross@feross.org> <http://feross.org>
+ * @author   Feross Aboukhadijeh <http://feross.org>
  * @license  MIT
  */
 /* eslint-disable no-proto */
@@ -16024,8 +20944,8 @@ function isnan (val) {
   return val !== val // eslint-disable-line no-self-compare
 }
 
-}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {},require("buffer").Buffer)
-},{"base64-js":78,"buffer":80,"ieee754":82,"isarray":85}],81:[function(require,module,exports){
+}).call(this)}).call(this,typeof __webpack_require__.g !== "undefined" ? __webpack_require__.g : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {},require("buffer").Buffer)
+},{"base64-js":79,"buffer":85,"ieee754":87,"isarray":88}],86:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -16329,7 +21249,7 @@ function isUndefined(arg) {
   return arg === void 0;
 }
 
-},{}],82:[function(require,module,exports){
+},{}],87:[function(require,module,exports){
 exports.read = function (buffer, offset, isLE, mLen, nBytes) {
   var e, m
   var eLen = (nBytes * 8) - mLen - 1
@@ -16415,18 +21335,14 @@ exports.write = function (buffer, value, offset, isLE, mLen, nBytes) {
   buffer[offset + i - d] |= s * 128
 }
 
-},{}],83:[function(require,module,exports){
-arguments[4][80][0].apply(exports,arguments)
-},{"base64-js":78,"buffer":80,"dup":80,"ieee754":84,"isarray":85}],84:[function(require,module,exports){
-arguments[4][82][0].apply(exports,arguments)
-},{"dup":82}],85:[function(require,module,exports){
+},{}],88:[function(require,module,exports){
 var toString = {}.toString;
 
 module.exports = Array.isArray || function (arr) {
   return toString.call(arr) == '[object Array]';
 };
 
-},{}],86:[function(require,module,exports){
+},{}],89:[function(require,module,exports){
 (function(exports) {
   "use strict";
 
@@ -16569,6 +21485,18 @@ module.exports = Array.isArray || function (arr) {
   var TYPE_NULL = 7;
   var TYPE_ARRAY_NUMBER = 8;
   var TYPE_ARRAY_STRING = 9;
+  var TYPE_NAME_TABLE = {
+    0: 'number',
+    1: 'any',
+    2: 'string',
+    3: 'array',
+    4: 'object',
+    5: 'boolean',
+    6: 'expression',
+    7: 'null',
+    8: 'Array<number>',
+    9: 'Array<string>'
+  };
 
   var TOK_EOF = "EOF";
   var TOK_UNQUOTEDIDENTIFIER = "UnquotedIdentifier";
@@ -16980,10 +21908,8 @@ module.exports = Array.isArray || function (arr) {
             var node = {type: "Field", name: token.value};
             if (this._lookahead(0) === TOK_LPAREN) {
                 throw new Error("Quoted identifier not allowed for function names.");
-            } else {
-                return node;
             }
-            break;
+            return node;
           case TOK_NOT:
             right = this.expression(bindingPower.Not);
             return {type: "NotExpression", children: [right]};
@@ -17017,10 +21943,8 @@ module.exports = Array.isArray || function (arr) {
                 right = this._parseProjectionRHS(bindingPower.Star);
                 return {type: "Projection",
                         children: [{type: "Identity"}, right]};
-            } else {
-                return this._parseMultiselectList();
             }
-            break;
+            return this._parseMultiselectList();
           case TOK_CURRENT:
             return {type: TOK_CURRENT};
           case TOK_EXPREF:
@@ -17052,13 +21976,11 @@ module.exports = Array.isArray || function (arr) {
             if (this._lookahead(0) !== TOK_STAR) {
                 right = this._parseDotRHS(rbp);
                 return {type: "Subexpression", children: [left, right]};
-            } else {
-                // Creating a projection.
-                this._advance();
-                right = this._parseProjectionRHS(rbp);
-                return {type: "ValueProjection", children: [left, right]};
             }
-            break;
+            // Creating a projection.
+            this._advance();
+            right = this._parseProjectionRHS(rbp);
+            return {type: "ValueProjection", children: [left, right]};
           case TOK_PIPE:
             right = this.expression(bindingPower.Pipe);
             return {type: TOK_PIPE, children: [left, right]};
@@ -17112,13 +22034,11 @@ module.exports = Array.isArray || function (arr) {
             if (token.type === TOK_NUMBER || token.type === TOK_COLON) {
                 right = this._parseIndexExpression();
                 return this._projectIfSlice(left, right);
-            } else {
-                this._match(TOK_STAR);
-                this._match(TOK_RBRACKET);
-                right = this._parseProjectionRHS(bindingPower.Star);
-                return {type: "Projection", children: [left, right]};
             }
-            break;
+            this._match(TOK_STAR);
+            this._match(TOK_RBRACKET);
+            right = this._parseProjectionRHS(bindingPower.Star);
+            return {type: "Projection", children: [left, right]};
           default:
             this._errorToken(this._lookaheadToken(0));
         }
@@ -17295,19 +22215,15 @@ module.exports = Array.isArray || function (arr) {
           var matched, current, result, first, second, field, left, right, collected, i;
           switch (node.type) {
             case "Field":
-              if (value === null ) {
-                  return null;
-              } else if (isObject(value)) {
+              if (value !== null && isObject(value)) {
                   field = value[node.name];
                   if (field === undefined) {
                       return null;
                   } else {
                       return field;
                   }
-              } else {
-                return null;
               }
-              break;
+              return null;
             case "Subexpression":
               result = this.visit(node.children[0], value);
               for (i = 1; i < node.children.length; i++) {
@@ -17678,11 +22594,16 @@ module.exports = Array.isArray || function (arr) {
                 }
             }
             if (!typeMatched) {
+                var expected = currentSpec
+                    .map(function(typeIdentifier) {
+                        return TYPE_NAME_TABLE[typeIdentifier];
+                    })
+                    .join(',');
                 throw new Error("TypeError: " + name + "() " +
                                 "expected argument " + (i + 1) +
-                                " to be type " + currentSpec +
-                                " but received type " + actualType +
-                                " instead.");
+                                " to be type " + expected +
+                                " but received type " +
+                                TYPE_NAME_TABLE[actualType] + " instead.");
             }
         }
     },
@@ -18095,7 +23016,7 @@ module.exports = Array.isArray || function (arr) {
   exports.strictDeepEqual = strictDeepEqual;
 })(typeof exports === "undefined" ? this.jmespath = {} : exports);
 
-},{}],87:[function(require,module,exports){
+},{}],90:[function(require,module,exports){
 // shim for using process in browser
 var process = module.exports = {};
 
@@ -18281,544 +23202,7 @@ process.chdir = function (dir) {
 };
 process.umask = function() { return 0; };
 
-},{}],88:[function(require,module,exports){
-(function (global){
-/*! https://mths.be/punycode v1.4.1 by @mathias */
-;(function(root) {
-
-	/** Detect free variables */
-	var freeExports = typeof exports == 'object' && exports &&
-		!exports.nodeType && exports;
-	var freeModule = typeof module == 'object' && module &&
-		!module.nodeType && module;
-	var freeGlobal = typeof global == 'object' && global;
-	if (
-		freeGlobal.global === freeGlobal ||
-		freeGlobal.window === freeGlobal ||
-		freeGlobal.self === freeGlobal
-	) {
-		root = freeGlobal;
-	}
-
-	/**
-	 * The `punycode` object.
-	 * @name punycode
-	 * @type Object
-	 */
-	var punycode,
-
-	/** Highest positive signed 32-bit float value */
-	maxInt = 2147483647, // aka. 0x7FFFFFFF or 2^31-1
-
-	/** Bootstring parameters */
-	base = 36,
-	tMin = 1,
-	tMax = 26,
-	skew = 38,
-	damp = 700,
-	initialBias = 72,
-	initialN = 128, // 0x80
-	delimiter = '-', // '\x2D'
-
-	/** Regular expressions */
-	regexPunycode = /^xn--/,
-	regexNonASCII = /[^\x20-\x7E]/, // unprintable ASCII chars + non-ASCII chars
-	regexSeparators = /[\x2E\u3002\uFF0E\uFF61]/g, // RFC 3490 separators
-
-	/** Error messages */
-	errors = {
-		'overflow': 'Overflow: input needs wider integers to process',
-		'not-basic': 'Illegal input >= 0x80 (not a basic code point)',
-		'invalid-input': 'Invalid input'
-	},
-
-	/** Convenience shortcuts */
-	baseMinusTMin = base - tMin,
-	floor = Math.floor,
-	stringFromCharCode = String.fromCharCode,
-
-	/** Temporary variable */
-	key;
-
-	/*--------------------------------------------------------------------------*/
-
-	/**
-	 * A generic error utility function.
-	 * @private
-	 * @param {String} type The error type.
-	 * @returns {Error} Throws a `RangeError` with the applicable error message.
-	 */
-	function error(type) {
-		throw new RangeError(errors[type]);
-	}
-
-	/**
-	 * A generic `Array#map` utility function.
-	 * @private
-	 * @param {Array} array The array to iterate over.
-	 * @param {Function} callback The function that gets called for every array
-	 * item.
-	 * @returns {Array} A new array of values returned by the callback function.
-	 */
-	function map(array, fn) {
-		var length = array.length;
-		var result = [];
-		while (length--) {
-			result[length] = fn(array[length]);
-		}
-		return result;
-	}
-
-	/**
-	 * A simple `Array#map`-like wrapper to work with domain name strings or email
-	 * addresses.
-	 * @private
-	 * @param {String} domain The domain name or email address.
-	 * @param {Function} callback The function that gets called for every
-	 * character.
-	 * @returns {Array} A new string of characters returned by the callback
-	 * function.
-	 */
-	function mapDomain(string, fn) {
-		var parts = string.split('@');
-		var result = '';
-		if (parts.length > 1) {
-			// In email addresses, only the domain name should be punycoded. Leave
-			// the local part (i.e. everything up to `@`) intact.
-			result = parts[0] + '@';
-			string = parts[1];
-		}
-		// Avoid `split(regex)` for IE8 compatibility. See #17.
-		string = string.replace(regexSeparators, '\x2E');
-		var labels = string.split('.');
-		var encoded = map(labels, fn).join('.');
-		return result + encoded;
-	}
-
-	/**
-	 * Creates an array containing the numeric code points of each Unicode
-	 * character in the string. While JavaScript uses UCS-2 internally,
-	 * this function will convert a pair of surrogate halves (each of which
-	 * UCS-2 exposes as separate characters) into a single code point,
-	 * matching UTF-16.
-	 * @see `punycode.ucs2.encode`
-	 * @see <https://mathiasbynens.be/notes/javascript-encoding>
-	 * @memberOf punycode.ucs2
-	 * @name decode
-	 * @param {String} string The Unicode input string (UCS-2).
-	 * @returns {Array} The new array of code points.
-	 */
-	function ucs2decode(string) {
-		var output = [],
-		    counter = 0,
-		    length = string.length,
-		    value,
-		    extra;
-		while (counter < length) {
-			value = string.charCodeAt(counter++);
-			if (value >= 0xD800 && value <= 0xDBFF && counter < length) {
-				// high surrogate, and there is a next character
-				extra = string.charCodeAt(counter++);
-				if ((extra & 0xFC00) == 0xDC00) { // low surrogate
-					output.push(((value & 0x3FF) << 10) + (extra & 0x3FF) + 0x10000);
-				} else {
-					// unmatched surrogate; only append this code unit, in case the next
-					// code unit is the high surrogate of a surrogate pair
-					output.push(value);
-					counter--;
-				}
-			} else {
-				output.push(value);
-			}
-		}
-		return output;
-	}
-
-	/**
-	 * Creates a string based on an array of numeric code points.
-	 * @see `punycode.ucs2.decode`
-	 * @memberOf punycode.ucs2
-	 * @name encode
-	 * @param {Array} codePoints The array of numeric code points.
-	 * @returns {String} The new Unicode string (UCS-2).
-	 */
-	function ucs2encode(array) {
-		return map(array, function(value) {
-			var output = '';
-			if (value > 0xFFFF) {
-				value -= 0x10000;
-				output += stringFromCharCode(value >>> 10 & 0x3FF | 0xD800);
-				value = 0xDC00 | value & 0x3FF;
-			}
-			output += stringFromCharCode(value);
-			return output;
-		}).join('');
-	}
-
-	/**
-	 * Converts a basic code point into a digit/integer.
-	 * @see `digitToBasic()`
-	 * @private
-	 * @param {Number} codePoint The basic numeric code point value.
-	 * @returns {Number} The numeric value of a basic code point (for use in
-	 * representing integers) in the range `0` to `base - 1`, or `base` if
-	 * the code point does not represent a value.
-	 */
-	function basicToDigit(codePoint) {
-		if (codePoint - 48 < 10) {
-			return codePoint - 22;
-		}
-		if (codePoint - 65 < 26) {
-			return codePoint - 65;
-		}
-		if (codePoint - 97 < 26) {
-			return codePoint - 97;
-		}
-		return base;
-	}
-
-	/**
-	 * Converts a digit/integer into a basic code point.
-	 * @see `basicToDigit()`
-	 * @private
-	 * @param {Number} digit The numeric value of a basic code point.
-	 * @returns {Number} The basic code point whose value (when used for
-	 * representing integers) is `digit`, which needs to be in the range
-	 * `0` to `base - 1`. If `flag` is non-zero, the uppercase form is
-	 * used; else, the lowercase form is used. The behavior is undefined
-	 * if `flag` is non-zero and `digit` has no uppercase form.
-	 */
-	function digitToBasic(digit, flag) {
-		//  0..25 map to ASCII a..z or A..Z
-		// 26..35 map to ASCII 0..9
-		return digit + 22 + 75 * (digit < 26) - ((flag != 0) << 5);
-	}
-
-	/**
-	 * Bias adaptation function as per section 3.4 of RFC 3492.
-	 * https://tools.ietf.org/html/rfc3492#section-3.4
-	 * @private
-	 */
-	function adapt(delta, numPoints, firstTime) {
-		var k = 0;
-		delta = firstTime ? floor(delta / damp) : delta >> 1;
-		delta += floor(delta / numPoints);
-		for (/* no initialization */; delta > baseMinusTMin * tMax >> 1; k += base) {
-			delta = floor(delta / baseMinusTMin);
-		}
-		return floor(k + (baseMinusTMin + 1) * delta / (delta + skew));
-	}
-
-	/**
-	 * Converts a Punycode string of ASCII-only symbols to a string of Unicode
-	 * symbols.
-	 * @memberOf punycode
-	 * @param {String} input The Punycode string of ASCII-only symbols.
-	 * @returns {String} The resulting string of Unicode symbols.
-	 */
-	function decode(input) {
-		// Don't use UCS-2
-		var output = [],
-		    inputLength = input.length,
-		    out,
-		    i = 0,
-		    n = initialN,
-		    bias = initialBias,
-		    basic,
-		    j,
-		    index,
-		    oldi,
-		    w,
-		    k,
-		    digit,
-		    t,
-		    /** Cached calculation results */
-		    baseMinusT;
-
-		// Handle the basic code points: let `basic` be the number of input code
-		// points before the last delimiter, or `0` if there is none, then copy
-		// the first basic code points to the output.
-
-		basic = input.lastIndexOf(delimiter);
-		if (basic < 0) {
-			basic = 0;
-		}
-
-		for (j = 0; j < basic; ++j) {
-			// if it's not a basic code point
-			if (input.charCodeAt(j) >= 0x80) {
-				error('not-basic');
-			}
-			output.push(input.charCodeAt(j));
-		}
-
-		// Main decoding loop: start just after the last delimiter if any basic code
-		// points were copied; start at the beginning otherwise.
-
-		for (index = basic > 0 ? basic + 1 : 0; index < inputLength; /* no final expression */) {
-
-			// `index` is the index of the next character to be consumed.
-			// Decode a generalized variable-length integer into `delta`,
-			// which gets added to `i`. The overflow checking is easier
-			// if we increase `i` as we go, then subtract off its starting
-			// value at the end to obtain `delta`.
-			for (oldi = i, w = 1, k = base; /* no condition */; k += base) {
-
-				if (index >= inputLength) {
-					error('invalid-input');
-				}
-
-				digit = basicToDigit(input.charCodeAt(index++));
-
-				if (digit >= base || digit > floor((maxInt - i) / w)) {
-					error('overflow');
-				}
-
-				i += digit * w;
-				t = k <= bias ? tMin : (k >= bias + tMax ? tMax : k - bias);
-
-				if (digit < t) {
-					break;
-				}
-
-				baseMinusT = base - t;
-				if (w > floor(maxInt / baseMinusT)) {
-					error('overflow');
-				}
-
-				w *= baseMinusT;
-
-			}
-
-			out = output.length + 1;
-			bias = adapt(i - oldi, out, oldi == 0);
-
-			// `i` was supposed to wrap around from `out` to `0`,
-			// incrementing `n` each time, so we'll fix that now:
-			if (floor(i / out) > maxInt - n) {
-				error('overflow');
-			}
-
-			n += floor(i / out);
-			i %= out;
-
-			// Insert `n` at position `i` of the output
-			output.splice(i++, 0, n);
-
-		}
-
-		return ucs2encode(output);
-	}
-
-	/**
-	 * Converts a string of Unicode symbols (e.g. a domain name label) to a
-	 * Punycode string of ASCII-only symbols.
-	 * @memberOf punycode
-	 * @param {String} input The string of Unicode symbols.
-	 * @returns {String} The resulting Punycode string of ASCII-only symbols.
-	 */
-	function encode(input) {
-		var n,
-		    delta,
-		    handledCPCount,
-		    basicLength,
-		    bias,
-		    j,
-		    m,
-		    q,
-		    k,
-		    t,
-		    currentValue,
-		    output = [],
-		    /** `inputLength` will hold the number of code points in `input`. */
-		    inputLength,
-		    /** Cached calculation results */
-		    handledCPCountPlusOne,
-		    baseMinusT,
-		    qMinusT;
-
-		// Convert the input in UCS-2 to Unicode
-		input = ucs2decode(input);
-
-		// Cache the length
-		inputLength = input.length;
-
-		// Initialize the state
-		n = initialN;
-		delta = 0;
-		bias = initialBias;
-
-		// Handle the basic code points
-		for (j = 0; j < inputLength; ++j) {
-			currentValue = input[j];
-			if (currentValue < 0x80) {
-				output.push(stringFromCharCode(currentValue));
-			}
-		}
-
-		handledCPCount = basicLength = output.length;
-
-		// `handledCPCount` is the number of code points that have been handled;
-		// `basicLength` is the number of basic code points.
-
-		// Finish the basic string - if it is not empty - with a delimiter
-		if (basicLength) {
-			output.push(delimiter);
-		}
-
-		// Main encoding loop:
-		while (handledCPCount < inputLength) {
-
-			// All non-basic code points < n have been handled already. Find the next
-			// larger one:
-			for (m = maxInt, j = 0; j < inputLength; ++j) {
-				currentValue = input[j];
-				if (currentValue >= n && currentValue < m) {
-					m = currentValue;
-				}
-			}
-
-			// Increase `delta` enough to advance the decoder's <n,i> state to <m,0>,
-			// but guard against overflow
-			handledCPCountPlusOne = handledCPCount + 1;
-			if (m - n > floor((maxInt - delta) / handledCPCountPlusOne)) {
-				error('overflow');
-			}
-
-			delta += (m - n) * handledCPCountPlusOne;
-			n = m;
-
-			for (j = 0; j < inputLength; ++j) {
-				currentValue = input[j];
-
-				if (currentValue < n && ++delta > maxInt) {
-					error('overflow');
-				}
-
-				if (currentValue == n) {
-					// Represent delta as a generalized variable-length integer
-					for (q = delta, k = base; /* no condition */; k += base) {
-						t = k <= bias ? tMin : (k >= bias + tMax ? tMax : k - bias);
-						if (q < t) {
-							break;
-						}
-						qMinusT = q - t;
-						baseMinusT = base - t;
-						output.push(
-							stringFromCharCode(digitToBasic(t + qMinusT % baseMinusT, 0))
-						);
-						q = floor(qMinusT / baseMinusT);
-					}
-
-					output.push(stringFromCharCode(digitToBasic(q, 0)));
-					bias = adapt(delta, handledCPCountPlusOne, handledCPCount == basicLength);
-					delta = 0;
-					++handledCPCount;
-				}
-			}
-
-			++delta;
-			++n;
-
-		}
-		return output.join('');
-	}
-
-	/**
-	 * Converts a Punycode string representing a domain name or an email address
-	 * to Unicode. Only the Punycoded parts of the input will be converted, i.e.
-	 * it doesn't matter if you call it on a string that has already been
-	 * converted to Unicode.
-	 * @memberOf punycode
-	 * @param {String} input The Punycoded domain name or email address to
-	 * convert to Unicode.
-	 * @returns {String} The Unicode representation of the given Punycode
-	 * string.
-	 */
-	function toUnicode(input) {
-		return mapDomain(input, function(string) {
-			return regexPunycode.test(string)
-				? decode(string.slice(4).toLowerCase())
-				: string;
-		});
-	}
-
-	/**
-	 * Converts a Unicode string representing a domain name or an email address to
-	 * Punycode. Only the non-ASCII parts of the domain name will be converted,
-	 * i.e. it doesn't matter if you call it with a domain that's already in
-	 * ASCII.
-	 * @memberOf punycode
-	 * @param {String} input The domain name or email address to convert, as a
-	 * Unicode string.
-	 * @returns {String} The Punycode representation of the given domain name or
-	 * email address.
-	 */
-	function toASCII(input) {
-		return mapDomain(input, function(string) {
-			return regexNonASCII.test(string)
-				? 'xn--' + encode(string)
-				: string;
-		});
-	}
-
-	/*--------------------------------------------------------------------------*/
-
-	/** Define the public API */
-	punycode = {
-		/**
-		 * A string representing the current Punycode.js version number.
-		 * @memberOf punycode
-		 * @type String
-		 */
-		'version': '1.4.1',
-		/**
-		 * An object of methods to convert from JavaScript's internal character
-		 * representation (UCS-2) to Unicode code points, and back.
-		 * @see <https://mathiasbynens.be/notes/javascript-encoding>
-		 * @memberOf punycode
-		 * @type Object
-		 */
-		'ucs2': {
-			'decode': ucs2decode,
-			'encode': ucs2encode
-		},
-		'decode': decode,
-		'encode': encode,
-		'toASCII': toASCII,
-		'toUnicode': toUnicode
-	};
-
-	/** Expose `punycode` */
-	// Some AMD build optimizers, like r.js, check for specific condition patterns
-	// like the following:
-	if (
-		typeof define == 'function' &&
-		typeof define.amd == 'object' &&
-		define.amd
-	) {
-		define('punycode', function() {
-			return punycode;
-		});
-	} else if (freeExports && freeModule) {
-		if (module.exports == freeExports) {
-			// in Node.js, io.js, or RingoJS v0.8.0+
-			freeModule.exports = punycode;
-		} else {
-			// in Narwhal or RingoJS v0.7.0-
-			for (key in punycode) {
-				punycode.hasOwnProperty(key) && (freeExports[key] = punycode[key]);
-			}
-		}
-	} else {
-		// in Rhino or a web browser
-		root.punycode = punycode;
-	}
-
-}(this));
-
-}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],89:[function(require,module,exports){
+},{}],91:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -18904,7 +23288,7 @@ var isArray = Array.isArray || function (xs) {
   return Object.prototype.toString.call(xs) === '[object Array]';
 };
 
-},{}],90:[function(require,module,exports){
+},{}],92:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -18991,13 +23375,13 @@ var objectKeys = Object.keys || function (obj) {
   return res;
 };
 
-},{}],91:[function(require,module,exports){
+},{}],93:[function(require,module,exports){
 'use strict';
 
 exports.decode = exports.parse = require('./decode');
 exports.encode = exports.stringify = require('./encode');
 
-},{"./decode":89,"./encode":90}],92:[function(require,module,exports){
+},{"./decode":91,"./encode":92}],94:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -19079,7 +23463,7 @@ module.exports = function(qs, sep, eq, options) {
   return obj;
 };
 
-},{}],93:[function(require,module,exports){
+},{}],95:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -19145,10 +23529,10 @@ module.exports = function(obj, sep, eq, name) {
          encodeURIComponent(stringifyPrimitive(obj));
 };
 
-},{}],94:[function(require,module,exports){
-arguments[4][91][0].apply(exports,arguments)
-},{"./decode":92,"./encode":93,"dup":91}],95:[function(require,module,exports){
-(function (setImmediate,clearImmediate){
+},{}],96:[function(require,module,exports){
+arguments[4][93][0].apply(exports,arguments)
+},{"./decode":94,"./encode":95,"dup":93}],97:[function(require,module,exports){
+(function (setImmediate,clearImmediate){(function (){
 var nextTick = require('process/browser.js').nextTick;
 var apply = Function.prototype.apply;
 var slice = Array.prototype.slice;
@@ -19225,8 +23609,8 @@ exports.setImmediate = typeof setImmediate === "function" ? setImmediate : funct
 exports.clearImmediate = typeof clearImmediate === "function" ? clearImmediate : function(id) {
   delete immediateIds[id];
 };
-}).call(this,require("timers").setImmediate,require("timers").clearImmediate)
-},{"process/browser.js":87,"timers":95}],96:[function(require,module,exports){
+}).call(this)}).call(this,require("timers").setImmediate,require("timers").clearImmediate)
+},{"process/browser.js":90,"timers":97}],98:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -19935,843 +24319,670 @@ function isNullOrUndefined(arg) {
   return  arg == null;
 }
 
-},{"punycode":88,"querystring":91}],97:[function(require,module,exports){
-if (typeof Object.create === 'function') {
-  // implementation from standard node.js 'util' module
-  module.exports = function inherits(ctor, superCtor) {
-    ctor.super_ = superCtor
-    ctor.prototype = Object.create(superCtor.prototype, {
-      constructor: {
-        value: ctor,
-        enumerable: false,
-        writable: true,
-        configurable: true
-      }
-    });
-  };
-} else {
-  // old school shim for old browsers
-  module.exports = function inherits(ctor, superCtor) {
-    ctor.super_ = superCtor
-    var TempCtor = function () {}
-    TempCtor.prototype = superCtor.prototype
-    ctor.prototype = new TempCtor()
-    ctor.prototype.constructor = ctor
-  }
-}
+},{"punycode":82,"querystring":93}],99:[function(require,module,exports){
+"use strict";
 
-},{}],98:[function(require,module,exports){
-module.exports = function isBuffer(arg) {
-  return arg && typeof arg === 'object'
-    && typeof arg.copy === 'function'
-    && typeof arg.fill === 'function'
-    && typeof arg.readUInt8 === 'function';
-}
-},{}],99:[function(require,module,exports){
-(function (process,global){
-// Copyright Joyent, Inc. and other Node contributors.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the
-// "Software"), to deal in the Software without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Software, and to permit
-// persons to whom the Software is furnished to do so, subject to the
-// following conditions:
-//
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-// USE OR OTHER DEALINGS IN THE SOFTWARE.
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.default = void 0;
 
-var formatRegExp = /%[sdj%]/g;
-exports.format = function(f) {
-  if (!isString(f)) {
-    var objects = [];
-    for (var i = 0; i < arguments.length; i++) {
-      objects.push(inspect(arguments[i]));
-    }
-    return objects.join(' ');
-  }
-
-  var i = 1;
-  var args = arguments;
-  var len = args.length;
-  var str = String(f).replace(formatRegExp, function(x) {
-    if (x === '%%') return '%';
-    if (i >= len) return x;
-    switch (x) {
-      case '%s': return String(args[i++]);
-      case '%d': return Number(args[i++]);
-      case '%j':
-        try {
-          return JSON.stringify(args[i++]);
-        } catch (_) {
-          return '[Circular]';
-        }
-      default:
-        return x;
-    }
-  });
-  for (var x = args[i]; i < len; x = args[++i]) {
-    if (isNull(x) || !isObject(x)) {
-      str += ' ' + x;
-    } else {
-      str += ' ' + inspect(x);
-    }
-  }
-  return str;
-};
-
-
-// Mark that a method should not be used.
-// Returns a modified function which warns once by default.
-// If --no-deprecation is set, then it is a no-op.
-exports.deprecate = function(fn, msg) {
-  // Allow for deprecating things in the process of starting up.
-  if (isUndefined(global.process)) {
-    return function() {
-      return exports.deprecate(fn, msg).apply(this, arguments);
-    };
-  }
-
-  if (process.noDeprecation === true) {
-    return fn;
-  }
-
-  var warned = false;
-  function deprecated() {
-    if (!warned) {
-      if (process.throwDeprecation) {
-        throw new Error(msg);
-      } else if (process.traceDeprecation) {
-        console.trace(msg);
-      } else {
-        console.error(msg);
-      }
-      warned = true;
-    }
-    return fn.apply(this, arguments);
-  }
-
-  return deprecated;
-};
-
-
-var debugs = {};
-var debugEnviron;
-exports.debuglog = function(set) {
-  if (isUndefined(debugEnviron))
-    debugEnviron = process.env.NODE_DEBUG || '';
-  set = set.toUpperCase();
-  if (!debugs[set]) {
-    if (new RegExp('\\b' + set + '\\b', 'i').test(debugEnviron)) {
-      var pid = process.pid;
-      debugs[set] = function() {
-        var msg = exports.format.apply(exports, arguments);
-        console.error('%s %d: %s', set, pid, msg);
-      };
-    } else {
-      debugs[set] = function() {};
-    }
-  }
-  return debugs[set];
-};
-
-
-/**
- * Echos the value of a value. Trys to print the value out
- * in the best way possible given the different types.
- *
- * @param {Object} obj The object to print out.
- * @param {Object} opts Optional options object that alters the output.
- */
-/* legacy: obj, showHidden, depth, colors*/
-function inspect(obj, opts) {
-  // default options
-  var ctx = {
-    seen: [],
-    stylize: stylizeNoColor
-  };
-  // legacy...
-  if (arguments.length >= 3) ctx.depth = arguments[2];
-  if (arguments.length >= 4) ctx.colors = arguments[3];
-  if (isBoolean(opts)) {
-    // legacy...
-    ctx.showHidden = opts;
-  } else if (opts) {
-    // got an "options" object
-    exports._extend(ctx, opts);
-  }
-  // set default options
-  if (isUndefined(ctx.showHidden)) ctx.showHidden = false;
-  if (isUndefined(ctx.depth)) ctx.depth = 2;
-  if (isUndefined(ctx.colors)) ctx.colors = false;
-  if (isUndefined(ctx.customInspect)) ctx.customInspect = true;
-  if (ctx.colors) ctx.stylize = stylizeWithColor;
-  return formatValue(ctx, obj, ctx.depth);
-}
-exports.inspect = inspect;
-
-
-// http://en.wikipedia.org/wiki/ANSI_escape_code#graphics
-inspect.colors = {
-  'bold' : [1, 22],
-  'italic' : [3, 23],
-  'underline' : [4, 24],
-  'inverse' : [7, 27],
-  'white' : [37, 39],
-  'grey' : [90, 39],
-  'black' : [30, 39],
-  'blue' : [34, 39],
-  'cyan' : [36, 39],
-  'green' : [32, 39],
-  'magenta' : [35, 39],
-  'red' : [31, 39],
-  'yellow' : [33, 39]
-};
-
-// Don't use 'blue' not visible on cmd.exe
-inspect.styles = {
-  'special': 'cyan',
-  'number': 'yellow',
-  'boolean': 'yellow',
-  'undefined': 'grey',
-  'null': 'bold',
-  'string': 'green',
-  'date': 'magenta',
-  // "name": intentionally not styling
-  'regexp': 'red'
-};
-
-
-function stylizeWithColor(str, styleType) {
-  var style = inspect.styles[styleType];
-
-  if (style) {
-    return '\u001b[' + inspect.colors[style][0] + 'm' + str +
-           '\u001b[' + inspect.colors[style][1] + 'm';
-  } else {
-    return str;
-  }
-}
-
-
-function stylizeNoColor(str, styleType) {
-  return str;
-}
-
-
-function arrayToHash(array) {
-  var hash = {};
-
-  array.forEach(function(val, idx) {
-    hash[val] = true;
-  });
-
-  return hash;
-}
-
-
-function formatValue(ctx, value, recurseTimes) {
-  // Provide a hook for user-specified inspect functions.
-  // Check that value is an object with an inspect function on it
-  if (ctx.customInspect &&
-      value &&
-      isFunction(value.inspect) &&
-      // Filter out the util module, it's inspect function is special
-      value.inspect !== exports.inspect &&
-      // Also filter out any prototype objects using the circular check.
-      !(value.constructor && value.constructor.prototype === value)) {
-    var ret = value.inspect(recurseTimes, ctx);
-    if (!isString(ret)) {
-      ret = formatValue(ctx, ret, recurseTimes);
-    }
-    return ret;
-  }
-
-  // Primitive types cannot have properties
-  var primitive = formatPrimitive(ctx, value);
-  if (primitive) {
-    return primitive;
-  }
-
-  // Look up the keys of the object.
-  var keys = Object.keys(value);
-  var visibleKeys = arrayToHash(keys);
-
-  if (ctx.showHidden) {
-    keys = Object.getOwnPropertyNames(value);
-  }
-
-  // IE doesn't make error fields non-enumerable
-  // http://msdn.microsoft.com/en-us/library/ie/dww52sbt(v=vs.94).aspx
-  if (isError(value)
-      && (keys.indexOf('message') >= 0 || keys.indexOf('description') >= 0)) {
-    return formatError(value);
-  }
-
-  // Some type of object without properties can be shortcutted.
-  if (keys.length === 0) {
-    if (isFunction(value)) {
-      var name = value.name ? ': ' + value.name : '';
-      return ctx.stylize('[Function' + name + ']', 'special');
-    }
-    if (isRegExp(value)) {
-      return ctx.stylize(RegExp.prototype.toString.call(value), 'regexp');
-    }
-    if (isDate(value)) {
-      return ctx.stylize(Date.prototype.toString.call(value), 'date');
-    }
-    if (isError(value)) {
-      return formatError(value);
-    }
-  }
-
-  var base = '', array = false, braces = ['{', '}'];
-
-  // Make Array say that they are Array
-  if (isArray(value)) {
-    array = true;
-    braces = ['[', ']'];
-  }
-
-  // Make functions say that they are functions
-  if (isFunction(value)) {
-    var n = value.name ? ': ' + value.name : '';
-    base = ' [Function' + n + ']';
-  }
-
-  // Make RegExps say that they are RegExps
-  if (isRegExp(value)) {
-    base = ' ' + RegExp.prototype.toString.call(value);
-  }
-
-  // Make dates with properties first say the date
-  if (isDate(value)) {
-    base = ' ' + Date.prototype.toUTCString.call(value);
-  }
-
-  // Make error with message first say the error
-  if (isError(value)) {
-    base = ' ' + formatError(value);
-  }
-
-  if (keys.length === 0 && (!array || value.length == 0)) {
-    return braces[0] + base + braces[1];
-  }
-
-  if (recurseTimes < 0) {
-    if (isRegExp(value)) {
-      return ctx.stylize(RegExp.prototype.toString.call(value), 'regexp');
-    } else {
-      return ctx.stylize('[Object]', 'special');
-    }
-  }
-
-  ctx.seen.push(value);
-
-  var output;
-  if (array) {
-    output = formatArray(ctx, value, recurseTimes, visibleKeys, keys);
-  } else {
-    output = keys.map(function(key) {
-      return formatProperty(ctx, value, recurseTimes, visibleKeys, key, array);
-    });
-  }
-
-  ctx.seen.pop();
-
-  return reduceToSingleString(output, base, braces);
-}
-
-
-function formatPrimitive(ctx, value) {
-  if (isUndefined(value))
-    return ctx.stylize('undefined', 'undefined');
-  if (isString(value)) {
-    var simple = '\'' + JSON.stringify(value).replace(/^"|"$/g, '')
-                                             .replace(/'/g, "\\'")
-                                             .replace(/\\"/g, '"') + '\'';
-    return ctx.stylize(simple, 'string');
-  }
-  if (isNumber(value))
-    return ctx.stylize('' + value, 'number');
-  if (isBoolean(value))
-    return ctx.stylize('' + value, 'boolean');
-  // For some reason typeof null is "object", so special case here.
-  if (isNull(value))
-    return ctx.stylize('null', 'null');
-}
-
-
-function formatError(value) {
-  return '[' + Error.prototype.toString.call(value) + ']';
-}
-
-
-function formatArray(ctx, value, recurseTimes, visibleKeys, keys) {
-  var output = [];
-  for (var i = 0, l = value.length; i < l; ++i) {
-    if (hasOwnProperty(value, String(i))) {
-      output.push(formatProperty(ctx, value, recurseTimes, visibleKeys,
-          String(i), true));
-    } else {
-      output.push('');
-    }
-  }
-  keys.forEach(function(key) {
-    if (!key.match(/^\d+$/)) {
-      output.push(formatProperty(ctx, value, recurseTimes, visibleKeys,
-          key, true));
-    }
-  });
-  return output;
-}
-
-
-function formatProperty(ctx, value, recurseTimes, visibleKeys, key, array) {
-  var name, str, desc;
-  desc = Object.getOwnPropertyDescriptor(value, key) || { value: value[key] };
-  if (desc.get) {
-    if (desc.set) {
-      str = ctx.stylize('[Getter/Setter]', 'special');
-    } else {
-      str = ctx.stylize('[Getter]', 'special');
-    }
-  } else {
-    if (desc.set) {
-      str = ctx.stylize('[Setter]', 'special');
-    }
-  }
-  if (!hasOwnProperty(visibleKeys, key)) {
-    name = '[' + key + ']';
-  }
-  if (!str) {
-    if (ctx.seen.indexOf(desc.value) < 0) {
-      if (isNull(recurseTimes)) {
-        str = formatValue(ctx, desc.value, null);
-      } else {
-        str = formatValue(ctx, desc.value, recurseTimes - 1);
-      }
-      if (str.indexOf('\n') > -1) {
-        if (array) {
-          str = str.split('\n').map(function(line) {
-            return '  ' + line;
-          }).join('\n').substr(2);
-        } else {
-          str = '\n' + str.split('\n').map(function(line) {
-            return '   ' + line;
-          }).join('\n');
-        }
-      }
-    } else {
-      str = ctx.stylize('[Circular]', 'special');
-    }
-  }
-  if (isUndefined(name)) {
-    if (array && key.match(/^\d+$/)) {
-      return str;
-    }
-    name = JSON.stringify('' + key);
-    if (name.match(/^"([a-zA-Z_][a-zA-Z_0-9]*)"$/)) {
-      name = name.substr(1, name.length - 2);
-      name = ctx.stylize(name, 'name');
-    } else {
-      name = name.replace(/'/g, "\\'")
-                 .replace(/\\"/g, '"')
-                 .replace(/(^"|"$)/g, "'");
-      name = ctx.stylize(name, 'string');
-    }
-  }
-
-  return name + ': ' + str;
-}
-
-
-function reduceToSingleString(output, base, braces) {
-  var numLinesEst = 0;
-  var length = output.reduce(function(prev, cur) {
-    numLinesEst++;
-    if (cur.indexOf('\n') >= 0) numLinesEst++;
-    return prev + cur.replace(/\u001b\[\d\d?m/g, '').length + 1;
-  }, 0);
-
-  if (length > 60) {
-    return braces[0] +
-           (base === '' ? '' : base + '\n ') +
-           ' ' +
-           output.join(',\n  ') +
-           ' ' +
-           braces[1];
-  }
-
-  return braces[0] + base + ' ' + output.join(', ') + ' ' + braces[1];
-}
-
-
-// NOTE: These type checking functions intentionally don't use `instanceof`
-// because it is fragile and can be easily faked with `Object.create()`.
-function isArray(ar) {
-  return Array.isArray(ar);
-}
-exports.isArray = isArray;
-
-function isBoolean(arg) {
-  return typeof arg === 'boolean';
-}
-exports.isBoolean = isBoolean;
-
-function isNull(arg) {
-  return arg === null;
-}
-exports.isNull = isNull;
-
-function isNullOrUndefined(arg) {
-  return arg == null;
-}
-exports.isNullOrUndefined = isNullOrUndefined;
-
-function isNumber(arg) {
-  return typeof arg === 'number';
-}
-exports.isNumber = isNumber;
-
-function isString(arg) {
-  return typeof arg === 'string';
-}
-exports.isString = isString;
-
-function isSymbol(arg) {
-  return typeof arg === 'symbol';
-}
-exports.isSymbol = isSymbol;
-
-function isUndefined(arg) {
-  return arg === void 0;
-}
-exports.isUndefined = isUndefined;
-
-function isRegExp(re) {
-  return isObject(re) && objectToString(re) === '[object RegExp]';
-}
-exports.isRegExp = isRegExp;
-
-function isObject(arg) {
-  return typeof arg === 'object' && arg !== null;
-}
-exports.isObject = isObject;
-
-function isDate(d) {
-  return isObject(d) && objectToString(d) === '[object Date]';
-}
-exports.isDate = isDate;
-
-function isError(e) {
-  return isObject(e) &&
-      (objectToString(e) === '[object Error]' || e instanceof Error);
-}
-exports.isError = isError;
-
-function isFunction(arg) {
-  return typeof arg === 'function';
-}
-exports.isFunction = isFunction;
-
-function isPrimitive(arg) {
-  return arg === null ||
-         typeof arg === 'boolean' ||
-         typeof arg === 'number' ||
-         typeof arg === 'string' ||
-         typeof arg === 'symbol' ||  // ES6 symbol
-         typeof arg === 'undefined';
-}
-exports.isPrimitive = isPrimitive;
-
-exports.isBuffer = require('./support/isBuffer');
-
-function objectToString(o) {
-  return Object.prototype.toString.call(o);
-}
-
-
-function pad(n) {
-  return n < 10 ? '0' + n.toString(10) : n.toString(10);
-}
-
-
-var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
-              'Oct', 'Nov', 'Dec'];
-
-// 26 Feb 16:19:34
-function timestamp() {
-  var d = new Date();
-  var time = [pad(d.getHours()),
-              pad(d.getMinutes()),
-              pad(d.getSeconds())].join(':');
-  return [d.getDate(), months[d.getMonth()], time].join(' ');
-}
-
-
-// log is just a thin wrapper to console.log that prepends a timestamp
-exports.log = function() {
-  console.log('%s - %s', timestamp(), exports.format.apply(exports, arguments));
-};
-
-
-/**
- * Inherit the prototype methods from one constructor into another.
- *
- * The Function.prototype.inherits from lang.js rewritten as a standalone
- * function (not on Function.prototype). NOTE: If this file is to be loaded
- * during bootstrapping this function needs to be rewritten using some native
- * functions as prototype setup using normal JavaScript does not work as
- * expected during bootstrapping (see mirror.js in r114903).
- *
- * @param {function} ctor Constructor function which needs to inherit the
- *     prototype.
- * @param {function} superCtor Constructor function to inherit prototype from.
- */
-exports.inherits = require('inherits');
-
-exports._extend = function(origin, add) {
-  // Don't do anything if add isn't an object
-  if (!add || !isObject(add)) return origin;
-
-  var keys = Object.keys(add);
-  var i = keys.length;
-  while (i--) {
-    origin[keys[i]] = add[keys[i]];
-  }
-  return origin;
-};
-
-function hasOwnProperty(obj, prop) {
-  return Object.prototype.hasOwnProperty.call(obj, prop);
-}
-
-}).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./support/isBuffer":98,"_process":87,"inherits":97}],100:[function(require,module,exports){
-var v1 = require('./v1');
-var v4 = require('./v4');
-
-var uuid = v4;
-uuid.v1 = v1;
-uuid.v4 = v4;
-
-module.exports = uuid;
-
-},{"./v1":103,"./v4":104}],101:[function(require,module,exports){
 /**
  * Convert array of 16 byte values to UUID string format of the form:
  * XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
  */
 var byteToHex = [];
+
 for (var i = 0; i < 256; ++i) {
   byteToHex[i] = (i + 0x100).toString(16).substr(1);
 }
 
 function bytesToUuid(buf, offset) {
   var i = offset || 0;
-  var bth = byteToHex;
-  // join used to fix memory issue caused by concatenation: https://bugs.chromium.org/p/v8/issues/detail?id=3175#c4
-  return ([bth[buf[i++]], bth[buf[i++]], 
-	bth[buf[i++]], bth[buf[i++]], '-',
-	bth[buf[i++]], bth[buf[i++]], '-',
-	bth[buf[i++]], bth[buf[i++]], '-',
-	bth[buf[i++]], bth[buf[i++]], '-',
-	bth[buf[i++]], bth[buf[i++]],
-	bth[buf[i++]], bth[buf[i++]],
-	bth[buf[i++]], bth[buf[i++]]]).join('');
+  var bth = byteToHex; // join used to fix memory issue caused by concatenation: https://bugs.chromium.org/p/v8/issues/detail?id=3175#c4
+
+  return [bth[buf[i++]], bth[buf[i++]], bth[buf[i++]], bth[buf[i++]], '-', bth[buf[i++]], bth[buf[i++]], '-', bth[buf[i++]], bth[buf[i++]], '-', bth[buf[i++]], bth[buf[i++]], '-', bth[buf[i++]], bth[buf[i++]], bth[buf[i++]], bth[buf[i++]], bth[buf[i++]], bth[buf[i++]]].join('');
 }
 
-module.exports = bytesToUuid;
+var _default = bytesToUuid;
+exports.default = _default;
+},{}],100:[function(require,module,exports){
+"use strict";
 
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+Object.defineProperty(exports, "v1", {
+  enumerable: true,
+  get: function () {
+    return _v.default;
+  }
+});
+Object.defineProperty(exports, "v3", {
+  enumerable: true,
+  get: function () {
+    return _v2.default;
+  }
+});
+Object.defineProperty(exports, "v4", {
+  enumerable: true,
+  get: function () {
+    return _v3.default;
+  }
+});
+Object.defineProperty(exports, "v5", {
+  enumerable: true,
+  get: function () {
+    return _v4.default;
+  }
+});
+
+var _v = _interopRequireDefault(require("./v1.js"));
+
+var _v2 = _interopRequireDefault(require("./v3.js"));
+
+var _v3 = _interopRequireDefault(require("./v4.js"));
+
+var _v4 = _interopRequireDefault(require("./v5.js"));
+
+function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+},{"./v1.js":104,"./v3.js":105,"./v4.js":107,"./v5.js":108}],101:[function(require,module,exports){
+"use strict";
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.default = void 0;
+
+/*
+ * Browser-compatible JavaScript MD5
+ *
+ * Modification of JavaScript MD5
+ * https://github.com/blueimp/JavaScript-MD5
+ *
+ * Copyright 2011, Sebastian Tschan
+ * https://blueimp.net
+ *
+ * Licensed under the MIT license:
+ * https://opensource.org/licenses/MIT
+ *
+ * Based on
+ * A JavaScript implementation of the RSA Data Security, Inc. MD5 Message
+ * Digest Algorithm, as defined in RFC 1321.
+ * Version 2.2 Copyright (C) Paul Johnston 1999 - 2009
+ * Other contributors: Greg Holt, Andrew Kepert, Ydnar, Lostinet
+ * Distributed under the BSD License
+ * See http://pajhome.org.uk/crypt/md5 for more info.
+ */
+function md5(bytes) {
+  if (typeof bytes == 'string') {
+    var msg = unescape(encodeURIComponent(bytes)); // UTF8 escape
+
+    bytes = new Array(msg.length);
+
+    for (var i = 0; i < msg.length; i++) bytes[i] = msg.charCodeAt(i);
+  }
+
+  return md5ToHexEncodedArray(wordsToMd5(bytesToWords(bytes), bytes.length * 8));
+}
+/*
+ * Convert an array of little-endian words to an array of bytes
+ */
+
+
+function md5ToHexEncodedArray(input) {
+  var i;
+  var x;
+  var output = [];
+  var length32 = input.length * 32;
+  var hexTab = '0123456789abcdef';
+  var hex;
+
+  for (i = 0; i < length32; i += 8) {
+    x = input[i >> 5] >>> i % 32 & 0xff;
+    hex = parseInt(hexTab.charAt(x >>> 4 & 0x0f) + hexTab.charAt(x & 0x0f), 16);
+    output.push(hex);
+  }
+
+  return output;
+}
+/*
+ * Calculate the MD5 of an array of little-endian words, and a bit length.
+ */
+
+
+function wordsToMd5(x, len) {
+  /* append padding */
+  x[len >> 5] |= 0x80 << len % 32;
+  x[(len + 64 >>> 9 << 4) + 14] = len;
+  var i;
+  var olda;
+  var oldb;
+  var oldc;
+  var oldd;
+  var a = 1732584193;
+  var b = -271733879;
+  var c = -1732584194;
+  var d = 271733878;
+
+  for (i = 0; i < x.length; i += 16) {
+    olda = a;
+    oldb = b;
+    oldc = c;
+    oldd = d;
+    a = md5ff(a, b, c, d, x[i], 7, -680876936);
+    d = md5ff(d, a, b, c, x[i + 1], 12, -389564586);
+    c = md5ff(c, d, a, b, x[i + 2], 17, 606105819);
+    b = md5ff(b, c, d, a, x[i + 3], 22, -1044525330);
+    a = md5ff(a, b, c, d, x[i + 4], 7, -176418897);
+    d = md5ff(d, a, b, c, x[i + 5], 12, 1200080426);
+    c = md5ff(c, d, a, b, x[i + 6], 17, -1473231341);
+    b = md5ff(b, c, d, a, x[i + 7], 22, -45705983);
+    a = md5ff(a, b, c, d, x[i + 8], 7, 1770035416);
+    d = md5ff(d, a, b, c, x[i + 9], 12, -1958414417);
+    c = md5ff(c, d, a, b, x[i + 10], 17, -42063);
+    b = md5ff(b, c, d, a, x[i + 11], 22, -1990404162);
+    a = md5ff(a, b, c, d, x[i + 12], 7, 1804603682);
+    d = md5ff(d, a, b, c, x[i + 13], 12, -40341101);
+    c = md5ff(c, d, a, b, x[i + 14], 17, -1502002290);
+    b = md5ff(b, c, d, a, x[i + 15], 22, 1236535329);
+    a = md5gg(a, b, c, d, x[i + 1], 5, -165796510);
+    d = md5gg(d, a, b, c, x[i + 6], 9, -1069501632);
+    c = md5gg(c, d, a, b, x[i + 11], 14, 643717713);
+    b = md5gg(b, c, d, a, x[i], 20, -373897302);
+    a = md5gg(a, b, c, d, x[i + 5], 5, -701558691);
+    d = md5gg(d, a, b, c, x[i + 10], 9, 38016083);
+    c = md5gg(c, d, a, b, x[i + 15], 14, -660478335);
+    b = md5gg(b, c, d, a, x[i + 4], 20, -405537848);
+    a = md5gg(a, b, c, d, x[i + 9], 5, 568446438);
+    d = md5gg(d, a, b, c, x[i + 14], 9, -1019803690);
+    c = md5gg(c, d, a, b, x[i + 3], 14, -187363961);
+    b = md5gg(b, c, d, a, x[i + 8], 20, 1163531501);
+    a = md5gg(a, b, c, d, x[i + 13], 5, -1444681467);
+    d = md5gg(d, a, b, c, x[i + 2], 9, -51403784);
+    c = md5gg(c, d, a, b, x[i + 7], 14, 1735328473);
+    b = md5gg(b, c, d, a, x[i + 12], 20, -1926607734);
+    a = md5hh(a, b, c, d, x[i + 5], 4, -378558);
+    d = md5hh(d, a, b, c, x[i + 8], 11, -2022574463);
+    c = md5hh(c, d, a, b, x[i + 11], 16, 1839030562);
+    b = md5hh(b, c, d, a, x[i + 14], 23, -35309556);
+    a = md5hh(a, b, c, d, x[i + 1], 4, -1530992060);
+    d = md5hh(d, a, b, c, x[i + 4], 11, 1272893353);
+    c = md5hh(c, d, a, b, x[i + 7], 16, -155497632);
+    b = md5hh(b, c, d, a, x[i + 10], 23, -1094730640);
+    a = md5hh(a, b, c, d, x[i + 13], 4, 681279174);
+    d = md5hh(d, a, b, c, x[i], 11, -358537222);
+    c = md5hh(c, d, a, b, x[i + 3], 16, -722521979);
+    b = md5hh(b, c, d, a, x[i + 6], 23, 76029189);
+    a = md5hh(a, b, c, d, x[i + 9], 4, -640364487);
+    d = md5hh(d, a, b, c, x[i + 12], 11, -421815835);
+    c = md5hh(c, d, a, b, x[i + 15], 16, 530742520);
+    b = md5hh(b, c, d, a, x[i + 2], 23, -995338651);
+    a = md5ii(a, b, c, d, x[i], 6, -198630844);
+    d = md5ii(d, a, b, c, x[i + 7], 10, 1126891415);
+    c = md5ii(c, d, a, b, x[i + 14], 15, -1416354905);
+    b = md5ii(b, c, d, a, x[i + 5], 21, -57434055);
+    a = md5ii(a, b, c, d, x[i + 12], 6, 1700485571);
+    d = md5ii(d, a, b, c, x[i + 3], 10, -1894986606);
+    c = md5ii(c, d, a, b, x[i + 10], 15, -1051523);
+    b = md5ii(b, c, d, a, x[i + 1], 21, -2054922799);
+    a = md5ii(a, b, c, d, x[i + 8], 6, 1873313359);
+    d = md5ii(d, a, b, c, x[i + 15], 10, -30611744);
+    c = md5ii(c, d, a, b, x[i + 6], 15, -1560198380);
+    b = md5ii(b, c, d, a, x[i + 13], 21, 1309151649);
+    a = md5ii(a, b, c, d, x[i + 4], 6, -145523070);
+    d = md5ii(d, a, b, c, x[i + 11], 10, -1120210379);
+    c = md5ii(c, d, a, b, x[i + 2], 15, 718787259);
+    b = md5ii(b, c, d, a, x[i + 9], 21, -343485551);
+    a = safeAdd(a, olda);
+    b = safeAdd(b, oldb);
+    c = safeAdd(c, oldc);
+    d = safeAdd(d, oldd);
+  }
+
+  return [a, b, c, d];
+}
+/*
+ * Convert an array bytes to an array of little-endian words
+ * Characters >255 have their high-byte silently ignored.
+ */
+
+
+function bytesToWords(input) {
+  var i;
+  var output = [];
+  output[(input.length >> 2) - 1] = undefined;
+
+  for (i = 0; i < output.length; i += 1) {
+    output[i] = 0;
+  }
+
+  var length8 = input.length * 8;
+
+  for (i = 0; i < length8; i += 8) {
+    output[i >> 5] |= (input[i / 8] & 0xff) << i % 32;
+  }
+
+  return output;
+}
+/*
+ * Add integers, wrapping at 2^32. This uses 16-bit operations internally
+ * to work around bugs in some JS interpreters.
+ */
+
+
+function safeAdd(x, y) {
+  var lsw = (x & 0xffff) + (y & 0xffff);
+  var msw = (x >> 16) + (y >> 16) + (lsw >> 16);
+  return msw << 16 | lsw & 0xffff;
+}
+/*
+ * Bitwise rotate a 32-bit number to the left.
+ */
+
+
+function bitRotateLeft(num, cnt) {
+  return num << cnt | num >>> 32 - cnt;
+}
+/*
+ * These functions implement the four basic operations the algorithm uses.
+ */
+
+
+function md5cmn(q, a, b, x, s, t) {
+  return safeAdd(bitRotateLeft(safeAdd(safeAdd(a, q), safeAdd(x, t)), s), b);
+}
+
+function md5ff(a, b, c, d, x, s, t) {
+  return md5cmn(b & c | ~b & d, a, b, x, s, t);
+}
+
+function md5gg(a, b, c, d, x, s, t) {
+  return md5cmn(b & d | c & ~d, a, b, x, s, t);
+}
+
+function md5hh(a, b, c, d, x, s, t) {
+  return md5cmn(b ^ c ^ d, a, b, x, s, t);
+}
+
+function md5ii(a, b, c, d, x, s, t) {
+  return md5cmn(c ^ (b | ~d), a, b, x, s, t);
+}
+
+var _default = md5;
+exports.default = _default;
 },{}],102:[function(require,module,exports){
-// Unique ID creation requires a high quality random # generator.  In the
-// browser this is a little complicated due to unknown quality of Math.random()
-// and inconsistent support for the `crypto` API.  We do the best we can via
-// feature-detection
+"use strict";
 
-// getRandomValues needs to be invoked in a context where "this" is a Crypto
-// implementation. Also, find the complete implementation of crypto on IE11.
-var getRandomValues = (typeof(crypto) != 'undefined' && crypto.getRandomValues && crypto.getRandomValues.bind(crypto)) ||
-                      (typeof(msCrypto) != 'undefined' && typeof window.msCrypto.getRandomValues == 'function' && msCrypto.getRandomValues.bind(msCrypto));
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.default = rng;
+// Unique ID creation requires a high quality random # generator. In the browser we therefore
+// require the crypto API and do not support built-in fallback to lower quality random number
+// generators (like Math.random()).
+// getRandomValues needs to be invoked in a context where "this" is a Crypto implementation. Also,
+// find the complete implementation of crypto (msCrypto) on IE11.
+var getRandomValues = typeof crypto != 'undefined' && crypto.getRandomValues && crypto.getRandomValues.bind(crypto) || typeof msCrypto != 'undefined' && typeof msCrypto.getRandomValues == 'function' && msCrypto.getRandomValues.bind(msCrypto);
+var rnds8 = new Uint8Array(16); // eslint-disable-line no-undef
 
-if (getRandomValues) {
-  // WHATWG crypto RNG - http://wiki.whatwg.org/wiki/Crypto
-  var rnds8 = new Uint8Array(16); // eslint-disable-line no-undef
+function rng() {
+  if (!getRandomValues) {
+    throw new Error('crypto.getRandomValues() not supported. See https://github.com/uuidjs/uuid#getrandomvalues-not-supported');
+  }
 
-  module.exports = function whatwgRNG() {
-    getRandomValues(rnds8);
-    return rnds8;
-  };
-} else {
-  // Math.random()-based (RNG)
-  //
-  // If all else fails, use Math.random().  It's fast, but is of unspecified
-  // quality.
-  var rnds = new Array(16);
+  return getRandomValues(rnds8);
+}
+},{}],103:[function(require,module,exports){
+"use strict";
 
-  module.exports = function mathRNG() {
-    for (var i = 0, r; i < 16; i++) {
-      if ((i & 0x03) === 0) r = Math.random() * 0x100000000;
-      rnds[i] = r >>> ((i & 0x03) << 3) & 0xff;
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.default = void 0;
+
+// Adapted from Chris Veness' SHA1 code at
+// http://www.movable-type.co.uk/scripts/sha1.html
+function f(s, x, y, z) {
+  switch (s) {
+    case 0:
+      return x & y ^ ~x & z;
+
+    case 1:
+      return x ^ y ^ z;
+
+    case 2:
+      return x & y ^ x & z ^ y & z;
+
+    case 3:
+      return x ^ y ^ z;
+  }
+}
+
+function ROTL(x, n) {
+  return x << n | x >>> 32 - n;
+}
+
+function sha1(bytes) {
+  var K = [0x5a827999, 0x6ed9eba1, 0x8f1bbcdc, 0xca62c1d6];
+  var H = [0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476, 0xc3d2e1f0];
+
+  if (typeof bytes == 'string') {
+    var msg = unescape(encodeURIComponent(bytes)); // UTF8 escape
+
+    bytes = new Array(msg.length);
+
+    for (var i = 0; i < msg.length; i++) bytes[i] = msg.charCodeAt(i);
+  }
+
+  bytes.push(0x80);
+  var l = bytes.length / 4 + 2;
+  var N = Math.ceil(l / 16);
+  var M = new Array(N);
+
+  for (var i = 0; i < N; i++) {
+    M[i] = new Array(16);
+
+    for (var j = 0; j < 16; j++) {
+      M[i][j] = bytes[i * 64 + j * 4] << 24 | bytes[i * 64 + j * 4 + 1] << 16 | bytes[i * 64 + j * 4 + 2] << 8 | bytes[i * 64 + j * 4 + 3];
+    }
+  }
+
+  M[N - 1][14] = (bytes.length - 1) * 8 / Math.pow(2, 32);
+  M[N - 1][14] = Math.floor(M[N - 1][14]);
+  M[N - 1][15] = (bytes.length - 1) * 8 & 0xffffffff;
+
+  for (var i = 0; i < N; i++) {
+    var W = new Array(80);
+
+    for (var t = 0; t < 16; t++) W[t] = M[i][t];
+
+    for (var t = 16; t < 80; t++) {
+      W[t] = ROTL(W[t - 3] ^ W[t - 8] ^ W[t - 14] ^ W[t - 16], 1);
     }
 
-    return rnds;
-  };
+    var a = H[0];
+    var b = H[1];
+    var c = H[2];
+    var d = H[3];
+    var e = H[4];
+
+    for (var t = 0; t < 80; t++) {
+      var s = Math.floor(t / 20);
+      var T = ROTL(a, 5) + f(s, b, c, d) + e + K[s] + W[t] >>> 0;
+      e = d;
+      d = c;
+      c = ROTL(b, 30) >>> 0;
+      b = a;
+      a = T;
+    }
+
+    H[0] = H[0] + a >>> 0;
+    H[1] = H[1] + b >>> 0;
+    H[2] = H[2] + c >>> 0;
+    H[3] = H[3] + d >>> 0;
+    H[4] = H[4] + e >>> 0;
+  }
+
+  return [H[0] >> 24 & 0xff, H[0] >> 16 & 0xff, H[0] >> 8 & 0xff, H[0] & 0xff, H[1] >> 24 & 0xff, H[1] >> 16 & 0xff, H[1] >> 8 & 0xff, H[1] & 0xff, H[2] >> 24 & 0xff, H[2] >> 16 & 0xff, H[2] >> 8 & 0xff, H[2] & 0xff, H[3] >> 24 & 0xff, H[3] >> 16 & 0xff, H[3] >> 8 & 0xff, H[3] & 0xff, H[4] >> 24 & 0xff, H[4] >> 16 & 0xff, H[4] >> 8 & 0xff, H[4] & 0xff];
 }
 
-},{}],103:[function(require,module,exports){
-var rng = require('./lib/rng');
-var bytesToUuid = require('./lib/bytesToUuid');
+var _default = sha1;
+exports.default = _default;
+},{}],104:[function(require,module,exports){
+"use strict";
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.default = void 0;
+
+var _rng = _interopRequireDefault(require("./rng.js"));
+
+var _bytesToUuid = _interopRequireDefault(require("./bytesToUuid.js"));
+
+function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
 // **`v1()` - Generate time-based UUID**
 //
 // Inspired by https://github.com/LiosK/UUID.js
 // and http://docs.python.org/library/uuid.html
-
 var _nodeId;
-var _clockseq;
 
-// Previous uuid creation time
+var _clockseq; // Previous uuid creation time
+
+
 var _lastMSecs = 0;
-var _lastNSecs = 0;
+var _lastNSecs = 0; // See https://github.com/uuidjs/uuid for API details
 
-// See https://github.com/broofa/node-uuid for API details
 function v1(options, buf, offset) {
   var i = buf && offset || 0;
   var b = buf || [];
-
   options = options || {};
   var node = options.node || _nodeId;
-  var clockseq = options.clockseq !== undefined ? options.clockseq : _clockseq;
-
-  // node and clockseq need to be initialized to random values if they're not
+  var clockseq = options.clockseq !== undefined ? options.clockseq : _clockseq; // node and clockseq need to be initialized to random values if they're not
   // specified.  We do this lazily to minimize issues related to insufficient
   // system entropy.  See #189
+
   if (node == null || clockseq == null) {
-    var seedBytes = rng();
+    var seedBytes = options.random || (options.rng || _rng.default)();
+
     if (node == null) {
       // Per 4.5, create and 48-bit node id, (47 random bits + multicast bit = 1)
-      node = _nodeId = [
-        seedBytes[0] | 0x01,
-        seedBytes[1], seedBytes[2], seedBytes[3], seedBytes[4], seedBytes[5]
-      ];
+      node = _nodeId = [seedBytes[0] | 0x01, seedBytes[1], seedBytes[2], seedBytes[3], seedBytes[4], seedBytes[5]];
     }
+
     if (clockseq == null) {
       // Per 4.2.2, randomize (14 bit) clockseq
       clockseq = _clockseq = (seedBytes[6] << 8 | seedBytes[7]) & 0x3fff;
     }
-  }
-
-  // UUID timestamps are 100 nano-second units since the Gregorian epoch,
+  } // UUID timestamps are 100 nano-second units since the Gregorian epoch,
   // (1582-10-15 00:00).  JSNumbers aren't precise enough for this, so
   // time is handled internally as 'msecs' (integer milliseconds) and 'nsecs'
   // (100-nanoseconds offset from msecs) since unix epoch, 1970-01-01 00:00.
-  var msecs = options.msecs !== undefined ? options.msecs : new Date().getTime();
 
-  // Per 4.2.1.2, use count of uuid's generated during the current clock
+
+  var msecs = options.msecs !== undefined ? options.msecs : new Date().getTime(); // Per 4.2.1.2, use count of uuid's generated during the current clock
   // cycle to simulate higher resolution clock
-  var nsecs = options.nsecs !== undefined ? options.nsecs : _lastNSecs + 1;
 
-  // Time since last uuid creation (in msecs)
-  var dt = (msecs - _lastMSecs) + (nsecs - _lastNSecs)/10000;
+  var nsecs = options.nsecs !== undefined ? options.nsecs : _lastNSecs + 1; // Time since last uuid creation (in msecs)
 
-  // Per 4.2.1.2, Bump clockseq on clock regression
+  var dt = msecs - _lastMSecs + (nsecs - _lastNSecs) / 10000; // Per 4.2.1.2, Bump clockseq on clock regression
+
   if (dt < 0 && options.clockseq === undefined) {
     clockseq = clockseq + 1 & 0x3fff;
-  }
-
-  // Reset nsecs if clock regresses (new clockseq) or we've moved onto a new
+  } // Reset nsecs if clock regresses (new clockseq) or we've moved onto a new
   // time interval
+
+
   if ((dt < 0 || msecs > _lastMSecs) && options.nsecs === undefined) {
     nsecs = 0;
-  }
+  } // Per 4.2.1.2 Throw error if too many uuids are requested
 
-  // Per 4.2.1.2 Throw error if too many uuids are requested
+
   if (nsecs >= 10000) {
-    throw new Error('uuid.v1(): Can\'t create more than 10M uuids/sec');
+    throw new Error("uuid.v1(): Can't create more than 10M uuids/sec");
   }
 
   _lastMSecs = msecs;
   _lastNSecs = nsecs;
-  _clockseq = clockseq;
+  _clockseq = clockseq; // Per 4.1.4 - Convert from unix epoch to Gregorian epoch
 
-  // Per 4.1.4 - Convert from unix epoch to Gregorian epoch
-  msecs += 12219292800000;
+  msecs += 12219292800000; // `time_low`
 
-  // `time_low`
   var tl = ((msecs & 0xfffffff) * 10000 + nsecs) % 0x100000000;
   b[i++] = tl >>> 24 & 0xff;
   b[i++] = tl >>> 16 & 0xff;
   b[i++] = tl >>> 8 & 0xff;
-  b[i++] = tl & 0xff;
+  b[i++] = tl & 0xff; // `time_mid`
 
-  // `time_mid`
-  var tmh = (msecs / 0x100000000 * 10000) & 0xfffffff;
+  var tmh = msecs / 0x100000000 * 10000 & 0xfffffff;
   b[i++] = tmh >>> 8 & 0xff;
-  b[i++] = tmh & 0xff;
+  b[i++] = tmh & 0xff; // `time_high_and_version`
 
-  // `time_high_and_version`
   b[i++] = tmh >>> 24 & 0xf | 0x10; // include version
-  b[i++] = tmh >>> 16 & 0xff;
 
-  // `clock_seq_hi_and_reserved` (Per 4.2.2 - include variant)
-  b[i++] = clockseq >>> 8 | 0x80;
+  b[i++] = tmh >>> 16 & 0xff; // `clock_seq_hi_and_reserved` (Per 4.2.2 - include variant)
 
-  // `clock_seq_low`
-  b[i++] = clockseq & 0xff;
+  b[i++] = clockseq >>> 8 | 0x80; // `clock_seq_low`
 
-  // `node`
+  b[i++] = clockseq & 0xff; // `node`
+
   for (var n = 0; n < 6; ++n) {
     b[i + n] = node[n];
   }
 
-  return buf ? buf : bytesToUuid(b);
+  return buf ? buf : (0, _bytesToUuid.default)(b);
 }
 
-module.exports = v1;
+var _default = v1;
+exports.default = _default;
+},{"./bytesToUuid.js":99,"./rng.js":102}],105:[function(require,module,exports){
+"use strict";
 
-},{"./lib/bytesToUuid":101,"./lib/rng":102}],104:[function(require,module,exports){
-var rng = require('./lib/rng');
-var bytesToUuid = require('./lib/bytesToUuid');
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.default = void 0;
+
+var _v = _interopRequireDefault(require("./v35.js"));
+
+var _md = _interopRequireDefault(require("./md5.js"));
+
+function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+
+const v3 = (0, _v.default)('v3', 0x30, _md.default);
+var _default = v3;
+exports.default = _default;
+},{"./md5.js":101,"./v35.js":106}],106:[function(require,module,exports){
+"use strict";
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.default = _default;
+exports.URL = exports.DNS = void 0;
+
+var _bytesToUuid = _interopRequireDefault(require("./bytesToUuid.js"));
+
+function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+
+function uuidToBytes(uuid) {
+  // Note: We assume we're being passed a valid uuid string
+  var bytes = [];
+  uuid.replace(/[a-fA-F0-9]{2}/g, function (hex) {
+    bytes.push(parseInt(hex, 16));
+  });
+  return bytes;
+}
+
+function stringToBytes(str) {
+  str = unescape(encodeURIComponent(str)); // UTF8 escape
+
+  var bytes = new Array(str.length);
+
+  for (var i = 0; i < str.length; i++) {
+    bytes[i] = str.charCodeAt(i);
+  }
+
+  return bytes;
+}
+
+const DNS = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
+exports.DNS = DNS;
+const URL = '6ba7b811-9dad-11d1-80b4-00c04fd430c8';
+exports.URL = URL;
+
+function _default(name, version, hashfunc) {
+  var generateUUID = function (value, namespace, buf, offset) {
+    var off = buf && offset || 0;
+    if (typeof value == 'string') value = stringToBytes(value);
+    if (typeof namespace == 'string') namespace = uuidToBytes(namespace);
+    if (!Array.isArray(value)) throw TypeError('value must be an array of bytes');
+    if (!Array.isArray(namespace) || namespace.length !== 16) throw TypeError('namespace must be uuid string or an Array of 16 byte values'); // Per 4.3
+
+    var bytes = hashfunc(namespace.concat(value));
+    bytes[6] = bytes[6] & 0x0f | version;
+    bytes[8] = bytes[8] & 0x3f | 0x80;
+
+    if (buf) {
+      for (var idx = 0; idx < 16; ++idx) {
+        buf[off + idx] = bytes[idx];
+      }
+    }
+
+    return buf || (0, _bytesToUuid.default)(bytes);
+  }; // Function#name is not settable on some platforms (#270)
+
+
+  try {
+    generateUUID.name = name;
+  } catch (err) {} // For CommonJS default export support
+
+
+  generateUUID.DNS = DNS;
+  generateUUID.URL = URL;
+  return generateUUID;
+}
+},{"./bytesToUuid.js":99}],107:[function(require,module,exports){
+"use strict";
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.default = void 0;
+
+var _rng = _interopRequireDefault(require("./rng.js"));
+
+var _bytesToUuid = _interopRequireDefault(require("./bytesToUuid.js"));
+
+function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
 function v4(options, buf, offset) {
   var i = buf && offset || 0;
 
-  if (typeof(options) == 'string') {
+  if (typeof options == 'string') {
     buf = options === 'binary' ? new Array(16) : null;
     options = null;
   }
+
   options = options || {};
 
-  var rnds = options.random || (options.rng || rng)();
+  var rnds = options.random || (options.rng || _rng.default)(); // Per 4.4, set bits for version and `clock_seq_hi_and_reserved`
 
-  // Per 4.4, set bits for version and `clock_seq_hi_and_reserved`
-  rnds[6] = (rnds[6] & 0x0f) | 0x40;
-  rnds[8] = (rnds[8] & 0x3f) | 0x80;
 
-  // Copy bytes to buffer, if provided
+  rnds[6] = rnds[6] & 0x0f | 0x40;
+  rnds[8] = rnds[8] & 0x3f | 0x80; // Copy bytes to buffer, if provided
+
   if (buf) {
     for (var ii = 0; ii < 16; ++ii) {
       buf[i + ii] = rnds[ii];
     }
   }
 
-  return buf || bytesToUuid(rnds);
+  return buf || (0, _bytesToUuid.default)(rnds);
 }
 
-module.exports = v4;
+var _default = v4;
+exports.default = _default;
+},{"./bytesToUuid.js":99,"./rng.js":102}],108:[function(require,module,exports){
+"use strict";
 
-},{"./lib/bytesToUuid":101,"./lib/rng":102}],105:[function(require,module,exports){
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.default = void 0;
+
+var _v = _interopRequireDefault(require("./v35.js"));
+
+var _sha = _interopRequireDefault(require("./sha1.js"));
+
+function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+
+const v5 = (0, _v.default)('v5', 0x50, _sha.default);
+var _default = v5;
+exports.default = _default;
+},{"./sha1.js":103,"./v35.js":106}],109:[function(require,module,exports){
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 var LRU_1 = require("./utils/LRU");
@@ -20803,12 +25014,15 @@ var EndpointCache = /** @class */ (function () {
         var now = Date.now();
         var records = this.cache.get(keyString);
         if (records) {
-            for (var i = 0; i < records.length; i++) {
+            for (var i = records.length-1; i >= 0; i--) {
                 var record = records[i];
                 if (record.Expire < now) {
-                    this.cache.remove(keyString);
-                    return undefined;
+                    records.splice(i, 1);
                 }
+            }
+            if (records.length === 0) {
+                this.cache.remove(keyString);
+                return undefined;
             }
         }
         return records;
@@ -20841,7 +25055,7 @@ var EndpointCache = /** @class */ (function () {
     return EndpointCache;
 }());
 exports.EndpointCache = EndpointCache;
-},{"./utils/LRU":106}],106:[function(require,module,exports){
+},{"./utils/LRU":110}],110:[function(require,module,exports){
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 var LinkedListNode = /** @class */ (function () {
@@ -20949,8 +25163,8 @@ var LRUCache = /** @class */ (function () {
     return LRUCache;
 }());
 exports.LRUCache = LRUCache;
-},{}],107:[function(require,module,exports){
-// AWS SDK for JavaScript v2.553.0
+},{}],111:[function(require,module,exports){
+// AWS SDK for JavaScript v2.1200.0
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // License at https://sdk.amazonaws.com/js/BUNDLE_LICENSE.txt
 require('./browser_loader');
@@ -20976,1161 +25190,2444 @@ if (typeof self !== 'undefined') self.AWS = AWS;
 }
 AWS.apiLoader.services['connect']['2017-02-15'] = require('../apis/connect-2017-02-15.min');
 
-if (!Object.prototype.hasOwnProperty.call(AWS, 'STS')) {
-  AWS.apiLoader.services['sts'] = {};
-  AWS.STS = AWS.Service.defineService('sts', [ '2011-06-15' ]);
-  require('./services/sts');
-}
-AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.min');
+
+},{"../apis/connect-2017-02-15.min":3,"./browser_loader":16,"./core":19}]},{},[111]);
 
 
-},{"../apis/connect-2017-02-15.min":3,"../apis/sts-2011-06-15.min":5,"./browser_loader":16,"./core":18,"./services/sts":61}]},{},[107]);
 
+/***/ }),
 
-/*! @license sprintf.js | Copyright (c) 2007-2013 Alexandru Marasteanu <hello at alexei dot ro> | 3 clause BSD license */
+/***/ 754:
+/***/ (() => {
 
+/*
+ * Copyright 2014-2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 (function() {
-   var ctx = this;
+   var global = this || globalThis;
+   var connect = global.connect || {};
+   global.connect = connect;
+   global.lily = connect;
 
-	var sprintf = function() {
-		if (!sprintf.cache.hasOwnProperty(arguments[0])) {
-			sprintf.cache[arguments[0]] = sprintf.parse(arguments[0]);
-		}
-		return sprintf.format.call(null, sprintf.cache[arguments[0]], arguments);
-	};
+   /**---------------------------------------------------------------
+    * enum ClientMethods
+    */
+   connect.ClientMethods = connect.makeEnum([
+         'getAgentSnapshot',
+         'putAgentState',
+         'getAgentStates',
+         'getDialableCountryCodes',
+         'getRoutingProfileQueues',
+         'getAgentPermissions',
+         'getAgentConfiguration',
+         'updateAgentConfiguration',
+         'acceptContact',
+         'createOutboundContact',
+         'createTaskContact',
+         'clearContact',
+         'completeContact',
+         'destroyContact',
+         'rejectContact',
+         'notifyContactIssue',
+         'updateContactAttributes',
+         'createAdditionalConnection',
+         'destroyConnection',
+         'holdConnection',
+         'resumeConnection',
+         'toggleActiveConnections',
+         'conferenceConnections',
+         'sendClientLogs',
+         'sendDigits',
+         'sendSoftphoneCallReport',
+         'sendSoftphoneCallMetrics',
+         'getEndpoints',
+         'getNewAuthToken',
+         'createTransport',
+         'muteParticipant',
+         'unmuteParticipant',
+         'updateMonitorParticipantState'
+   ]);
 
-	sprintf.format = function(parse_tree, argv) {
-		var cursor = 1, tree_length = parse_tree.length, node_type = '', arg, output = [], i, k, match, pad, pad_character, pad_length;
-		for (i = 0; i < tree_length; i++) {
-			node_type = get_type(parse_tree[i]);
-			if (node_type === 'string') {
-				output.push(parse_tree[i]);
-			}
-			else if (node_type === 'array') {
-				match = parse_tree[i]; // convenience purposes only
-				if (match[2]) { // keyword argument
-					arg = argv[cursor];
-					for (k = 0; k < match[2].length; k++) {
-						if (!arg.hasOwnProperty(match[2][k])) {
-							throw(sprintf('[sprintf] property "%s" does not exist', match[2][k]));
-						}
-						arg = arg[match[2][k]];
-					}
-				}
-				else if (match[1]) { // positional argument (explicit)
-					arg = argv[match[1]];
-				}
-				else { // positional argument (implicit)
-					arg = argv[cursor++];
-				}
+   /**---------------------------------------------------------------
+    * enum AgentAppClientMethods
+    */
+   connect.AgentAppClientMethods = {
+      GET_CONTACT: "AgentAppService.Lcms.getContact",
+      DELETE_SPEAKER: "AgentAppService.VoiceId.deleteSpeaker",
+      ENROLL_BY_SESSION: "AgentAppService.VoiceId.enrollBySession",
+      EVALUATE_SESSION: "AgentAppService.VoiceId.evaluateSession",
+      DESCRIBE_SPEAKER: "AgentAppService.VoiceId.describeSpeaker",
+      OPT_OUT_SPEAKER: "AgentAppService.VoiceId.optOutSpeaker",
+      UPDATE_VOICE_ID_DATA: "AgentAppService.Lcms.updateVoiceIdData",
+      DESCRIBE_SESSION: "AgentAppService.VoiceId.describeSession",
+      UPDATE_SESSION: "AgentAppService.VoiceId.updateSession",
+      START_VOICE_ID_SESSION: "AgentAppService.Nasa.startVoiceIdSession",
+      LIST_INTEGRATION_ASSOCIATIONS: "AgentAppService.Acs.listIntegrationAssociations"
+   };
 
-				if (/[^s]/.test(match[8]) && (get_type(arg) != 'number')) {
-					throw(sprintf('[sprintf] expecting number but found %s', get_type(arg)));
-				}
-				switch (match[8]) {
-					case 'b': arg = arg.toString(2); break;
-					case 'c': arg = String.fromCharCode(arg); break;
-					case 'd': arg = parseInt(arg, 10); break;
-					case 'e': arg = match[7] ? arg.toExponential(match[7]) : arg.toExponential(); break;
-					case 'f': arg = match[7] ? parseFloat(arg).toFixed(match[7]) : parseFloat(arg); break;
-					case 'o': arg = arg.toString(8); break;
-					case 's': arg = ((arg = String(arg)) && match[7] ? arg.substring(0, match[7]) : arg); break;
-					case 'u': arg = arg >>> 0; break;
-					case 'x': arg = arg.toString(16); break;
-					case 'X': arg = arg.toString(16).toUpperCase(); break;
-				}
-				arg = (/[def]/.test(match[8]) && match[3] && arg >= 0 ? '+'+ arg : arg);
-				pad_character = match[4] ? match[4] == '0' ? '0' : match[4].charAt(1) : ' ';
-				pad_length = match[6] - String(arg).length;
-				pad = match[6] ? str_repeat(pad_character, pad_length) : '';
-				output.push(match[5] ? arg + pad : pad + arg);
-			}
-		}
-		return output.join('');
-	};
+   /**---------------------------------------------------------------
+    * enum MasterMethods
+    */
+   connect.MasterMethods = connect.makeEnum([
+         'becomeMaster',
+         'checkMaster'
+   ]);
 
-	sprintf.cache = {};
+   /**---------------------------------------------------------------
+    * enum TaskTemplatesClientMethods
+    */
+   connect.TaskTemplatesClientMethods = connect.makeEnum([
+      'listTaskTemplates',
+      'getTaskTemplate',
+      'createTemplatedTask',
+      'updateContact'
+   ]);
 
-	sprintf.parse = function(fmt) {
-		var _fmt = fmt, match = [], parse_tree = [], arg_names = 0;
-		while (_fmt) {
-			if ((match = /^[^\x25]+/.exec(_fmt)) !== null) {
-				parse_tree.push(match[0]);
-			}
-			else if ((match = /^\x25{2}/.exec(_fmt)) !== null) {
-				parse_tree.push('%');
-			}
-			else if ((match = /^\x25(?:([1-9]\d*)\$|\(([^\)]+)\))?(\+)?(0|'[^$])?(-)?(\d+)?(?:\.(\d+))?([b-fosuxX])/.exec(_fmt)) !== null) {
-				if (match[2]) {
-					arg_names |= 1;
-					var field_list = [], replacement_field = match[2], field_match = [];
-					if ((field_match = /^([a-z_][a-z_\d]*)/i.exec(replacement_field)) !== null) {
-						field_list.push(field_match[1]);
-						while ((replacement_field = replacement_field.substring(field_match[0].length)) !== '') {
-							if ((field_match = /^\.([a-z_][a-z_\d]*)/i.exec(replacement_field)) !== null) {
-								field_list.push(field_match[1]);
-							}
-							else if ((field_match = /^\[(\d+)\]/.exec(replacement_field)) !== null) {
-								field_list.push(field_match[1]);
-							}
-							else {
-								throw('[sprintf] huh?');
-							}
-						}
-					}
-					else {
-						throw('[sprintf] huh?');
-					}
-					match[2] = field_list;
-				}
-				else {
-					arg_names |= 2;
-				}
-				if (arg_names === 3) {
-					throw('[sprintf] mixing positional and named placeholders is not (yet) supported');
-				}
-				parse_tree.push(match);
-			}
-			else {
-				throw('[sprintf] huh?');
-			}
-			_fmt = _fmt.substring(match[0].length);
-		}
-		return parse_tree;
-	};
+   /**---------------------------------------------------------------
+    * abstract class ClientBase
+    */
+   var ClientBase = function() {};
+   ClientBase.EMPTY_CALLBACKS = {
+      success: function() { },
+      failure: function() { }
+   };
 
-	var vsprintf = function(fmt, argv, _argv) {
-		_argv = argv.slice(0);
-		_argv.splice(0, 0, fmt);
-		return sprintf.apply(null, _argv);
-	};
+   ClientBase.prototype.call = function(method, paramsIn, callbacksIn) {
+      connect.assertNotNull(method, 'method');
+      var params = paramsIn || {};
+      var callbacks = callbacksIn || ClientBase.EMPTY_CALLBACKS;
+      this._callImpl(method, params, callbacks);
+   };
 
-	/**
-	 * helpers
-	 */
-	function get_type(variable) {
-		return Object.prototype.toString.call(variable).slice(8, -1).toLowerCase();
-	}
+   ClientBase.prototype._callImpl = function(method, params, callbacks) {
+      throw new connect.NotImplementedError();
+   };
 
-	function str_repeat(input, multiplier) {
-		for (var output = []; multiplier > 0; output[--multiplier] = input) {/* do nothing */}
-		return output.join('');
-	}
+   /**---------------------------------------------------------------
+    * class NullClient extends ClientBase
+    */
+   var NullClient = function() {
+      ClientBase.call(this);
+   };
+   NullClient.prototype = Object.create(ClientBase.prototype);
+   NullClient.prototype.constructor = NullClient;
 
-	/**
-	 * export to either browser or node.js
-	 */
-	ctx.sprintf = sprintf;
-	ctx.vsprintf = vsprintf;
-})();
-
-
-/*
- * Copyright 2014-2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
- *
- * SPDX-License-Identifier: Apache-2.0
- */
-(function () {
-  var global = this;
-  connect = global.connect || {};
-  global.connect = connect;
-  global.lily = connect;
-
-  // How frequently logs should be collected and reported to shared worker.
-  var LOG_REPORT_INTERVAL_MILLIS = 5000;
-
-  // The default log roll interval (30min)
-  var DEFAULT_LOG_ROLL_INTERVAL = 1800000;
-
-  /**
-   * An enumeration of common logging levels.
-   */
-  var LogLevel = {
-    TEST: "TEST",
-    TRACE: "TRACE",
-    DEBUG: "DEBUG",
-    INFO: "INFO",
-    LOG: "LOG",
-    WARN: "WARN",
-    ERROR: "ERROR",
-    CRITICAL: "CRITICAL"
-  };
-
-  /**
-   * An enumeration of common logging components.
-   */
-  var LogComponent = {
-    CCP: "ccp",
-    SOFTPHONE: "softphone",
-    CHAT: "chat"
-  };
-
-  /**
-   * The numeric order of the logging levels above.
-   * They are spaced to allow the addition of other log
-   * levels at a later time.
-   */
-  var LogLevelOrder = {
-    TEST: 0,
-    TRACE: 10,
-    DEBUG: 20,
-    INFO: 30,
-    LOG: 40,
-    WARN: 50,
-    ERROR: 100,
-    CRITICAL: 200
-
-  };
-
-  /**
-   * A map from log level to console logger function.
-   */
-  var CONSOLE_LOGGER_MAP = {
-    TRACE: function (text) { console.info(text); },
-    DEBUG: function (text) { console.info(text); },
-    INFO: function (text) { console.info(text); },
-    LOG: function (text) { console.log(text); },
-    TEST: function (text) { console.log(text); },
-    WARN: function (text) { console.warn(text); },
-    ERROR: function (text) { console.error(text); },
-    CRITICAL: function (text) { console.error(text); }
-  };
-
-  /**
-  * Checks if it is a valid log component enum
-  */
-
-  var isValidLogComponent = function (component) {
-    return [LogComponent.SOFTPHONE, LogComponent.CCP, LogComponent.CHAT].indexOf(component) !== -1;
-  };
-
-  /**
-  * Extract the custom arguments as required by the logger
-  */
-  var extractLoggerArgs = function (loggerArgs) {
-    var args = Array.prototype.slice.call(loggerArgs, 0);
-    var firstArg = args.shift();
-    var format;
-    var component;
-    if (isValidLogComponent(firstArg)) {
-      component = firstArg;
-      format = args.shift();
-    } else {
-      //default to CCP component
-      format = firstArg;
-      component = LogComponent.CCP;
-    }
-    return {
-      format: format,
-      component: component,
-      args: args
-    };
-  };
-
-  /**
-   * A log entry.
-   *
-   * @param level The log level of this log entry.
-   * @param text The text contained in the log entry.
-   *
-   * Log entries are aware of their timestamp, order,
-   * and can contain objects and exception stack traces.
-   */
-  var LogEntry = function (component, level, text) {
-    this.component = component;
-    this.level = level;
-    this.text = text;
-    this.time = new Date();
-    this.exception = null;
-    this.objects = [];
-    this.line = 0;
-  };
-
-  LogEntry.fromObject = function (obj) {
-    var entry = new LogEntry(LogComponent.CCP, obj.level, obj.text);
-
-    // Required to check for Date objects sent across frame boundaries
-    if (Object.prototype.toString.call(obj.time) === '[object Date]') {
-      entry.time = new Date(obj.time.getTime());
-    } else if (typeof obj.time === 'number') {
-      entry.time = new Date(obj.time);
-    } else if (typeof obj.time === 'string') {
-      entry.time = Date.parse(obj.time);
-    } else {
-      entry.time = new Date();
-    }
-    entry.exception = obj.exception;
-    entry.objects = obj.objects;
-    return entry;
-  };
-
-  /**
-   * Pulls the type, message, and stack trace
-   * out of the given exception for JSON serialization.
-   */
-  var LoggedException = function (e) {
-    this.type = Object.prototype.toString.call(e);
-    this.message = e.message;
-    this.stack = e.stack ? e.stack.split('\n') : [];
-  };
-
-  /**
-   * Minimally stringify this log entry for printing
-   * to the console.
-   */
-  LogEntry.prototype.toString = function () {
-    return connect.sprintf("[%s] [%s]: %s",
-      this.getTime() && this.getTime().toISOString ? this.getTime().toISOString() : "???",
-      this.getLevel(),
-      this.getText());
-  };
-
-  /**
-   * Get the log entry timestamp.
-   */
-  LogEntry.prototype.getTime = function () {
-    return this.time;
-  };
-
-  /**
-   * Get the level of the log entry.
-   */
-  LogEntry.prototype.getLevel = function () {
-    return this.level;
-  };
-
-  /**
-   * Get the log entry text.
-   */
-  LogEntry.prototype.getText = function () {
-    return this.text;
-  };
-
-  /**
-   * Get the log entry component.
-   */
-  LogEntry.prototype.getComponent = function () {
-    return this.component;
-  };
-
-  /**
-   * Add an exception stack trace to this log entry.
-   * A log entry may contain only one exception stack trace.
-   */
-  LogEntry.prototype.withException = function (e) {
-    this.exception = new LoggedException(e);
-    return this;
-  };
-
-  /**
-   * Add an arbitrary object to the log entry.  A log entry
-   * may contain any number of objects.
-   */
-  LogEntry.prototype.withObject = function (obj) {
-    this.objects.push(connect.deepcopy(obj));
-    return this;
-  };
-
-  /**
-   * The logger instance.
-   */
-  var Logger = function () {
-    this._logs = [];
-    this._rolledLogs = [];
-    this._logsToPush = [];
-    this._echoLevel = LogLevelOrder.INFO;
-    this._logLevel = LogLevelOrder.INFO;
-    this._lineCount = 0;
-    this._logRollInterval = 0;
-    this._logRollTimer = null;
-    this.setLogRollInterval(DEFAULT_LOG_ROLL_INTERVAL);
-  };
-
-  /**
-   * Sets the interval in milliseconds that the logs will be rotated.
-   * Logs are rotated out completely at the end of the second roll
-   * and will eventually be garbage collected.
-   */
-  Logger.prototype.setLogRollInterval = function (interval) {
-    var self = this;
-
-    if (!(this._logRollTimer) || interval !== this._logRollInterval) {
-      if (this._logRollTimer) {
-        global.clearInterval(this._logRollTimer);
+   NullClient.prototype._callImpl = function(method, params, callbacks) {
+      if (callbacks && callbacks.failure) {
+         var message = connect.sprintf('No such method exists on NULL client: %s', method);
+         callbacks.failure(new connect.ValueError(message), {message: message});
       }
-      this._logRollInterval = interval;
-      this._logRollTimer = global.setInterval(function () {
-        this._rolledLogs = this._logs;
-        this._logs = [];
-        self.info("Log roll interval occurred.");
-      }, this._logRollInterval);
-    } else {
-      this.warn("Logger is already set to the given interval: %d", this._logRollInterval);
-    }
-  };
+   };
 
-  /**
-   * Set the log level.  This is the minimum level at which logs will
-   * be kept for later archiving.
-   */
-  Logger.prototype.setLogLevel = function (level) {
-    if (level in LogLevelOrder) {
-      this._logLevel = LogLevelOrder[level];
-    } else {
-      throw new Error("Unknown logging level: " + level);
-    }
-  };
+   /**---------------------------------------------------------------
+    * abstract class UpstreamConduitClientBase extends ClientBase
+    */
+   var UpstreamConduitClientBase = function(conduit, requestEvent, responseEvent) {
+      ClientBase.call(this);
+      this.conduit = conduit;
+      this.requestEvent = requestEvent;
+      this.responseEvent = responseEvent;
+      this._requestIdCallbacksMap = {};
 
-  /**
-   * Set the echo level.  This is the minimum level at which logs will
-   * be printed to the javascript console.
-   */
-  Logger.prototype.setEchoLevel = function (level) {
-    if (level in LogLevelOrder) {
-      this._echoLevel = LogLevelOrder[level];
-    } else {
-      throw new Error("Unknown logging level: " + level);
-    }
-  };
+      this.conduit.onUpstream(responseEvent, connect.hitch(this, this._handleResponse));
+   };
 
-  /**
-   * Write a particular log entry.
-   *
-   * @param level The logging level of the entry.
-   * @param text The text contents of the entry.
-   *
-   * @returns The new log entry.
-   */
-  Logger.prototype.write = function (component, level, text) {
-    var logEntry = new LogEntry(component, level, text);
-    this.addLogEntry(logEntry);
-    return logEntry;
-  };
+   UpstreamConduitClientBase.prototype = Object.create(ClientBase.prototype);
+   UpstreamConduitClientBase.prototype.constructor = UpstreamConduitClientBase;
 
-  Logger.prototype.addLogEntry = function (logEntry) {
-    this._logs.push(logEntry);
-    //For now only send softphone logs only.
-    //TODO add CCP logs once we are sure that no sensitive data is being logged.
-    if (LogComponent.SOFTPHONE === logEntry.component) {
-      this._logsToPush.push(logEntry);
-    }
+   UpstreamConduitClientBase.prototype._callImpl = function(method, params, callbacks) {
+      var request = connect.EventFactory.createRequest(this.requestEvent, method, params);
+      this._requestIdCallbacksMap[request.requestId] = callbacks;
+      this.conduit.sendUpstream(request.event, request);
+   };
 
-    if (logEntry.level in LogLevelOrder &&
-      LogLevelOrder[logEntry.level] >= this._logLevel) {
+   UpstreamConduitClientBase.prototype._getCallbacksForRequest = function(requestId) {
+      var callbacks = this._requestIdCallbacksMap[requestId] || null;
 
-      if (LogLevelOrder[logEntry.level] >= this._echoLevel) {
-        CONSOLE_LOGGER_MAP[logEntry.getLevel()](logEntry.toString());
+      if (callbacks != null) {
+         delete this._requestIdCallbacksMap[requestId];
       }
 
-      logEntry.line = this._lineCount++;
-    }
-  };
+      return callbacks;
+   };
 
-  /**
-   * Remove all objects from all log entries.
-   */
-  Logger.prototype.clearObjects = function () {
-    for (var x = 0; x < this._logs.length; x++) {
-      if (this._logs[x].objects) {
-        delete this._logs[x].objects;
+   UpstreamConduitClientBase.prototype._handleResponse = function(data) {
+      var callbacks = this._getCallbacksForRequest(data.requestId);
+      if (callbacks == null) {
+         return;
       }
-    }
-  };
 
-  /**
-   * Remove all exception stack traces from the log entries.
-   */
-  Logger.prototype.clearExceptions = function () {
-    for (var x = 0; x < this._logs.length; x++) {
-      if (this._logs[x].exception) {
-        delete this._logs[x].exception;
+      if (data.err && callbacks.failure) {
+         callbacks.failure(data.err, data.data);
+
+      } else if (callbacks.success) {
+         callbacks.success(data.data);
       }
-    }
-  };
+   };
 
-  Logger.prototype.trace = function () {
-    var logArgs = extractLoggerArgs(arguments);
-    return this.write(logArgs.component, LogLevel.TRACE, connect.vsprintf(logArgs.format, logArgs.args));
-  };
+   /**---------------------------------------------------------------
+    * class UpstreamConduitClient extends ClientBase
+    */
+   var UpstreamConduitClient = function(conduit) {
+      UpstreamConduitClientBase.call(this, conduit, connect.EventType.API_REQUEST, connect.EventType.API_RESPONSE);
+   };
+   UpstreamConduitClient.prototype = Object.create(UpstreamConduitClientBase.prototype);
+   UpstreamConduitClient.prototype.constructor = UpstreamConduitClient;
 
-  Logger.prototype.debug = function () {
-    var logArgs = extractLoggerArgs(arguments);
-    return this.write(logArgs.component, LogLevel.DEBUG, connect.vsprintf(logArgs.format, logArgs.args));
-  };
-
-  Logger.prototype.info = function () {
-    var logArgs = extractLoggerArgs(arguments);
-    return this.write(logArgs.component, LogLevel.INFO, connect.vsprintf(logArgs.format, logArgs.args));
-  };
-
-  Logger.prototype.log = function () {
-    var logArgs = extractLoggerArgs(arguments);
-    return this.write(logArgs.component, LogLevel.LOG, connect.vsprintf(logArgs.format, logArgs.args));
-  };
-
-  Logger.prototype.test = function () {
-    var logArgs = extractLoggerArgs(arguments);
-    return this.write(logArgs.component, LogLevel.TEST, connect.vsprintf(logArgs.format, logArgs.args));
-  };
-
-  Logger.prototype.warn = function () {
-    var logArgs = extractLoggerArgs(arguments);
-    return this.write(logArgs.component, LogLevel.WARN, connect.vsprintf(logArgs.format, logArgs.args));
-  };
-
-  Logger.prototype.error = function () {
-    var logArgs = extractLoggerArgs(arguments);
-    return this.write(logArgs.component, LogLevel.ERROR, connect.vsprintf(logArgs.format, logArgs.args));
-  };
-
-  Logger.prototype.critical = function () {
-    var logArgs = extractLoggerArgs(arguments);
-    return this.write(logArgs.component, LogLevel.ERROR, connect.vsprintf(logArgs.format, logArgs.args));
-  };
-
-  /**
-   * Create a string representation of the logger contents.
+   /**---------------------------------------------------------------
+    * class UpstreamConduitMasterClient extends ClientBase
+    */
+   var UpstreamConduitMasterClient = function(conduit) {
+      UpstreamConduitClientBase.call(this, conduit, connect.EventType.MASTER_REQUEST, connect.EventType.MASTER_RESPONSE);
+   };
+   UpstreamConduitMasterClient.prototype = Object.create(UpstreamConduitClientBase.prototype);
+   UpstreamConduitMasterClient.prototype.constructor = UpstreamConduitMasterClient;
+   
+   /**---------------------------------------------------------------
+   * class AgentAppClient extends ClientBase
    */
-  Logger.prototype.toString = function () {
-    var lines = [];
-    for (var x = 0; x < this._logs.length; x++) {
-      lines.push(this._logs[x].toString());
-    }
+   var AgentAppClient = function(authCookieName, authToken, endpoint) {
+      connect.assertNotNull(authCookieName, 'authCookieName');
+      connect.assertNotNull(authToken, 'authToken');
+      connect.assertNotNull(endpoint, 'endpoint');
+      ClientBase.call(this);
+      this.endpointUrl = connect.getUrlWithProtocol(endpoint);
+      this.authToken = authToken;
+      this.authCookieName = authCookieName
+   };
 
-    return lines.join("\n");
-  };
-  
-  Logger.prototype.download = function(logName) {
-    var logBlob = new global.Blob([JSON.stringify(this._rolledLogs.concat(this._logs), undefined, 4)], ['text/plain']);
-    var downloadLink = document.createElement('a');
-    var logName = logName || 'agent-log';
-    downloadLink.href = global.URL.createObjectURL(logBlob);
-    downloadLink.download = logName + '.txt';
-    document.body.appendChild(downloadLink);
-    downloadLink.click();
-    document.body.removeChild(downloadLink);
-  };
+   AgentAppClient.prototype = Object.create(ClientBase.prototype);
+   AgentAppClient.prototype.constructor = AgentAppClient;
 
-  Logger.prototype.downloadLogs = function(logName) {
-	    var logBlob = new global.Blob([JSON.stringify(this._rolledLogs.concat(this._logs), undefined, 4)], ['text/plain']);
-	    console.log(logBlob);
-	  };
-  
-  Logger.prototype.scheduleUpstreamLogPush = function (conduit) {
-    if (!connect.upstreamLogPushScheduled) {
-      connect.upstreamLogPushScheduled = true;
-      /** Schedule pushing logs frequently to sharedworker upstream, sharedworker will report to LARS*/
-      global.setInterval(connect.hitch(this, this.reportMasterLogsUpStream, conduit), LOG_REPORT_INTERVAL_MILLIS);
-    }
-  };
+   AgentAppClient.prototype._callImpl = function(method, params, callbacks) {
+      var self = this;
+      var bear = {};
+      bear[self.authCookieName] = self.authToken;
+      var options = {
+         method: 'post',
+         body: JSON.stringify(params || {}),
+         headers: {
+               'Accept': 'application/json',
+               'Content-Type': 'application/json',
+               'X-Amz-target': method,
+               'X-Amz-Bearer': JSON.stringify(bear)
+         }
+      };
+      connect.fetch(self.endpointUrl, options).then(function(res){
+         callbacks.success(res);
+      }).catch(function(err){
+         const reader = err.body.getReader();
+         let body = '';
+         const decoder = new TextDecoder();
+         reader.read().then(function processText({ done, value }) {
+            if (done) {
+               var error = JSON.parse(body);
+               error.status = err.status;
+               callbacks.failure(error);
+               return;
+            }
+            body += decoder.decode(value);
+            return reader.read().then(processText);
+         });
+      })
+   };
+   /**---------------------------------------------------------------
+    * class AWSClient extends ClientBase
+    */
+   var AWSClient = function(authToken, region, endpointIn) {
+      connect.assertNotNull(authToken, 'authToken');
+      connect.assertNotNull(region, 'region');
+      ClientBase.call(this);
+      AWS.config.credentials = new AWS.Credentials({});
+      AWS.config.region = region;
+      this.authToken = authToken;
+      var baseUrl = connect.getBaseUrl();
+      var endpointUrl = endpointIn || ( 
+         baseUrl.includes(".awsapps.com")
+            ? baseUrl + '/connect/api'
+            : baseUrl + '/api'
+      );
+      var endpoint = new AWS.Endpoint(endpointUrl);
+      this.client = new AWS.Connect({endpoint: endpoint});
+   };
+   AWSClient.prototype = Object.create(ClientBase.prototype);
+   AWSClient.prototype.constructor = AWSClient;
 
-  Logger.prototype.reportMasterLogsUpStream = function (conduit) {
-    var logsToPush = this._logsToPush.slice();
-    this._logsToPush = [];
-    connect.ifMaster(connect.MasterTopics.SEND_LOGS, function () {
-      if (logsToPush.length > 0) {
-        conduit.sendUpstream(connect.EventType.SEND_LOGS, logsToPush);
+   AWSClient.prototype._callImpl = function(method, params, callbacks) {
+
+      var self = this;
+      var log = connect.getLog();
+
+      if (! connect.contains(this.client, method)) {
+         var message = connect.sprintf('No such method exists on AWS client: %s', method);
+         callbacks.failure(new connect.ValueError(message), {message: message});
+
+      } else {
+         params = this._translateParams(method, params);
+
+         log.trace("AWSClient: --> Calling operation '%s'", method).sendInternalLogToServer();
+
+         this.client[method](params)
+            .on('build', function(request) {
+               request.httpRequest.headers['X-Amz-Bearer'] = self.authToken;
+            })
+            .send(function(err, data) {
+               try {
+                  if (err) {
+                     if (err.code === connect.CTIExceptions.UNAUTHORIZED_EXCEPTION) {
+                        callbacks.authFailure();
+                     } else if (callbacks.accessDenied && (err.code === connect.CTIExceptions.ACCESS_DENIED_EXCEPTION || err.statusCode === 403)) {
+                        callbacks.accessDenied();
+                     } else {
+                        // Can't pass err directly to postMessage
+                        // postMessage() tries to clone the err object and failed.
+                        // Refer to https://github.com/goatslacker/alt-devtool/issues/5
+                        var error = {};
+                        error.type = err.code;
+                        error.message = err.message;
+                        error.stack = [];
+                        if (err.stack){
+                           try {
+                               if (Array.isArray(err.stack)) {
+                                   error.stack = err.stack;
+                               } else if (typeof err.stack === 'object') {
+                                   error.stack = [JSON.stringify(err.stack)];
+                               } else if (typeof err.stack === 'string') {
+                                   error.stack = err.stack.split('\n');
+                               }
+                           } catch {}
+                        }
+                        
+                        callbacks.failure(error, data);
+                     }
+
+                     log.trace("AWSClient: <-- Operation '%s' failed: %s", method, JSON.stringify(err)).sendInternalLogToServer();
+
+                  } else {
+                     log.trace("AWSClient: <-- Operation '%s' succeeded.", method).withObject(data).sendInternalLogToServer();
+                     callbacks.success(data);
+                  }
+               } catch (e) {
+                  connect.getLog().error("Failed to handle AWS API request for method %s", method)
+                        .withException(e).sendInternalLogToServer();
+               }
+            });
       }
-    });
-  };
+   };
 
-  var DownstreamConduitLogger = function (conduit) {
-    Logger.call(this);
-    this.conduit = conduit;
-    global.setInterval(connect.hitch(this, this._pushLogsDownstream),
-      DownstreamConduitLogger.LOG_PUSH_INTERVAL);
+   AWSClient.prototype._requiresAuthenticationParam = function (method) {
+      return method !== connect.ClientMethods.COMPLETE_CONTACT &&
+         method !== connect.ClientMethods.CLEAR_CONTACT &&
+         method !== connect.ClientMethods.REJECT_CONTACT &&
+         method !== connect.ClientMethods.CREATE_TASK_CONTACT &&
+         method !== connect.ClientMethods.UPDATE_MONITOR_PARTICIPANT_STATE;
+   };
 
-    // Disable log rolling, we will purge our own logs once they have
-    // been pushed downstream.
-    global.clearInterval(this._logRollTimer);
-    this._logRollTimer = null;
-  };
-  // How frequently logs should be collected and delivered downstream.
-  DownstreamConduitLogger.LOG_PUSH_INTERVAL = 1000;
-  DownstreamConduitLogger.prototype = Object.create(Logger.prototype);
-  DownstreamConduitLogger.prototype.constructor = DownstreamConduitLogger;
+   AWSClient.prototype._translateParams = function(method, params) {
+      switch (method) {
+         case connect.ClientMethods.UPDATE_AGENT_CONFIGURATION:
+            params.configuration = this._translateAgentConfiguration(params.configuration);
+            break;
 
-  DownstreamConduitLogger.prototype._pushLogsDownstream = function () {
-    var self = this;
-    this._logs.forEach(function (log) {
-      self.conduit.sendDownstream(connect.EventType.LOG, log);
-    });
-    this._logs = [];
-  };
+         case connect.ClientMethods.SEND_SOFTPHONE_CALL_METRICS:
+            params.softphoneStreamStatistics = this._translateSoftphoneStreamStatistics(
+                  params.softphoneStreamStatistics);
+            break;
 
-  /** Create the singleton logger instance. */
-  connect.rootLogger = new Logger();
+         case connect.ClientMethods.SEND_SOFTPHONE_CALL_REPORT:
+            params.report = this._translateSoftphoneCallReport(params.report);
+            break;
 
-  /** Fetch the singleton logger instance. */
-  var getLog = function () {
-    return connect.rootLogger;
-  };
+         default:
+            break;
+      }
 
-  connect = connect || {};
-  connect.getLog = getLog;
-  connect.LogEntry = LogEntry;
-  connect.Logger = Logger;
-  connect.LogLevel = LogLevel;
-  connect.LogComponent = LogComponent;
-  connect.DownstreamConduitLogger = DownstreamConduitLogger;
-})();
+      if (this._requiresAuthenticationParam(method)) {
+         params.authentication = {
+            authToken: this.authToken
+         };
+      }
 
-/*
- * Copyright 2014-2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
- *
- * SPDX-License-Identifier: Apache-2.0
- */
-(function () {
-  var global = this;
-  connect = global.connect || {};
-  global.connect = connect;
-  global.lily = connect;
+      return params;
+   };
 
-  var userAgent = navigator.userAgent;
-  var ONE_DAY_MILLIS = 24 * 60 * 60 * 1000;
+   AWSClient.prototype._translateAgentConfiguration = function(config) {
+      return {
+         name: config.name,
+         softphoneEnabled: config.softphoneEnabled,
+         softphoneAutoAccept: config.softphoneAutoAccept,
+         extension: config.extension,
+         routingProfile: this._translateRoutingProfile(config.routingProfile),
+         agentPreferences: config.agentPreferences
+      };
+   };
 
-  /**
-   * Unpollute sprintf functions from the global namespace.
-   */
-  connect.sprintf = global.sprintf;
-  connect.vsprintf = global.vsprintf;
-  delete global.sprintf;
-  delete global.vsprintf;
+   AWSClient.prototype._translateRoutingProfile = function(profile) {
+      return {
+         name: profile.name,
+         routingProfileARN: profile.routingProfileARN,
+         defaultOutboundQueue: this._translateQueue(profile.defaultOutboundQueue)
+      };
+   };
 
-  connect.HTTP_STATUS_CODES = {
-    SUCCESS: 200,
-    TOO_MANY_REQUESTS: 429,
-    INTERNAL_SERVER_ERROR: 500
-  };
+   AWSClient.prototype._translateQueue = function(queue) {
+      return {
+         queueARN:   queue.queueARN,
+         name:       queue.name
+      };
+   };
 
-  connect.TRANSPORT_TYPES = {
-    CHAT_TOKEN: "chat_token",
-    WEB_SOCKET: "web_socket"
-  };
-
-  /**
-   * Binds the given instance object as the context for
-   * the method provided.
-   *
-   * @param scope The instance object to be set as the scope
-   *    of the function.
-   * @param method The method to be encapsulated.
-   *
-   * All other arguments, if any, are bound to the method
-   * invocation inside the closure.
-   *
-   * @return A closure encapsulating the invocation of the
-   *    method provided in context of the given instance.
-   */
-  connect.hitch = function () {
-    var args = Array.prototype.slice.call(arguments);
-    var scope = args.shift();
-    var method = args.shift();
-
-    connect.assertNotNull(scope, 'scope');
-    connect.assertNotNull(method, 'method');
-    connect.assertTrue(connect.isFunction(method), 'method must be a function');
-
-    return function () {
-      var closureArgs = Array.prototype.slice.call(arguments);
-      return method.apply(scope, args.concat(closureArgs));
-    };
-  };
-
-  /**
-   * Determine if the given value is a callable function type.
-   * Borrowed from Underscore.js.
-   */
-  connect.isFunction = function (obj) {
-    return !!(obj && obj.constructor && obj.call && obj.apply);
-  };
-
-  /**
-   * Determine if the given value is an array.
-   */
-  connect.isArray = function (obj) {
-    return Object.prototype.toString.call(obj) === '[object Array]';
-  };
-
-  /**
-   * Get a list of keys from a Javascript object used
-   * as a hash map.
-   */
-  connect.keys = function (map) {
-    var keys = [];
-
-    connect.assertNotNull(map, 'map');
-
-    for (var k in map) {
-      keys.push(k);
-    }
-
-    return keys;
-  };
-
-  /**
-   * Get a list of values from a Javascript object used
-   * as a hash map.
-   */
-  connect.values = function (map) {
-    var values = [];
-
-    connect.assertNotNull(map, 'map');
-
-    for (var k in map) {
-      values.push(map[k]);
-    }
-
-    return values;
-  };
-
-  /**
-   * Get a list of key/value pairs from the given map.
-   */
-  connect.entries = function (map) {
-    var entries = [];
-
-    for (var k in map) {
-      entries.push({ key: k, value: map[k] });
-    }
-
-    return entries;
-  };
-
-  /**
-   * Merge two or more maps together into a new map,
-   * or simply copy a single map.
-   */
-  connect.merge = function () {
-    var argMaps = Array.prototype.slice.call(arguments, 0);
-    var resultMap = {};
-
-    argMaps.forEach(function (map) {
-      connect.entries(map).forEach(function (kv) {
-        resultMap[kv.key] = kv.value;
+   AWSClient.prototype._translateSoftphoneStreamStatistics = function(stats) {
+      stats.forEach(function(stat) {
+         if ('packetsCount' in stat) {
+            stat.packetCount = stat.packetsCount;
+            delete stat.packetsCount;
+         }
       });
-    });
 
-    return resultMap;
-  };
+      return stats;
+   };
 
-  connect.now = function () {
-    return new Date().getTime();
-  };
-
-  connect.find = function (array, predicate) {
-    for (var x = 0; x < array.length; x++) {
-      if (predicate(array[x])) {
-        return array[x];
+   AWSClient.prototype._translateSoftphoneCallReport = function(report) {
+      if ('handshakingTimeMillis' in report) {
+         report.handshakeTimeMillis = report.handshakingTimeMillis;
+         delete report.handshakingTimeMillis;
       }
-    }
 
-    return null;
-  };
-
-  connect.contains = function (obj, value) {
-    if (obj instanceof Array) {
-      return connect.find(obj, function (v) { return v === value; }) != null;
-
-    } else {
-      return (value in obj);
-    }
-  };
-
-  connect.containsValue = function (obj, value) {
-    if (obj instanceof Array) {
-      return connect.find(obj, function (v) { return v === value; }) != null;
-
-    } else {
-      return connect.find(connect.values(obj), function (v) { return v === value; }) != null;
-    }
-  };
-
-  /**
-   * Generate a random ID consisting of the current timestamp
-   * and a random base-36 number based on Math.random().
-   */
-  connect.randomId = function () {
-    return connect.sprintf("%s-%s", connect.now(), Math.random().toString(36).slice(2));
-  };
-
-  /**
-   * Generate an enum from the given list of lower-case enum values,
-   * where the enum keys will be upper case.
-   *
-   * Conversion from pascal case based on code from here:
-   * http://stackoverflow.com/questions/30521224
-   */
-  connect.makeEnum = function (values) {
-    var enumObj = {};
-
-    values.forEach(function (value) {
-      var key = value.replace(/\.?([a-z]+)_?/g, function (x, y) { return y.toUpperCase() + "_"; })
-        .replace(/_$/, "");
-
-      enumObj[key] = value;
-    });
-
-    return enumObj;
-  };
-
-  connect.makeNamespacedEnum = function (prefix, values) {
-    var enumObj = connect.makeEnum(values);
-    connect.keys(enumObj).forEach(function (key) {
-      enumObj[key] = connect.sprintf("%s::%s", prefix, enumObj[key]);
-    });
-    return enumObj;
-  };
-
-  /**
-  * Methods to determine browser type and versions, used for softphone initialization.
-  */
-  connect.isChromeBrowser = function () {
-    return userAgent.indexOf("Chrome") !== -1;
-  };
-
-  connect.isFirefoxBrowser = function () {
-    return userAgent.indexOf("Firefox") !== -1;
-  };
-
-  connect.isOperaBrowser = function () {
-    return userAgent.indexOf("Opera") !== -1;
-  };
-
-  connect.getChromeBrowserVersion = function () {
-    var chromeVersion = userAgent.substring(userAgent.indexOf("Chrome") + 7);
-    if (chromeVersion) {
-      return parseFloat(chromeVersion);
-    } else {
-      return -1;
-    }
-  };
-
-  connect.getFirefoxBrowserVersion = function () {
-    var firefoxVersion = userAgent.substring(userAgent.indexOf("Firefox") + 8);
-    if (firefoxVersion) {
-      return parseFloat(firefoxVersion);
-    } else {
-      return -1;
-    }
-  };
-
-  connect.getOperaBrowserVersion = function () {
-    var versionOffset = userAgent.indexOf("Opera");
-    var operaVersion = (userAgent.indexOf("Version") !== -1) ? userAgent.substring(versionOffset + 8) : userAgent.substring(versionOffset + 6);
-    if (operaVersion) {
-      return parseFloat(operaVersion);
-    } else {
-      return -1;
-    }
-  };
-
-  /**
-   * Return a map of items in the given list indexed by
-   * keys determined by the closure provided.
-   *
-   * @param iterable A list-like object.
-   * @param closure A closure to determine the index for the
-   *    items in the iterable.
-   * @return A map from index to item for each item in the iterable.
-   */
-  connect.index = function (iterable, closure) {
-    var map = {};
-
-    iterable.forEach(function (item) {
-      map[closure(item)] = item;
-    });
-
-    return map;
-  };
-
-  /**
-   * Converts the given array into a map as a set,
-   * where elements in the array are mapped to 1.
-   */
-  connect.set = function (arrayIn) {
-    var setMap = {};
-
-    arrayIn.forEach(function (key) {
-      setMap[key] = 1;
-    });
-
-    return setMap;
-  };
-
-  /**
-   * Returns a map for each key in mapB which
-   * is NOT in mapA.
-   */
-  connect.relativeComplement = function (mapA, mapB) {
-    var compMap = {};
-
-    connect.keys(mapB).forEach(function (key) {
-      if (!(key in mapA)) {
-        compMap[key] = mapB[key];
+      if ('preTalkingTimeMillis' in report) {
+         report.preTalkTimeMillis = report.preTalkingTimeMillis;
+         delete report.preTalkingTimeMillis;
       }
-    });
 
-    return compMap;
-  };
-
-  /**
-   * Asserts that a premise is true.
-   */
-  connect.assertTrue = function (premise, message) {
-    if (!premise) {
-      throw new connect.ValueError(message);
-    }
-  };
-
-  /**
-   * Asserts that a value is not null or undefined.
-   */
-  connect.assertNotNull = function (value, name) {
-    connect.assertTrue(value != null && typeof value !== undefined,
-      connect.sprintf("%s must be provided", name || 'A value'));
-    return value;
-  };
-
-  connect.deepcopy = function (src) {
-    return JSON.parse(JSON.stringify(src));
-  };
-
-  /**
-   * Get the current base url of the open page, e.g. if the page is
-   * https://example.com:9494/oranges, this will be "https://example.com:9494".
-   */
-  connect.getBaseUrl = function () {
-    var location = global.location;
-    return connect.sprintf("%s//%s:%s", location.protocol, location.hostname, location.port);
-  };
-
-  /**
-   * Determine if the current window is in an iframe.
-   * Courtesy: http://stackoverflow.com/questions/326069/
-   */
-  connect.isFramed = function () {
-    try {
-      return window.self !== window.top;
-    } catch (e) {
-      return true;
-    }
-  };
-
-  connect.fetch = function (endpoint, options, milliInterval, maxRetry) {
-    maxRetry = maxRetry || 5;
-    milliInterval = milliInterval || 1000;
-    options = options || {};
-    return new Promise(function (resolve, reject) {
-      function fetchData(maxRetry) {
-        fetch(endpoint, options).then(function (res) {
-          if (res.status === connect.HTTP_STATUS_CODES.SUCCESS) {
-            resolve(res.json());
-          } else if (maxRetry !== 1 && (res.status >= connect.HTTP_STATUS_CODES.INTERNAL_SERVER_ERROR || res.status === connect.HTTP_STATUS_CODES.TOO_MANY_REQUESTS)) {
-            setTimeout(function () {
-              fetchData(--maxRetry);
-            }, milliInterval);
-          } else {
-            reject(res);
-          }
-        }).catch(function (e) {
-          reject(e);
-        });
+      if ('handshakingFailure' in report) {
+         report.handshakeFailure = report.handshakingFailure;
+         delete report.handshakingFailure;
       }
-      fetchData(maxRetry);
-    });
-  };
 
-  /**
-   * Calling a function with exponential backoff with full jitter retry strategy
-   * It will retry calling the function for maximum maxRetry times if it fails.
-   * Success callback will be called if the function succeeded.
-   * Failure callback will be called only if the last try failed.
-   */
-  connect.backoff = function (func, milliInterval, maxRetry, callbacks) {
-    connect.assertTrue(connect.isFunction(func), "func must be a Function");
-    var self = this;
-    var ratio = 2;
-
-    func({
-      success: function (data) {
-        if (callbacks && callbacks.success) {
-          callbacks.success(data);
-        }
-      },
-      failure: function (err, data) {
-        if (maxRetry > 0) {
-          var interval = milliInterval * 2 * Math.random();
-          global.setTimeout(function () {
-            self.backoff(func, interval * ratio, --maxRetry, callbacks);
-          }, interval);
-        } else {
-          if (callbacks && callbacks.failure) {
-            callbacks.failure(err, data);
-          }
-        }
+      if ('talkingTimeMillis' in report) {
+         report.talkTimeMillis = report.talkingTimeMillis;
+         delete report.talkingTimeMillis;
       }
-    });
-  };
 
-  connect.publishMetric = function (metricData) {
-    var bus = connect.core.getEventBus();
-    bus.trigger(connect.EventType.CLIENT_METRIC, metricData);
-  };
+      report.softphoneStreamStatistics = this._translateSoftphoneStreamStatistics(
+            report.softphoneStreamStatistics);
 
-  /**
-   * A wrapper around Window.open() for managing single instance popups.
+      return report;
+   };
+
+   /**---------------------------------------------------------------
+   * class TaskTemplatesClient extends ClientBase
    */
-  connect.PopupManager = function () { };
+   var TaskTemplatesClient = function(endpoint) {
+      connect.assertNotNull(endpoint, 'endpoint');
+      ClientBase.call(this);
+      if (endpoint.includes('/task-templates')) {
+         this.endpointUrl = connect.getUrlWithProtocol(endpoint);
+      } else {
+         var AWSEndpoint = new AWS.Endpoint(endpoint);
+         var CFPrefix = endpoint.includes('.awsapps.com') ? '/connect' : '';
+         this.endpointUrl = connect.getUrlWithProtocol(`${AWSEndpoint.host}${CFPrefix}/task-templates/api/ccp`);
+      }
+   };
 
-  connect.PopupManager.prototype.open = function(url, name) {
-    var then = this._getLastOpenedTimestamp(name);
-    var now = new Date().getTime();
-    var win = null;      
-    if (now - then > ONE_DAY_MILLIS) {
-       win = window.open('', name);
-       if (win.location !== url) {
-          win = window.open(url, name);
-       }
-       this._setLastOpenedTimestamp(name, now);
-    }
-    return win;
- };
+   TaskTemplatesClient.prototype = Object.create(ClientBase.prototype);
+   TaskTemplatesClient.prototype.constructor = TaskTemplatesClient;
 
-  connect.PopupManager.prototype.clear = function (name) {
-    var key = this._getLocalStorageKey(name);
-    global.localStorage.removeItem(key);
+   TaskTemplatesClient.prototype._callImpl = function(method, params, callbacks) {
+      connect.assertNotNull(method, 'method');
+      connect.assertNotNull(params, 'params');
+      var options = {
+         credentials: 'include',
+         method: 'GET',
+         headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'x-csrf-token': 'csrf'         
+         }
+      };
+      var instanceId = params.instanceId;
+      var url = this.endpointUrl;
+      var methods = connect.TaskTemplatesClientMethods;
+      switch (method) {
+         case methods.LIST_TASK_TEMPLATES: 
+            url += `/proxy/instance/${instanceId}/task/template`;
+            if (params.queryParams) {
+               const queryString = new URLSearchParams(params.queryParams).toString();
+               if (queryString) {
+                  url += `?${queryString}`;
+               }
+            }
+            break;
+         case methods.GET_TASK_TEMPLATE: 
+            connect.assertNotNull(params.templateParams, 'params.templateParams');
+            const id = connect.assertNotNull(params.templateParams.id, 'params.templateParams.id');
+            const version = params.templateParams.version;
+            url += `/proxy/instance/${instanceId}/task/template/${id}`;
+            if (version) {
+               url += `?snapshotVersion=${version}`;
+            }
+            break;
+         case methods.CREATE_TEMPLATED_TASK: 
+            url += `/${method}`;
+            options.body = JSON.stringify(params);
+            options.method = 'PUT';
+            break;
+         case methods.UPDATE_CONTACT: 
+            url += `/${method}`;
+            options.body = JSON.stringify(params);
+            options.method = 'POST';
+      }
+      connect.fetch(url, options)
+      .then(function(res){
+         callbacks.success(res);
+      }).catch(function(err){
+         const reader = err.body.getReader();
+         let body = '';
+         const decoder = new TextDecoder();
+         reader.read().then(function processText({ done, value }) {
+            if (done) {
+               var error = JSON.parse(body);
+               error.status = err.status;
+               callbacks.failure(error);
+               return;
+            }
+            body += decoder.decode(value);
+            return reader.read().then(processText);
+         });
+      })
+   };
+
+   connect.ClientBase = ClientBase;
+   connect.NullClient = NullClient;
+   connect.UpstreamConduitClient = UpstreamConduitClient;
+   connect.UpstreamConduitMasterClient = UpstreamConduitMasterClient;
+   connect.AWSClient = AWSClient;
+   connect.AgentAppClient = AgentAppClient;
+   connect.TaskTemplatesClient = TaskTemplatesClient;
+})();
+
+
+/***/ }),
+
+/***/ 895:
+/***/ (() => {
+
+/*
+ * Copyright 2014-2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+(function () {
+  var global = this || globalThis;
+  var connect = global.connect || {};
+  global.connect = connect;
+  global.lily = connect;
+
+  connect.core = {};
+  connect.core.initialized = false;
+  connect.version = "2.4.5";
+  connect.DEFAULT_BATCH_SIZE = 500;
+ 
+  var CCP_SYN_TIMEOUT = 1000; // 1 sec
+  var CCP_ACK_TIMEOUT = 3000; // 3 sec
+  var CCP_LOAD_TIMEOUT = 5000; // 5 sec
+  var CCP_IFRAME_REFRESH_INTERVAL = 5000; // 5 sec
+  var CCP_DR_IFRAME_REFRESH_INTERVAL = 10000; //10 s
+  var CCP_IFRAME_REFRESH_LIMIT = 6; // 6 attempts
+  var CCP_IFRAME_NAME = 'Amazon Connect CCP';
+ 
+  var LEGACY_LOGIN_URL_PATTERN = "https://{alias}.awsapps.com/auth/?client_id={client_id}&redirect_uri={redirect}";
+  var CLIENT_ID_MAP = {
+    "us-east-1": "06919f4fd8ed324e"
   };
+ 
+  var AUTHORIZE_ENDPOINT = "/auth/authorize";
+  var LEGACY_AUTHORIZE_ENDPOINT = "/connect/auth/authorize";
+  var AUTHORIZE_RETRY_INTERVAL = 2000;
+  var AUTHORIZE_MAX_RETRY = 5;
+ 
+  var LEGACY_WHITELISTED_ORIGINS_ENDPOINT = "/connect/whitelisted-origins";
+  var WHITELISTED_ORIGINS_ENDPOINT = "/whitelisted-origins";
+  var WHITELISTED_ORIGINS_RETRY_INTERVAL = 2000;
+  var WHITELISTED_ORIGINS_MAX_RETRY = 5;
 
-  connect.PopupManager.prototype._getLastOpenedTimestamp = function (name) {
-    var key = this._getLocalStorageKey(name);
-    var value = global.localStorage.getItem(key);
+  var CSM_IFRAME_REFRESH_ATTEMPTS = 'IframeRefreshAttempts';
+  var CSM_IFRAME_INITIALIZATION_SUCCESS = 'IframeInitializationSuccess';
+  var CSM_IFRAME_INITIALIZATION_TIME = 'IframeInitializationTime';
 
-    if (value) {
-      return parseInt(value, 10);
+  var CONNECTED_CCPS_SINGLE_TAB = 'ConnectedCCPSingleTabCount';
+  var CCP_TABS_ACROSS_BROWSER_COUNT = 'CCPTabsAcrossBrowserCount';
 
-    } else {
-      return 0;
-    }
-  };
+  connect.numberOfConnectedCCPs = 0;
+  connect.numberOfConnectedCCPsInThisTab = 0;
 
-  connect.PopupManager.prototype._setLastOpenedTimestamp = function (name, ts) {
-    var key = this._getLocalStorageKey(name);
-    global.localStorage.setItem(key, '' + ts);
-  };
+  connect.core.MAX_AUTHORIZE_RETRY_COUNT_FOR_SESSION = 3;
+  connect.core.MAX_CTI_AUTH_RETRY_COUNT = 10;
+  connect.core.ctiAuthRetryCount = 0;
+  connect.core.authorizeTimeoutId = null;
+  connect.core.ctiTimeoutId = null;
 
-  connect.PopupManager.prototype._getLocalStorageKey = function (name) {
-    return "connectPopupManager::" + name;
-  };
-
-  /**
-   * An enumeration of the HTML5 notification permission values.
+  /*----------------------------------------------------------------
+   * enum SessionStorageKeys
    */
-  var NotificationPermission = connect.makeEnum([
-    'granted',
-    'denied',
-    'default'
+  connect.SessionStorageKeys = connect.makeEnum([
+    'tab_id',
+    'authorize_retry_count',
   ]);
 
   /**
-   * A simple engine for showing notification popups.
+   * @deprecated
+   * This function was only meant for internal use. 
+   * The name is misleading for what it should do.
+   * Internally we have replaced its usage with `getLoginUrl`.
    */
-  connect.NotificationManager = function () {
-    this.queue = [];
-    this.permission = NotificationPermission.DEFAULT;
+  var createLoginUrl = function (params) {
+    var redirect = "https://lily.us-east-1.amazonaws.com/taw/auth/code";
+    connect.assertNotNull(redirect);
+ 
+    if (params.loginUrl) {
+      return params.loginUrl
+    } else if (params.alias) {
+      log.warn("The `alias` param is deprecated and should not be expected to function properly. Please use `ccpUrl` or `loginUrl`. See https://github.com/amazon-connect/amazon-connect-streams/blob/master/README.md#connectcoreinitccp for valid parameters.");
+      return LEGACY_LOGIN_URL_PATTERN
+        .replace("{alias}", params.alias)
+        .replace("{client_id}", CLIENT_ID_MAP["us-east-1"])
+        .replace("{redirect}", global.encodeURIComponent(
+          redirect));
+    } else {
+      return params.ccpUrl;
+    }
   };
 
-  connect.NotificationManager.prototype.requestPermission = function () {
-    var self = this;
-    if (!("Notification" in global)) {
-      connect.getLog().warn("This browser doesn't support notifications.");
-      this.permission = NotificationPermission.DENIED;
+  /**
+   * Replaces `createLoginUrl`, as that function's name was misleading.
+   * The `params.alias` parameter is deprecated. Please refrain from using it.
+   */
+  var getLoginUrl = function (params) {
+    var redirect = "https://lily.us-east-1.amazonaws.com/taw/auth/code";
+    connect.assertNotNull(redirect);
+    if (params.loginUrl) {
+      return params.loginUrl
+    } else if (params.alias) {
+      log.warn("The `alias` param is deprecated and should not be expected to function properly. Please use `ccpUrl` or `loginUrl`. See https://github.com/amazon-connect/amazon-connect-streams/blob/master/README.md#connectcoreinitccp for valid parameters.");
+      return LEGACY_LOGIN_URL_PATTERN
+        .replace("{alias}", params.alias)
+        .replace("{client_id}", CLIENT_ID_MAP["us-east-1"])
+        .replace("{redirect}", global.encodeURIComponent(
+          redirect));
+    } else {
+      return params.ccpUrl;
+    }
+  };
 
-    } else if (global.Notification.permission === NotificationPermission.DENIED) {
-      connect.getLog().warn("The user has requested to not receive notifications.");
-      this.permission = NotificationPermission.DENIED;
+  /**
+   * softphoneParamsStorage module to store necessary softphone params in local storage
+   * Used mainly for cases where embedded CCP gets refreshed.
+   * @returns {Object}
+   */
 
-    } else if (this.permission !== NotificationPermission.GRANTED) {
-      global.Notification.requestPermission().then(function (permission) {
-        self.permission = permission;
-        if (permission === NotificationPermission.GRANTED) {
-          self._showQueued();
+  var softphoneParamsStorage = (function () {
+    let key = `SoftphoneParamsStorage::${global.location.origin}`;
+    return {
+      set: function (value) {
+        try {
+          value && global.localStorage.setItem(key, JSON.stringify(value));
+        } catch (e) {
+          connect.getLog().error("SoftphoneParamsStorage:: Failed to set softphone params to local storage!")
+            .withException(e).sendInternalLogToServer();
+        }
+      },
 
+      get: function () {
+        try {
+          let item = global.localStorage.getItem(key);
+          return item && JSON.parse(item);
+        } catch (e) {
+          connect.getLog().error("SoftphoneParamsStorage:: Failed to get softphone params from local storage!")
+            .withException(e).sendInternalLogToServer();
+        }
+        return null;
+      },
+
+      clean: function () {
+        global.localStorage.removeItem(key);
+      }
+    }
+  })();
+
+  /**-------------------------------------------------------------------------
+  * Returns scheme://host:port for a given url
+  */
+  function sanitizeDomain(url) {
+    var domain = url.match(/^(?:https?:\/\/)?(?:[^@\n]+@)?(?:www\.)?([^:\/\n?]+)/ig);
+    return domain.length ? domain[0] : "";
+  }
+ 
+  /**-------------------------------------------------------------------------
+    * Print a warning message if the Connect core is not initialized.
+    */
+  connect.core.checkNotInitialized = function () {
+    if (connect.core.initialized) {
+      var log = connect.getLog();
+      log.warn("Connect core already initialized, only needs to be initialized once.").sendInternalLogToServer();
+    }
+  };
+
+  /**-------------------------------------------------------------------------
+   * Basic Connect client initialization.
+   * Should be used only by the API Shared Worker.
+   */
+  connect.core.init = function (params) {
+    connect.core.eventBus = new connect.EventBus();
+    connect.core.agentDataProvider = new AgentDataProvider(connect.core.getEventBus());
+    connect.core.initClient(params);
+    connect.core.initAgentAppClient(params);
+    connect.core.initTaskTemplatesClient(params);
+    connect.core.initialized = true;
+  };
+ 
+  /**-------------------------------------------------------------------------
+   * Initialized AWS client
+   * Should be used by Shared Worker to update AWS client with new credentials
+   * after refreshed authentication.
+   */
+  connect.core.initClient = function (params) {
+    connect.assertNotNull(params, 'params');
+    
+    var authToken = connect.assertNotNull(params.authToken, 'params.authToken');
+    var region = connect.assertNotNull(params.region, 'params.region');
+    var endpoint = params.endpoint || null;
+ 
+    connect.core.client = new connect.AWSClient(authToken, region, endpoint);
+  };
+
+  /**-------------------------------------------------------------------------
+   * Initialized AgentApp client
+   * Should be used by Shared Worker to update AgentApp client with new credentials
+   * after refreshed authentication.
+   */
+  connect.core.initAgentAppClient = function (params) {
+    connect.assertNotNull(params, 'params');    
+    var authToken = connect.assertNotNull(params.authToken, 'params.authToken');
+    var authCookieName = connect.assertNotNull(params.authCookieName, 'params.authCookieName');
+    var endpoint = connect.assertNotNull(params.agentAppEndpoint, 'params.agentAppEndpoint');
+    
+    connect.core.agentAppClient = new connect.AgentAppClient(authCookieName, authToken, endpoint);
+  };
+
+  /**-------------------------------------------------------------------------
+   * Initialized TaskTemplates client
+   */
+  connect.core.initTaskTemplatesClient = function (params) {
+    connect.assertNotNull(params, 'params');
+    var endpoint = params.taskTemplatesEndpoint || params.endpoint;
+    connect.assertNotNull(endpoint, 'taskTemplatesEndpoint');
+    connect.core.taskTemplatesClient = new connect.TaskTemplatesClient(endpoint);
+  };
+ 
+  /**-------------------------------------------------------------------------
+   * Uninitialize Connect.
+   */
+  connect.core.terminate = function () {
+    connect.core.client = new connect.NullClient();
+    connect.core.agentAppClient = new connect.NullClient();
+    connect.core.taskTemplatesClient = new connect.NullClient();
+    connect.core.masterClient = new connect.NullClient();
+    var bus = connect.core.getEventBus();
+    if (bus) bus.unsubscribeAll();
+    connect.core.bus = new connect.EventBus();
+    connect.core.agentDataProvider = null;
+    connect.core.softphoneManager = null;
+    connect.core.upstream = null;
+    connect.core.keepaliveManager = null;
+    connect.agent.initialized = false;
+    connect.core.initialized = false;
+  };
+ 
+  /**-------------------------------------------------------------------------
+   * Setup the SoftphoneManager to be initialized when the agent
+   * is determined to have softphone enabled.
+   */
+  connect.core.softphoneUserMediaStream = null;
+ 
+  connect.core.getSoftphoneUserMediaStream = function () {
+    return connect.core.softphoneUserMediaStream;
+  };
+ 
+  connect.core.setSoftphoneUserMediaStream = function (stream) {
+    connect.core.softphoneUserMediaStream = stream;
+  };
+ 
+  connect.core.initRingtoneEngines = function (params) {
+    connect.assertNotNull(params, "params");
+ 
+    var setupRingtoneEngines = function (ringtoneSettings) {
+      connect.assertNotNull(ringtoneSettings, "ringtoneSettings");
+      connect.assertNotNull(ringtoneSettings.voice, "ringtoneSettings.voice");
+      connect.assertTrue(ringtoneSettings.voice.ringtoneUrl || ringtoneSettings.voice.disabled, "ringtoneSettings.voice.ringtoneUrl must be provided or ringtoneSettings.voice.disabled must be true");
+      connect.assertNotNull(ringtoneSettings.queue_callback, "ringtoneSettings.queue_callback");
+      connect.assertTrue(ringtoneSettings.queue_callback.ringtoneUrl || ringtoneSettings.queue_callback.disabled, "ringtoneSettings.voice.ringtoneUrl must be provided or ringtoneSettings.queue_callback.disabled must be true");
+ 
+      connect.core.ringtoneEngines = {};
+ 
+      connect.agent(function (agent) {
+        agent.onRefresh(function () {
+          connect.ifMaster(connect.MasterTopics.RINGTONE, function () {
+            if (!ringtoneSettings.voice.disabled && !connect.core.ringtoneEngines.voice) {
+              connect.core.ringtoneEngines.voice =
+                new connect.VoiceRingtoneEngine(ringtoneSettings.voice);
+              connect.getLog().info("VoiceRingtoneEngine initialized.").sendInternalLogToServer();
+            }
+ 
+            if (!ringtoneSettings.chat.disabled && !connect.core.ringtoneEngines.chat) {
+              connect.core.ringtoneEngines.chat =
+                new connect.ChatRingtoneEngine(ringtoneSettings.chat);
+              connect.getLog().info("ChatRingtoneEngine initialized.").sendInternalLogToServer();
+            }
+ 
+            if (!ringtoneSettings.task.disabled && !connect.core.ringtoneEngines.task) {
+              connect.core.ringtoneEngines.task =
+                new connect.TaskRingtoneEngine(ringtoneSettings.task);
+                connect.getLog().info("TaskRingtoneEngine initialized.").sendInternalLogToServer();
+            }
+ 
+            if (!ringtoneSettings.queue_callback.disabled && !connect.core.ringtoneEngines.queue_callback) {
+              connect.core.ringtoneEngines.queue_callback =
+                new connect.QueueCallbackRingtoneEngine(ringtoneSettings.queue_callback);
+              connect.getLog().info("QueueCallbackRingtoneEngine initialized.").sendInternalLogToServer();
+            }
+          });
+        });
+      });
+
+      handleRingerDeviceChange();
+    };
+ 
+    var mergeParams = function (params, otherParams) {
+      // For backwards compatibility: support pulling disabled flag and ringtoneUrl
+      // from softphone config if it exists from downstream into the ringtone config.
+      params.ringtone = params.ringtone || {};
+      params.ringtone.voice = params.ringtone.voice || {};
+      params.ringtone.queue_callback = params.ringtone.queue_callback || {};
+      params.ringtone.chat = params.ringtone.chat || { disabled: true };
+      params.ringtone.task = params.ringtone.task || { disabled: true };
+ 
+      if (otherParams.softphone) {
+        if (otherParams.softphone.disableRingtone) {
+          params.ringtone.voice.disabled = true;
+          params.ringtone.queue_callback.disabled = true;
+        }
+ 
+        if (otherParams.softphone.ringtoneUrl) {
+          params.ringtone.voice.ringtoneUrl = otherParams.softphone.ringtoneUrl;
+          params.ringtone.queue_callback.ringtoneUrl = otherParams.softphone.ringtoneUrl;
+        }
+      }
+ 
+      if (otherParams.chat) {
+        if (otherParams.chat.disableRingtone) {
+          params.ringtone.chat.disabled = true;
+        }
+ 
+        if (otherParams.chat.ringtoneUrl) {
+          params.ringtone.chat.ringtoneUrl = otherParams.chat.ringtoneUrl;
+        }
+      }
+ 
+      // Merge in ringtone settings from downstream.
+      if (otherParams.ringtone) {
+        params.ringtone.voice = connect.merge(params.ringtone.voice,
+          otherParams.ringtone.voice || {});
+        params.ringtone.queue_callback = connect.merge(params.ringtone.queue_callback,
+          otherParams.ringtone.voice || {});
+        params.ringtone.chat = connect.merge(params.ringtone.chat,
+          otherParams.ringtone.chat || {});
+      }
+    };
+ 
+    // Merge params from params.softphone and params.chat into params.ringtone
+    // for embedded and non-embedded use cases so that defaults are picked up.
+    mergeParams(params, params);
+ 
+    if (connect.isFramed()) {
+      // If the CCP is in a frame, wait for configuration from downstream.
+      var bus = connect.core.getEventBus();
+      bus.subscribe(connect.EventType.CONFIGURE, function (data) {
+        this.unsubscribe();
+        // Merge all params from data into params for any overridden
+        // values in either legacy "softphone" or "ringtone" settings.
+        mergeParams(params, data);
+        setupRingtoneEngines(params.ringtone);
+      });
+ 
+    } else {
+      setupRingtoneEngines(params.ringtone);
+    }
+  };
+
+  var handleRingerDeviceChange = function() {
+    var bus = connect.core.getEventBus();
+    bus.subscribe(connect.ConfigurationEvents.SET_RINGER_DEVICE, setRingerDevice);
+  }
+
+  var setRingerDevice = function (data){
+    if(connect.keys(connect.core.ringtoneEngines).length === 0 || !data || !data.deviceId){
+      return;
+    }
+    var deviceId = data.deviceId;
+    for (var ringtoneType in connect.core.ringtoneEngines) {
+      connect.core.ringtoneEngines[ringtoneType].setOutputDevice(deviceId);
+    }
+
+    connect.core.getUpstream().sendUpstream(connect.EventType.BROADCAST, {
+      event: connect.ConfigurationEvents.RINGER_DEVICE_CHANGED,
+      data: { deviceId: deviceId }
+    });
+  }
+
+  connect.core.initSoftphoneManager = function (paramsIn) {
+    var params = paramsIn || {};
+    connect.getLog().info("[Softphone Manager] initSoftphoneManager started").sendInternalLogToServer();
+
+    var competeForMasterOnAgentUpdate = function (softphoneParamsIn) {
+      var softphoneParams = connect.merge(params.softphone || {}, softphoneParamsIn);
+      connect.getLog().info("[Softphone Manager] competeForMasterOnAgentUpdate executed").sendInternalLogToServer();
+      connect.agent(function (agent) {
+        if (!agent.getChannelConcurrency(connect.ChannelType.VOICE)) {
+          return;
+        }
+        agent.onRefresh(function () {
+          var sub = this;
+          connect.getLog().info("[Softphone Manager] agent refresh handler executed").sendInternalLogToServer();
+ 
+          connect.ifMaster(connect.MasterTopics.SOFTPHONE, function () {
+            connect.getLog().info("[Softphone Manager] confirmed as softphone master topic").sendInternalLogToServer();
+            if (!connect.core.softphoneManager && agent.isSoftphoneEnabled()) {
+              // Become master to send logs, since we need logs from softphone tab.
+              connect.becomeMaster(connect.MasterTopics.SEND_LOGS);
+              connect.core.softphoneManager = new connect.SoftphoneManager(softphoneParams);
+              sub.unsubscribe();
+            }
+          });
+        });
+      });
+    };
+
+    /**
+      * If the window is framed and if it's the CCP app then we need to wait for a CONFIGURE message from downstream before we initialize softphone manager.
+      * All medialess softphone initialization cases goes to else check and doesn't wait for CONFIGURE message
+     */
+
+
+    if (connect.isFramed() && connect.isCCP()) {
+
+      let configureMessageTimer;  // used for re-initing the softphone manager
+      var bus = connect.core.getEventBus();
+
+      // Configure handler triggers the softphone manager initiation.
+      // This event is propagted by initCCP call from the end customers 
+      bus.subscribe(connect.EventType.CONFIGURE, function (data) {
+        global.clearTimeout(configureMessageTimer); // we don't need to re-init softphone manager as we recieved configure event
+        connect.getLog().info("[Softphone Manager] Configure event handler executed").sendInternalLogToServer();
+        // always overwrite/store the softphone params value if there is a configure event
+        softphoneParamsStorage.set(data.softphone);
+        if (data.softphone && data.softphone.allowFramedSoftphone) {
+          this.unsubscribe();
+          competeForMasterOnAgentUpdate(data.softphone);
+        }
+        setupEventListenersForMultiTabUseInFirefox(data.softphone);
+      });
+
+      /**
+       * This is the case where CCP is just refreshed after it gets initilaized via initCCP
+       * This snippet needs atleast one initCCP invocation which sets the params to the store
+       * and waits for CCP to load successfully to apply the same to init Softphone manager
+       */
+
+      let softphoneParamsFromLocalStorage = softphoneParamsStorage.get();
+
+      if (softphoneParamsFromLocalStorage) {
+        connect.core.getUpstream().onUpstream(connect.EventType.ACKNOWLEDGE, function (args) {
+          // only care about shared worker ACK which indicates CCP successfull load
+          let ackFromSharedWorker =  args && args.id;
+          if (ackFromSharedWorker) {
+            connect.getLog().info("[Softphone Manager] Embedded CCP is refreshed successfully and waiting for configure Message handler to execute").sendInternalLogToServer();
+            this.unsubscribe();
+            configureMessageTimer = global.setTimeout(() => {
+              connect.getLog().info("[Softphone Manager] Embedded CCP is refreshed without configure message handler execution").sendInternalLogToServer();
+              connect.publishMetric({
+                name: "EmbeddedCCPRefreshedWithoutInitCCP",
+                data: { count: 1 }
+              });
+
+              setupEventListenersForMultiTabUseInFirefox(softphoneParamsFromLocalStorage);
+
+              if (softphoneParamsFromLocalStorage.allowFramedSoftphone) {
+                connect.getLog().info("[Softphone Manager] Embedded CCP is refreshed & Initializing competeForMasterOnAgentUpdate (Softphone manager) from localStorage softphone params").sendInternalLogToServer();
+                competeForMasterOnAgentUpdate(softphoneParamsFromLocalStorage);
+              }
+              // 100 ms is from the time it takes to execute few lines of JS code to trigger the configure event (this is done in initCCP) 
+              // which is in fraction of milisecond.  so to be on the safer side we are keeping it to be 100
+              // this number is pulled from performance.now() calculations.
+            }, 100);
+          }
+        });
+      }
+    } else {
+      competeForMasterOnAgentUpdate(params);
+      setupEventListenersForMultiTabUseInFirefox(params);
+    }
+
+    connect.agent(function (agent) {
+      // Sync mute across all tabs 
+      if (agent.isSoftphoneEnabled() && agent.getChannelConcurrency(connect.ChannelType.VOICE)) {
+        connect.core.getUpstream().sendUpstream(connect.EventType.BROADCAST,
+          {
+            event: connect.EventType.MUTE
+          });
+      }
+    });
+
+    function setupEventListenersForMultiTabUseInFirefox(softphoneParamsIn) {
+      var softphoneParams = connect.merge(params.softphone || {}, softphoneParamsIn);
+
+      // keep the softphone params for external use
+      connect.core.softphoneParams = softphoneParams;
+
+      if (connect.isFirefoxBrowser()) {
+        // In Firefox, when a tab takes over another tab's softphone primary,
+        // the previous primary tab should delete sofphone manager and stop microphone
+        connect.core.getUpstream().onUpstream(connect.EventType.MASTER_RESPONSE, function (res) {
+          if (res.data && res.data.topic === connect.MasterTopics.SOFTPHONE && res.data.takeOver && (res.data.masterId !== connect.core.portStreamId)) {
+            if (connect.core.softphoneManager) {
+              connect.core.softphoneManager.onInitContactSub.unsubscribe();
+              delete connect.core.softphoneManager;
+            }
+            var userMediaStream = connect.core.getSoftphoneUserMediaStream();
+            if (userMediaStream) {
+              userMediaStream.getTracks().forEach(function(track) { track.stop(); });
+              connect.core.setSoftphoneUserMediaStream(null);
+            }
+          }
+        });
+
+        // In Firefox, when multiple tabs are open,
+        // webrtc session is not started until READY_TO_START_SESSION event is triggered
+        connect.core.getEventBus().subscribe(connect.ConnectionEvents.READY_TO_START_SESSION, function () {
+          connect.ifMaster(connect.MasterTopics.SOFTPHONE, function () {
+            if (connect.core.softphoneManager) {
+              connect.core.softphoneManager.startSession();
+            }
+          }, function () {
+            connect.becomeMaster(connect.MasterTopics.SOFTPHONE, function () {
+              connect.agent(function (agent) {
+                if (!connect.core.softphoneManager && agent.isSoftphoneEnabled()) {
+                  connect.becomeMaster(connect.MasterTopics.SEND_LOGS);
+                  connect.core.softphoneManager = new connect.SoftphoneManager(softphoneParams);
+                  connect.core.softphoneManager.startSession();
+                }
+              });
+            });
+          });
+        });
+
+        // handling outbound-call and auto-accept cases for pending session
+        connect.contact(function (c) {
+          connect.agent(function (agent) {
+            c.onRefresh(function (contact) {
+              if (
+                connect.hasOtherConnectedCCPs() &&
+                document.visibilityState === 'visible' &&
+                (contact.getStatus().type === connect.ContactStatusType.CONNECTING || contact.getStatus().type === connect.ContactStatusType.INCOMING)
+              ) {
+                var isOutBoundCall = contact.isSoftphoneCall() && !contact.isInbound();
+                var isAutoAcceptEnabled = contact.isSoftphoneCall() && agent.getConfiguration().softphoneAutoAccept;
+                var isQueuedCallback = contact.getType() === connect.ContactType.QUEUE_CALLBACK;
+                if (isOutBoundCall || isAutoAcceptEnabled || isQueuedCallback) {
+                  connect.core.triggerReadyToStartSessionEvent();
+                }
+              }
+            });
+          });
+        });
+      }
+    }
+  };
+
+  // trigger READY_TO_START_SESSION event in a context with Softphone Manager
+  // internal use only
+  connect.core.triggerReadyToStartSessionEvent = function () {
+    var allowFramedSoftphone = connect.core.softphoneParams && connect.core.softphoneParams.allowFramedSoftphone;
+    if (connect.isCCP()) {
+      if (allowFramedSoftphone) {
+        // the event is triggered in this iframed CCP context
+        connect.core.getEventBus().trigger(connect.ConnectionEvents.READY_TO_START_SESSION);
+      } else {
+        if (connect.isFramed()) {
+          // if this is an iframed CCP, the event is send to downstream (CRM)
+          connect.core.getUpstream().sendDownstream(connect.ConnectionEvents.READY_TO_START_SESSION);
         } else {
-          self.queue = [];
+          // if this is a standalone CCP, trigger this event in this CCP context
+          connect.core.getEventBus().trigger(connect.ConnectionEvents.READY_TO_START_SESSION);
+        }
+      }
+    } else {
+      if (allowFramedSoftphone) {
+        // the event is send to the upstream (iframed CCP)
+        connect.core.getUpstream().sendUpstream(connect.ConnectionEvents.READY_TO_START_SESSION);
+      } else {
+        // the event is triggered in this CRM context
+        connect.core.getEventBus().trigger(connect.ConnectionEvents.READY_TO_START_SESSION);
+      }
+    }
+  };
+
+  connect.core.initPageOptions = function (params) {
+    connect.assertNotNull(params, "params");
+    if (connect.isFramed()) {
+      // If the CCP is in a frame, wait for configuration from downstream.
+      var bus = connect.core.getEventBus();
+      bus.subscribe(connect.EventType.CONFIGURE, function (data) {
+        connect.core.getUpstream().sendUpstream(connect.EventType.BROADCAST,
+          {
+            event: connect.ConfigurationEvents.CONFIGURE,
+            data: data
+          });
+      });
+      // Listen for iframe media devices request from CRM
+      bus.subscribe(connect.EventType.MEDIA_DEVICE_REQUEST, function () {
+        function sendDevices(devices) {
+          connect.core.getUpstream().sendDownstream(connect.EventType.MEDIA_DEVICE_RESPONSE, devices);
+        }
+        if (navigator && navigator.mediaDevices) {
+          navigator.mediaDevices.enumerateDevices()
+          .then(function (devicesIn) {
+            devices = devicesIn || [];
+            devices = devices.map(function(d) { return d.toJSON() });
+            sendDevices(devices);
+          })
+          .catch(function (err) {
+            sendDevices({error: err.message});
+          }); 
+        } else {
+          sendDevices({error: "No navigator or navigator.mediaDevices object found"});
         }
       });
     }
   };
 
-  connect.NotificationManager.prototype.show = function (title, options) {
-    if (this.permission === NotificationPermission.GRANTED) {
-      return this._showImpl({ title: title, options: options });
+  /**-------------------------------------------------------------------------
+   * Get the list of media devices from iframed CCP
+   * Timeout for the request is passed on an optional argument
+   * The default timeout is 1000ms
+   */
+  connect.core.getFrameMediaDevices = function (timeoutIn) {
+    var sub = null;
+    var timeout = timeoutIn || 1000;
+    var timeoutPromise = new Promise(function (resolve, reject) {
+      setTimeout(function () { 
+        reject(new Error("Timeout exceeded")); 
+      }, timeout);
+    });
+    var mediaDevicesPromise = new Promise(function (resolve, reject) { 
+      if (connect.isFramed() || connect.isCCP()) {
+        if (navigator && navigator.mediaDevices) {
+          navigator.mediaDevices.enumerateDevices()
+          .then(function (devicesIn) {
+            devices = devicesIn || [];
+            devices = devices.map(function (d) { return d.toJSON() });
+            resolve(devices);
+          });
+        } else {
+          reject(new Error("No navigator or navigator.mediaDevices object found"));
+        }
+      } else {
+        var bus = connect.core.getEventBus();
+        sub = bus.subscribe(connect.EventType.MEDIA_DEVICE_RESPONSE, function (data) {
+          if (data.error) {
+            reject(new Error(data.error));
+          } else {
+            resolve(data);
+          }
+        });
+        connect.core.getUpstream().sendUpstream(connect.EventType.MEDIA_DEVICE_REQUEST);
+      }
+    })
+    return Promise.race([mediaDevicesPromise, timeoutPromise])
+    .finally(function () {
+      if (sub) {
+        sub.unsubscribe();
+      }
+    });
+  }
 
-    } else if (this.permission === NotificationPermission.DENIED) {
-      connect.getLog().warn("Unable to show notification.").withObject({
-        title: title,
-        options: options
+  //Internal use only.
+  connect.core.authorize = function (endpoint) {
+    var options = {
+      credentials: 'include'
+    };
+
+    var authorizeEndpoint = endpoint;
+    if (!authorizeEndpoint) {
+      authorizeEndpoint = connect.core.isLegacyDomain()
+        ? LEGACY_AUTHORIZE_ENDPOINT
+        : AUTHORIZE_ENDPOINT;
+    }
+    return connect.fetch(authorizeEndpoint, options, AUTHORIZE_RETRY_INTERVAL, AUTHORIZE_MAX_RETRY);
+  };
+ 
+  /**
+   * @deprecated
+   * This used to be used internally, but is no longer needed.
+   */
+  connect.core.verifyDomainAccess = function (authToken, endpoint) {
+    connect.getLog().warn("This API will be deprecated in the next major version release");
+    if (!connect.isFramed()) {
+      return Promise.resolve();
+    }
+    var options = {
+      headers: {
+        'X-Amz-Bearer': authToken
+      }
+    };
+    var whitelistedOriginsEndpoint = null;
+    if (endpoint){
+      whitelistedOriginsEndpoint = endpoint;
+    }
+    else {
+      whitelistedOriginsEndpoint = connect.core.isLegacyDomain() 
+        ? LEGACY_WHITELISTED_ORIGINS_ENDPOINT
+        : WHITELISTED_ORIGINS_ENDPOINT;
+    }
+    
+    return connect.fetch(whitelistedOriginsEndpoint, options, WHITELISTED_ORIGINS_RETRY_INTERVAL, WHITELISTED_ORIGINS_MAX_RETRY).then(function (response) {
+      var topDomain = sanitizeDomain(window.document.referrer);
+      var isAllowed = response.whitelistedOrigins.some(function (origin) {
+        return topDomain === sanitizeDomain(origin);
+      });
+      return isAllowed ? Promise.resolve() : Promise.reject();
+    });
+  };
+
+  /**-------------------------------------------------------------------------
+   * Returns true if this window's href is on the legacy connect domain. 
+   * Only useful for internal use. 
+   */
+  connect.core.isLegacyDomain = function(url) {
+    url = url || window.location.href;
+    return url.includes('.awsapps.com');
+  }
+ 
+
+  /**-------------------------------------------------------------------------
+   * Initializes Connect by creating or connecting to the API Shared Worker.
+   * Used only by the CCP
+   */
+  connect.core.initSharedWorker = function (params) {
+    connect.core.checkNotInitialized();
+    if (connect.core.initialized) {
+      return;
+    }
+    connect.assertNotNull(params, 'params');
+ 
+    var sharedWorkerUrl = connect.assertNotNull(params.sharedWorkerUrl, 'params.sharedWorkerUrl');
+    var authToken = connect.assertNotNull(params.authToken, 'params.authToken');
+    var refreshToken = connect.assertNotNull(params.refreshToken, 'params.refreshToken');
+    var authTokenExpiration = connect.assertNotNull(params.authTokenExpiration, 'params.authTokenExpiration');
+    var region = connect.assertNotNull(params.region, 'params.region');
+    var endpoint = params.endpoint || null;
+    var authorizeEndpoint = params.authorizeEndpoint;
+    if (!authorizeEndpoint) {
+      authorizeEndpoint = connect.core.isLegacyDomain()
+        ? LEGACY_AUTHORIZE_ENDPOINT
+        : AUTHORIZE_ENDPOINT;
+    }
+    var agentAppEndpoint = params.agentAppEndpoint || null;
+    var taskTemplatesEndpoint = params.taskTemplatesEndpoint || null;
+    var authCookieName = params.authCookieName || null;
+ 
+    try {
+      // Initialize the event bus and agent data providers.
+      connect.core.eventBus = new connect.EventBus({ logEvents: true });
+      connect.core.agentDataProvider = new AgentDataProvider(connect.core.getEventBus());
+      connect.core.mediaFactory = new connect.MediaFactory(params);
+      
+      // Create the shared worker and upstream conduit.
+      var worker = new SharedWorker(sharedWorkerUrl, "ConnectSharedWorker");
+      var conduit = new connect.Conduit("ConnectSharedWorkerConduit",
+        new connect.PortStream(worker.port),
+        new connect.WindowIOStream(window, parent));
+ 
+      // Set the global upstream conduit for external use.
+      connect.core.upstream = conduit;
+      connect.core.webSocketProvider = new WebSocketProvider();
+ 
+      // Close our port to the shared worker before the window closes.
+      global.onunload = function () {
+        conduit.sendUpstream(connect.EventType.CLOSE);
+        worker.port.close();
+      };
+ 
+      connect.getLog().scheduleUpstreamLogPush(conduit);
+      connect.getLog().scheduleDownstreamClientSideLogsPush();
+      // Bridge all upstream messages into the event bus.
+      conduit.onAllUpstream(connect.core.getEventBus().bridge());
+      // Pass all upstream messages (from shared worker) downstream (to CCP consumer).
+      conduit.onAllUpstream(conduit.passDownstream());
+
+      if (connect.isFramed()) {
+        // Bridge all downstream messages into the event bus.
+        conduit.onAllDownstream(connect.core.getEventBus().bridge());
+        // Pass all downstream messages (from CCP consumer) upstream (to shared worker).
+        conduit.onAllDownstream(conduit.passUpstream());
+      }
+
+      // Send configuration up to the shared worker.
+      conduit.sendUpstream(connect.EventType.CONFIGURE, {
+        authToken: authToken,
+        authTokenExpiration: authTokenExpiration,
+        endpoint: endpoint,
+        refreshToken: refreshToken,
+        region: region,
+        authorizeEndpoint: authorizeEndpoint,
+        agentAppEndpoint: agentAppEndpoint,
+        taskTemplatesEndpoint: taskTemplatesEndpoint,
+        authCookieName: authCookieName,
+        longPollingOptions: params.longPollingOptions || undefined
+      });
+ 
+      conduit.onUpstream(connect.EventType.ACKNOWLEDGE, function (data) {
+        connect.getLog().info("Acknowledged by the ConnectSharedWorker!").sendInternalLogToServer();
+        connect.core.initialized = true;
+        connect.core._setTabId();
+        connect.core.portStreamId = data.id;
+        this.unsubscribe();
+      });
+      // Add all upstream log entries to our own logger.
+      conduit.onUpstream(connect.EventType.LOG, function (logEntry) {
+        if (logEntry.loggerId !== connect.getLog().getLoggerId()) {
+          connect.getLog().addLogEntry(connect.LogEntry.fromObject(logEntry));
+        }
+      });
+      // Get worker logs
+      conduit.onUpstream(connect.EventType.SERVER_BOUND_INTERNAL_LOG, function (logEntry) {
+        connect.getLog().sendInternalLogEntryToServer(connect.LogEntry.fromObject(logEntry));
+      });
+      // Get outer context logs
+      conduit.onDownstream(connect.EventType.SERVER_BOUND_INTERNAL_LOG, function (logs) {
+        if (connect.isFramed() && Array.isArray(logs)) {
+          logs.forEach(function (log) {
+            connect.getLog().sendInternalLogEntryToServer(connect.LogEntry.fromObject(log));
+          });
+        }
+      });
+      // Get log from outer context
+      conduit.onDownstream(connect.EventType.LOG, function (log) {
+        if (connect.isFramed() && log.loggerId !== connect.getLog().getLoggerId()) { 
+          connect.getLog().addLogEntry(connect.LogEntry.fromObject(log));
+        }
       });
 
-    } else {
-      var params = { title: title, options: options };
-      connect.getLog().warn("Deferring notification until user decides to allow or deny.")
-        .withObject(params);
-      this.queue.push(params);
+      connect.core.onAuthFail(connect.hitch(connect.core, connect.core._handleAuthFail, params.loginEndpoint || null, authorizeEndpoint)); // For auth retry logic on 401s.
+      connect.core.onAuthorizeSuccess(connect.hitch(connect.core, connect.core._handleAuthorizeSuccess)); // For auth retry logic on 401s.
+
+      connect.getLog().info("User Agent: " + navigator.userAgent).sendInternalLogToServer();
+      connect.getLog().info("isCCPv2: " + true).sendInternalLogToServer();
+      connect.getLog().info("isFramed: " + connect.isFramed()).sendInternalLogToServer();
+      connect.core.upstream.onDownstream(connect.EventType.OUTER_CONTEXT_INFO, function (data) {
+        var streamsVersion = data.streamsVersion;
+        connect.getLog().info("StreamsJS Version: " + streamsVersion).sendInternalLogToServer();
+      });
+
+      conduit.onUpstream(connect.EventType.UPDATE_CONNECTED_CCPS, function (data) {
+        connect.getLog().info("Number of connected CCPs updated: " + data.length).sendInternalLogToServer();
+        connect.numberOfConnectedCCPs = data.length;
+        if (data[connect.core.tabId] && !isNaN(data[connect.core.tabId].length)){
+          if (connect.numberOfConnectedCCPsInThisTab !== data[connect.core.tabId].length) {
+            connect.numberOfConnectedCCPsInThisTab = data[connect.core.tabId].length;
+            if (connect.numberOfConnectedCCPsInThisTab > 1) {
+              connect.getLog().warn("There are " + connect.numberOfConnectedCCPsInThisTab + " connected CCPs in this tab. Please adjust your implementation to avoid complications. If you are embedding CCP, please do so exclusively with initCCP. InitCCP will not let you embed more than one CCP.").sendInternalLogToServer();
+            }
+            connect.publishMetric({
+              name: CONNECTED_CCPS_SINGLE_TAB,
+              data: { count: connect.numberOfConnectedCCPsInThisTab}
+            });
+          }
+        }
+        if (data.tabId && data.streamsTabsAcrossBrowser) {
+          connect.ifMaster(connect.MasterTopics.METRICS, () =>
+            connect.agent(() => connect.publishMetric({
+              name: CCP_TABS_ACROSS_BROWSER_COUNT,
+              data: { tabId: data.tabId, count: data.streamsTabsAcrossBrowser }
+            }))
+          );
+        }
+      });
+
+      connect.core.client = new connect.UpstreamConduitClient(conduit);
+      connect.core.masterClient = new connect.UpstreamConduitMasterClient(conduit);
+ 
+      // Pass the TERMINATE request upstream to the shared worker.
+      connect.core.getEventBus().subscribe(connect.EventType.TERMINATE,
+        conduit.passUpstream());
+ 
+      // Refresh the page when we receive the TERMINATED response from the
+      // shared worker.
+      connect.core.getEventBus().subscribe(connect.EventType.TERMINATED, function () {
+        window.location.reload(true);
+      });
+ 
+      worker.port.start();
+
+      conduit.onUpstream(connect.VoiceIdEvents.UPDATE_DOMAIN_ID, function (data) {
+        if (data && data.domainId) {
+          connect.core.voiceIdDomainId = data.domainId;
+        }
+      });
+
+      // try fetching voiceId's domainId once the agent is initialized
+      connect.agent(function () {
+        var voiceId = new connect.VoiceId();
+        voiceId.getDomainId()
+          .then(function(domainId) {
+            connect.getLog().info("voiceId domainId successfully fetched at agent initialization: " + domainId).sendInternalLogToServer();
+          })
+          .catch(function(err) {
+            connect.getLog().info("voiceId domainId not fetched at agent initialization").withObject({ err: err }).sendInternalLogToServer();
+          });
+      });
+ 
+      // Attempt to get permission to show notifications.
+      var nm = connect.core.getNotificationManager();
+      nm.requestPermission();
+    } catch (e) {
+      connect.getLog().error("Failed to initialize the API shared worker, we're dead!")
+        .withException(e).sendInternalLogToServer();
     }
   };
 
-  connect.NotificationManager.prototype._showQueued = function () {
-    var self = this;
-    var notifications = this.queue.map(function (params) {
-      return self._showImpl(params);
+  connect.core._setTabId = function() {
+    try {
+      connect.core.tabId = window.sessionStorage.getItem(connect.SessionStorageKeys.TAB_ID);
+      if (!connect.core.tabId){
+        connect.core.tabId = connect.randomId();
+        window.sessionStorage.setItem(connect.SessionStorageKeys.TAB_ID, connect.core.tabId);
+      }
+      connect.core.upstream.sendUpstream(connect.EventType.TAB_ID, {tabId: connect.core.tabId});
+    } catch(e) {
+      connect.getLog().error("[Tab Id] There was an issue setting the tab Id").withException(e).sendInternalLogToServer();
+    }
+  }
+ 
+  /**-------------------------------------------------------------------------
+   * Initializes Connect by creating or connecting to the API Shared Worker.
+   * Initializes Connect by loading the CCP in an iframe and connecting to it.
+   */
+  connect.core.initCCP = function (containerDiv, paramsIn) {
+    connect.core.checkNotInitialized();
+    if (connect.core.initialized) {
+      return;
+    }
+    connect.getLog().info("Iframe initialization started").sendInternalLogToServer();
+    var initStartTime = Date.now();
+    // Check if CCP iframe has already been initialized through initCCP
+    try {
+      if (connect.core._getCCPIframe()) {
+          connect.getLog().error('Attempted to call initCCP when an iframe generated by initCCP already exists').sendInternalLogToServer();
+          return;
+        }
+    } catch(e) {
+      connect.getLog().error('Error while checking if initCCP has already been called').withException(e).sendInternalLogToServer();
+    }
+ 
+    // For backwards compatibility, when instead of taking a params object
+    // as input we only accepted ccpUrl.
+    var params = {};
+    if (typeof (paramsIn) === 'string') {
+      params.ccpUrl = paramsIn;
+    } else {
+      params = paramsIn;
+    }
+ 
+    connect.assertNotNull(containerDiv, 'containerDiv');
+    connect.assertNotNull(params.ccpUrl, 'params.ccpUrl');
+
+    // Clean up the Softphone params store to make sure we always pull the latest params
+    softphoneParamsStorage.clean();
+ 
+    // Create the CCP iframe and append it to the container div.
+    var iframe = connect.core._createCCPIframe(containerDiv, params);
+
+    // Initialize the event bus and agent data providers.
+    // NOTE: Setting logEvents here to FALSE in order to avoid duplicating
+    // events which are logged in CCP.
+    connect.core.eventBus = new connect.EventBus({ logEvents: false });
+    connect.core.agentDataProvider = new AgentDataProvider(connect.core.getEventBus());
+    connect.core.mediaFactory = new connect.MediaFactory(params);
+ 
+    // Build the upstream conduit communicating with the CCP iframe.
+    var conduit = new connect.IFrameConduit(params.ccpUrl, window, iframe);
+ 
+    // Let CCP know if iframe is visible
+    connect.core._sendIframeStyleDataUpstreamAfterReasonableWaitTime(iframe, conduit);
+ 
+    // Set the global upstream conduit for external use.
+    connect.core.upstream = conduit;
+ 
+    // Init webSocketProvider
+    connect.core.webSocketProvider = new WebSocketProvider();
+ 
+    conduit.onAllUpstream(connect.core.getEventBus().bridge());
+ 
+    // Initialize the keepalive manager.
+    connect.core.keepaliveManager = new KeepaliveManager(conduit,
+      connect.core.getEventBus(),
+      params.ccpSynTimeout || CCP_SYN_TIMEOUT,
+      params.ccpAckTimeout || CCP_ACK_TIMEOUT)
+      ;
+    connect.core.iframeRefreshTimeout = null;
+ 
+    // Allow 5 sec (default) before receiving the first ACK from the CCP.
+    connect.core.ccpLoadTimeoutInstance = global.setTimeout(function () {
+      connect.core.ccpLoadTimeoutInstance = null;
+      connect.core.getEventBus().trigger(connect.EventType.ACK_TIMEOUT);
+      connect.getLog().info("CCP LoadTimeout triggered").sendInternalLogToServer();
+    }, params.ccpLoadTimeout || CCP_LOAD_TIMEOUT);
+
+    connect.getLog().scheduleUpstreamOuterContextCCPLogsPush(conduit);
+    connect.getLog().scheduleUpstreamOuterContextCCPserverBoundLogsPush(conduit);
+ 
+    // Once we receive the first ACK, setup our upstream API client and establish
+    // the SYN/ACK refresh flow.
+    conduit.onUpstream(connect.EventType.ACKNOWLEDGE, function (data) {
+      connect.getLog().info("Acknowledged by the CCP!").sendInternalLogToServer();
+      connect.core.client = new connect.UpstreamConduitClient(conduit);
+      connect.core.masterClient = new connect.UpstreamConduitMasterClient(conduit);
+      connect.core.portStreamId = data.id;
+
+      if (params.softphone || params.chat || params.pageOptions || params.shouldAddNamespaceToLogs) {
+        // Send configuration up to the CCP.
+        //set it to false if secondary
+        conduit.sendUpstream(connect.EventType.CONFIGURE, {
+          softphone: params.softphone,
+          chat: params.chat,
+          pageOptions: params.pageOptions,
+          shouldAddNamespaceToLogs: params.shouldAddNamespaceToLogs,
+        });
+      }
+ 
+      if (connect.core.ccpLoadTimeoutInstance) {
+        global.clearTimeout(connect.core.ccpLoadTimeoutInstance);
+        connect.core.ccpLoadTimeoutInstance = null;
+      }
+
+      conduit.sendUpstream(connect.EventType.OUTER_CONTEXT_INFO, { streamsVersion: connect.version });
+ 
+      connect.core.keepaliveManager.start();
+      this.unsubscribe();
+
+      connect.core.initialized = true;
+      connect.core.getEventBus().trigger(connect.EventType.INIT);
+      if (initStartTime) {
+        var initTime = Date.now() - initStartTime;
+        var refreshAttempts = connect.core.iframeRefreshAttempt || 0;
+        connect.getLog().info('Iframe initialization succeeded').sendInternalLogToServer();
+        connect.getLog().info(`Iframe initialization time ${initTime}`).sendInternalLogToServer();
+        connect.getLog().info(`Iframe refresh attempts ${refreshAttempts}`).sendInternalLogToServer();
+        setTimeout(() => {
+          connect.publishMetric({
+            name: CSM_IFRAME_REFRESH_ATTEMPTS,
+            data: { count: refreshAttempts} 
+          });
+          connect.publishMetric({
+            name: CSM_IFRAME_INITIALIZATION_SUCCESS,
+            data: { count: 1} 
+          });
+          connect.publishMetric({
+            name: CSM_IFRAME_INITIALIZATION_TIME,
+            data: { count: initTime} 
+          });
+          //to avoid metric emission after initialization
+          initStartTime = null;
+        },1000)
+      }
     });
-    this.queue = [];
-    return notifications;
+ 
+    // Add any logs from the upstream to our own logger.
+    conduit.onUpstream(connect.EventType.LOG, function (logEntry) {
+      if (logEntry.loggerId !== connect.getLog().getLoggerId()) {
+        connect.getLog().addLogEntry(connect.LogEntry.fromObject(logEntry));
+      }
+    });
+ 
+    // Pop a login page when we encounter an ACK timeout.
+    connect.core.getEventBus().subscribe(connect.EventType.ACK_TIMEOUT, function () {
+      // loginPopup is true by default, only false if explicitly set to false.
+      if (params.loginPopup !== false) {
+        try {
+          var loginUrl = getLoginUrl(params);
+          connect.getLog().warn("ACK_TIMEOUT occurred, attempting to pop the login page if not already open.").sendInternalLogToServer();
+          // clear out last opened timestamp for SAML authentication when there is ACK_TIMEOUT
+          if (params.loginUrl) {
+            connect.core.getPopupManager().clear(connect.MasterTopics.LOGIN_POPUP);
+          }
+          connect.core.loginWindow = connect.core.getPopupManager().open(loginUrl, connect.MasterTopics.LOGIN_POPUP, params.loginOptions);
+        } catch (e) {
+          connect.getLog().error("ACK_TIMEOUT occurred but we are unable to open the login popup.").withException(e).sendInternalLogToServer();
+        }
+      }
+
+      if (connect.core.iframeRefreshTimeout == null) {
+        try {
+          conduit.onUpstream(connect.EventType.ACKNOWLEDGE, function () {
+            this.unsubscribe();
+            global.clearTimeout(connect.core.iframeRefreshTimeout);
+            connect.core.iframeRefreshTimeout = null;
+            connect.core.getPopupManager().clear(connect.MasterTopics.LOGIN_POPUP);
+            if ((params.loginPopupAutoClose || (params.loginOptions && params.loginOptions.autoClose)) && connect.core.loginWindow) {
+              connect.core.loginWindow.close();
+              connect.core.loginWindow = null;
+            }
+          });
+          connect.core._refreshIframeOnTimeout(params, containerDiv);
+        } catch (e) {
+          connect.getLog().error("Error occurred while refreshing iframe").withException(e).sendInternalLogToServer();
+        }
+      }
+    });
+ 
+    if (params.onViewContact) {
+      connect.core.onViewContact(params.onViewContact);
+    }
+
+    conduit.onUpstream(connect.EventType.UPDATE_CONNECTED_CCPS, function (data) {
+      connect.numberOfConnectedCCPs = data.length;
+    });
+
+    conduit.onUpstream(connect.VoiceIdEvents.UPDATE_DOMAIN_ID, function (data) {
+      if (data && data.domainId) {
+        connect.core.voiceIdDomainId = data.domainId;
+      }
+    });
+
+    connect.core.getEventBus().subscribe(connect.EventType.IFRAME_RETRIES_EXHAUSTED, function () {
+      if (initStartTime) {
+        var refreshAttempts = connect.core.iframeRefreshAttempt - 1;
+        connect.getLog().info('Iframe initialization failed').sendInternalLogToServer();
+        connect.getLog().info(`Time after iframe initialization started ${Date.now() - initStartTime}`).sendInternalLogToServer();
+        connect.getLog().info(`Iframe refresh attempts ${refreshAttempts}`).sendInternalLogToServer();
+        connect.publishMetric({
+          name: CSM_IFRAME_REFRESH_ATTEMPTS,
+          data: { count: refreshAttempts}
+        });
+        connect.publishMetric({
+          name: CSM_IFRAME_INITIALIZATION_SUCCESS,
+          data: { count: 0}
+        });
+        initStartTime = null;
+      }
+    });
+
+    // keep the softphone params for external use
+    connect.core.softphoneParams = params.softphone;
   };
 
-  connect.NotificationManager.prototype._showImpl = function (params) {
-    var notification = new global.Notification(params.title, params.options);
-    if (params.options.clicked) {
-      notification.onclick = function () {
-        params.options.clicked.call(notification);
+  connect.core.onIframeRetriesExhausted = function(f) {
+    connect.core.getEventBus().subscribe(connect.EventType.IFRAME_RETRIES_EXHAUSTED, f);
+  }
+
+  connect.core._refreshIframeOnTimeout = function(initCCPParams, containerDiv) {
+    connect.assertNotNull(initCCPParams, 'initCCPParams');
+    connect.assertNotNull(containerDiv, 'containerDiv');
+    var ccpIframeRefreshInterval = (initCCPParams.disasterRecoveryOn) ? CCP_DR_IFRAME_REFRESH_INTERVAL : CCP_IFRAME_REFRESH_INTERVAL;
+    var retryDelay = AWS.util.calculateRetryDelay((connect.core.iframeRefreshAttempt - 1 || 0), { base: 2000 });
+    // Evaluates to 0 for 0th attempt and 1 for rest (>0) of the refresh attempts
+    var timeoutFactor = Math.ceil((connect.core.iframeRefreshAttempt || 0) / CCP_IFRAME_REFRESH_LIMIT);
+    var timeout = (ccpIframeRefreshInterval + retryDelay) * timeoutFactor;
+    global.clearTimeout(connect.core.iframeRefreshTimeout);
+    connect.core.iframeRefreshTimeout = global.setTimeout(function() {
+      connect.core.iframeRefreshAttempt = (connect.core.iframeRefreshAttempt || 0) + 1;
+      if (connect.core.iframeRefreshAttempt <= CCP_IFRAME_REFRESH_LIMIT) {
+        try {
+          var iframe = connect.core._getCCPIframe();
+          if (iframe) {
+            iframe.parentNode.removeChild(iframe); // The only way to force a synchronous reload of the iframe without the old iframe continuing to function is to remove the old iframe entirely.
+          }
+          var newIframe = connect.core._createCCPIframe(containerDiv, initCCPParams);
+          connect.core.upstream.upstream.output = newIframe.contentWindow; //replaces the output window (old iframe's contentWindow) of the WindowIOStream (within the IFrameConduit) with the new iframe's contentWindow.
+          connect.core._sendIframeStyleDataUpstreamAfterReasonableWaitTime(newIframe, connect.core.upstream);
+        } catch(e) {
+          connect.getLog().error('Error while checking for, and recreating, the CCP IFrame').withException(e).sendInternalLogToServer();
+        }
+        connect.core._refreshIframeOnTimeout(initCCPParams, containerDiv);
+      } else {
+        connect.core.getEventBus().trigger(connect.EventType.IFRAME_RETRIES_EXHAUSTED);
+        global.clearTimeout(connect.core.iframeRefreshTimeout);
+      }
+    }, timeout);
+  }
+
+
+  connect.core._getCCPIframe = function() {
+    for (var iframe of window.document.getElementsByTagName('iframe')) {
+      if (iframe.name === CCP_IFRAME_NAME) {
+        return iframe;
+      }
+    }
+    return null;
+  }
+
+  connect.core._createCCPIframe = function(containerDiv, initCCPParams) {
+    connect.assertNotNull(initCCPParams, 'initCCPParams');
+    connect.assertNotNull(containerDiv, 'containerDiv');
+    var iframe = document.createElement('iframe');
+    iframe.src = initCCPParams.ccpUrl;
+    iframe.allow = "microphone; autoplay; clipboard-write";
+    iframe.style = initCCPParams.style || "width: 100%; height: 100%";
+    iframe.title = initCCPParams.iframeTitle || CCP_IFRAME_NAME;
+    iframe.name = CCP_IFRAME_NAME;
+    containerDiv.appendChild(iframe);
+    return iframe;
+  }
+
+  connect.core._sendIframeStyleDataUpstreamAfterReasonableWaitTime = function(iframe, conduit) {
+    connect.assertNotNull(iframe, 'iframe');
+    connect.assertNotNull(conduit, 'conduit');
+    setTimeout(function() {
+      var style = window.getComputedStyle(iframe, null);
+      var data = {
+        display: style.display,
+        offsetWidth: iframe.offsetWidth,
+        offsetHeight: iframe.offsetHeight,
+        clientRectsLength: iframe.getClientRects().length
+      };
+      conduit.sendUpstream(connect.EventType.IFRAME_STYLE, data);
+    }, 10000);
+  }
+ 
+  /**-----------------------------------------------------------------------*/
+  var KeepaliveManager = function (conduit, eventBus, synTimeout, ackTimeout) {
+    this.conduit = conduit;
+    this.eventBus = eventBus;
+    this.synTimeout = synTimeout;
+    this.ackTimeout = ackTimeout;
+    this.ackTimer = null;
+    this.synTimer = null;
+    this.ackSub = null;
+  };
+ 
+  KeepaliveManager.prototype.start = function () {
+    var self = this;
+ 
+    this.conduit.sendUpstream(connect.EventType.SYNCHRONIZE);
+    this.ackSub = this.conduit.onUpstream(connect.EventType.ACKNOWLEDGE, function () {
+      this.unsubscribe();
+      global.clearTimeout(self.ackTimer);
+      self._deferStart();
+    });
+    this.ackTimer = global.setTimeout(function () {
+      self.ackSub.unsubscribe();
+      self.eventBus.trigger(connect.EventType.ACK_TIMEOUT);
+      self._deferStart();
+    }, this.ackTimeout);
+  };
+ 
+  //Fixes the keepalivemanager.
+  KeepaliveManager.prototype._deferStart = function () {
+    this.synTimer = global.setTimeout(connect.hitch(this, this.start), this.synTimeout);
+  };
+
+  // For backwards compatibility only, in case customers are using this to start the keepalivemanager for some reason.
+  KeepaliveManager.prototype.deferStart = function () {
+    if (this.synTimer == null) {
+      this.synTimer = global.setTimeout(connect.hitch(this, this.start), this.synTimeout);
+    }
+  };
+ 
+  /**-----------------------------------------------------------------------*/
+ 
+  var WebSocketProvider = function () {
+ 
+    var callbacks = {
+      initFailure: new Set(),
+      subscriptionUpdate: new Set(),
+      subscriptionFailure: new Set(),
+      topic: new Map(),
+      allMessage: new Set(),
+      connectionGain: new Set(),
+      connectionLost: new Set(),
+      connectionOpen: new Set(),
+      connectionClose: new Set()
+    };
+ 
+    var invokeCallbacks = function (callbacks, response) {
+      callbacks.forEach(function (callback) {
+        callback(response);
+      });
+    };
+ 
+    connect.core.getUpstream().onUpstream(connect.WebSocketEvents.INIT_FAILURE, function () {
+      invokeCallbacks(callbacks.initFailure);
+    });
+
+    connect.core.getUpstream().onUpstream(connect.WebSocketEvents.CONNECTION_OPEN, function (response) {
+      invokeCallbacks(callbacks.connectionOpen, response);
+    });
+
+    connect.core.getUpstream().onUpstream(connect.WebSocketEvents.CONNECTION_CLOSE, function (response) {
+      invokeCallbacks(callbacks.connectionClose, response);
+    });
+
+    connect.core.getUpstream().onUpstream(connect.WebSocketEvents.CONNECTION_GAIN, function () {
+      invokeCallbacks(callbacks.connectionGain);
+    });
+
+    connect.core.getUpstream().onUpstream(connect.WebSocketEvents.CONNECTION_LOST, function (response) {
+      invokeCallbacks(callbacks.connectionLost, response);
+    });
+ 
+    connect.core.getUpstream().onUpstream(connect.WebSocketEvents.SUBSCRIPTION_UPDATE, function (response) {
+      invokeCallbacks(callbacks.subscriptionUpdate, response);
+    });
+ 
+    connect.core.getUpstream().onUpstream(connect.WebSocketEvents.SUBSCRIPTION_FAILURE, function (response) {
+      invokeCallbacks(callbacks.subscriptionFailure, response);
+    });
+ 
+    connect.core.getUpstream().onUpstream(connect.WebSocketEvents.ALL_MESSAGE, function (response) {
+      invokeCallbacks(callbacks.allMessage, response);
+      if (callbacks.topic.has(response.topic)) {
+        invokeCallbacks(callbacks.topic.get(response.topic), response);
+      }
+    });
+ 
+    this.sendMessage = function (webSocketPayload) {
+      connect.core.getUpstream().sendUpstream(connect.WebSocketEvents.SEND, webSocketPayload);
+    };
+ 
+    this.onInitFailure = function (cb) {
+      connect.assertTrue(connect.isFunction(cb), 'method must be a function');
+      callbacks.initFailure.add(cb);
+      return function () {
+        return callbacks.initFailure.delete(cb);
+      };
+    };
+
+    this.onConnectionOpen = function(cb) {
+      connect.assertTrue(connect.isFunction(cb), 'method must be a function');
+      callbacks.connectionOpen.add(cb);
+      return function () {
+        return callbacks.connectionOpen.delete(cb);
+      };
+    };
+
+    this.onConnectionClose = function(cb) {
+      connect.assertTrue(connect.isFunction(cb), 'method must be a function');
+      callbacks.connectionClose.add(cb);
+      return function () {
+        return callbacks.connectionClose.delete(cb);
+      };
+    };
+
+    this.onConnectionGain = function (cb) {
+      connect.assertTrue(connect.isFunction(cb), 'method must be a function');
+      callbacks.connectionGain.add(cb);
+      return function () {
+        return callbacks.connectionGain.delete(cb);
+      };
+    };
+ 
+    this.onConnectionLost = function (cb) {
+      connect.assertTrue(connect.isFunction(cb), 'method must be a function');
+      callbacks.connectionLost.add(cb);
+      return function () {
+        return callbacks.connectionLost.delete(cb);
+      };
+    };
+ 
+    this.onSubscriptionUpdate = function (cb) {
+      connect.assertTrue(connect.isFunction(cb), 'method must be a function');
+      callbacks.subscriptionUpdate.add(cb);
+      return function () {
+        return callbacks.subscriptionUpdate.delete(cb);
+      };
+    };
+ 
+    this.onSubscriptionFailure = function (cb) {
+      connect.assertTrue(connect.isFunction(cb), 'method must be a function');
+      callbacks.subscriptionFailure.add(cb);
+      return function () {
+        return callbacks.subscriptionFailure.delete(cb);
+      };
+    };
+ 
+    this.subscribeTopics = function (topics) {
+      connect.assertNotNull(topics, 'topics');
+      connect.assertTrue(connect.isArray(topics), 'topics must be a array');
+      connect.core.getUpstream().sendUpstream(connect.WebSocketEvents.SUBSCRIBE, topics);
+    };
+ 
+    this.onMessage = function (topicName, cb) {
+      connect.assertNotNull(topicName, 'topicName');
+      connect.assertTrue(connect.isFunction(cb), 'method must be a function');
+      if (callbacks.topic.has(topicName)) {
+        callbacks.topic.get(topicName).add(cb);
+      } else {
+        callbacks.topic.set(topicName, new Set([cb]));
+      }
+      return function () {
+        return callbacks.topic.get(topicName).delete(cb);
+      };
+    };
+ 
+    this.onAllMessage = function (cb) {
+      connect.assertTrue(connect.isFunction(cb), 'method must be a function');
+      callbacks.allMessage.add(cb);
+      return function () {
+        return callbacks.allMessage.delete(cb);
+      };
+    };
+ 
+  };
+ 
+  /**-----------------------------------------------------------------------*/
+  var AgentDataProvider = function (bus) {
+    var agentData = null;
+    this.bus = bus;
+    this.bus.subscribe(connect.AgentEvents.UPDATE, connect.hitch(this, this.updateAgentData));
+  };
+ 
+  AgentDataProvider.prototype.updateAgentData = function (agentData) {
+    var oldAgentData = this.agentData;
+    this.agentData = agentData;
+ 
+    if (oldAgentData == null) {
+      connect.agent.initialized = true;
+      this.bus.trigger(connect.AgentEvents.INIT, new connect.Agent());
+    }
+ 
+    this.bus.trigger(connect.AgentEvents.REFRESH, new connect.Agent());
+ 
+    this._fireAgentUpdateEvents(oldAgentData);
+  };
+ 
+  AgentDataProvider.prototype.getAgentData = function () {
+    if (this.agentData == null) {
+      throw new connect.StateError('No agent data is available yet!');
+    }
+ 
+    return this.agentData;
+  };
+ 
+  AgentDataProvider.prototype.getContactData = function (contactId) {
+    var agentData = this.getAgentData();
+    var contactData = connect.find(agentData.snapshot.contacts, function (ctdata) {
+      return ctdata.contactId === contactId;
+    });
+ 
+    if (contactData == null) {
+      throw new connect.StateError('Contact %s no longer exists.', contactId);
+    }
+ 
+    return contactData;
+  };
+ 
+  AgentDataProvider.prototype.getConnectionData = function (contactId, connectionId) {
+    var contactData = this.getContactData(contactId);
+    var connectionData = connect.find(contactData.connections, function (cdata) {
+      return cdata.connectionId === connectionId;
+    });
+ 
+    if (connectionData == null) {
+      throw new connect.StateError('Connection %s for contact %s no longer exists.', connectionId, contactId);
+    }
+ 
+    return connectionData;
+  };
+
+  AgentDataProvider.prototype.getInstanceId = function(){
+    return this.getAgentData().configuration.routingProfile.routingProfileId.match(/instance\/([0-9a-fA-F|-]+)\//)[1];
+  }
+
+  AgentDataProvider.prototype.getAWSAccountId = function(){
+    return this.getAgentData().configuration.routingProfile.routingProfileId.match(/:([0-9]+):instance/)[1];
+  }
+ 
+  AgentDataProvider.prototype._diffContacts = function (oldAgentData) {
+    var diff = {
+      added: {},
+      removed: {},
+      common: {},
+      oldMap: connect.index(oldAgentData == null ? [] : oldAgentData.snapshot.contacts, function (contact) { return contact.contactId; }),
+      newMap: connect.index(this.agentData.snapshot.contacts, function (contact) { return contact.contactId; })
+    };
+ 
+    connect.keys(diff.oldMap).forEach(function (contactId) {
+      if (connect.contains(diff.newMap, contactId)) {
+        diff.common[contactId] = diff.newMap[contactId];
+      } else {
+        diff.removed[contactId] = diff.oldMap[contactId];
+      }
+    });
+ 
+    connect.keys(diff.newMap).forEach(function (contactId) {
+      if (!connect.contains(diff.oldMap, contactId)) {
+        diff.added[contactId] = diff.newMap[contactId];
+      }
+    });
+ 
+    return diff;
+  };
+ 
+  AgentDataProvider.prototype._fireAgentUpdateEvents = function (oldAgentData) {
+    var self = this;
+    var diff = null;
+    var oldAgentState = oldAgentData == null ? connect.AgentAvailStates.INIT : oldAgentData.snapshot.state.name;
+    var newAgentState = this.agentData.snapshot.state.name;
+    var oldRoutingState = oldAgentData == null ? connect.AgentStateType.INIT : oldAgentData.snapshot.state.type;
+    var newRoutingState = this.agentData.snapshot.state.type;
+ 
+    if (oldRoutingState !== newRoutingState) {
+      connect.core.getAgentRoutingEventGraph().getAssociations(this, oldRoutingState, newRoutingState).forEach(function (event) {
+        self.bus.trigger(event, new connect.Agent());
+      });
+    }
+ 
+    if (oldAgentState !== newAgentState) {
+      this.bus.trigger(connect.AgentEvents.STATE_CHANGE, {
+        agent: new connect.Agent(),
+        oldState: oldAgentState,
+        newState: newAgentState
+ 
+      });
+      connect.core.getAgentStateEventGraph().getAssociations(this, oldAgentState, newAgentState).forEach(function (event) {
+        self.bus.trigger(event, new connect.Agent());
+      });
+    }
+
+    var oldNextState = oldAgentData && oldAgentData.snapshot.nextState ? oldAgentData.snapshot.nextState.name : null;
+    var newNextState = this.agentData.snapshot.nextState ? this.agentData.snapshot.nextState.name : null;
+    if (oldNextState !== newNextState && newNextState) {
+      self.bus.trigger(connect.AgentEvents.ENQUEUED_NEXT_STATE, new connect.Agent());
+    }
+
+    if (oldAgentData !== null) {
+      diff = this._diffContacts(oldAgentData);
+ 
+    } else {
+      diff = {
+        added: connect.index(this.agentData.snapshot.contacts, function (contact) { return contact.contactId; }),
+        removed: {},
+        common: {},
+        oldMap: {},
+        newMap: connect.index(this.agentData.snapshot.contacts, function (contact) { return contact.contactId; })
       };
     }
-    return notification;
+ 
+    connect.values(diff.added).forEach(function (contactData) {
+      self.bus.trigger(connect.ContactEvents.INIT, new connect.Contact(contactData.contactId));
+      self._fireContactUpdateEvents(contactData.contactId, connect.ContactStateType.INIT, contactData.state.type);
+    });
+ 
+    connect.values(diff.removed).forEach(function (contactData) {
+      self.bus.trigger(connect.ContactEvents.DESTROYED, new connect.ContactSnapshot(contactData));
+      self.bus.trigger(connect.core.getContactEventName(connect.ContactEvents.DESTROYED, contactData.contactId), new connect.ContactSnapshot(contactData));
+      self._unsubAllContactEventsForContact(contactData.contactId);
+    });
+ 
+    connect.keys(diff.common).forEach(function (contactId) {
+      self._fireContactUpdateEvents(contactId, diff.oldMap[contactId].state.type, diff.newMap[contactId].state.type);
+    });
+  };
+ 
+  AgentDataProvider.prototype._fireContactUpdateEvents = function (contactId, oldContactState, newContactState) {
+    var self = this;
+    if (oldContactState !== newContactState) {
+      connect.core.getContactEventGraph().getAssociations(this, oldContactState, newContactState).forEach(function (event) {
+        self.bus.trigger(event, new connect.Contact(contactId));
+        self.bus.trigger(connect.core.getContactEventName(event, contactId), new connect.Contact(contactId));
+      });
+    }
+
+    self.bus.trigger(connect.ContactEvents.REFRESH, new connect.Contact(contactId));
+    self.bus.trigger(connect.core.getContactEventName(connect.ContactEvents.REFRESH, contactId), new connect.Contact(contactId));
+  };
+ 
+  AgentDataProvider.prototype._unsubAllContactEventsForContact = function (contactId) {
+    var self = this;
+    connect.values(connect.ContactEvents).forEach(function (eventName) {
+      self.bus.getSubscriptions(connect.core.getContactEventName(eventName, contactId))
+        .map(function (sub) { sub.unsubscribe(); });
+    });
+  };
+ 
+  /** ----- minimal view layer event handling **/
+ 
+  connect.core.onViewContact = function (f) {
+    connect.core.getUpstream().onUpstream(connect.ContactEvents.VIEW, f);
+  };
+ 
+  /**
+   * Used of agent interface control. 
+   * connect.core.viewContact("contactId") ->  this is currently programmed to get the contact into view.
+   */
+  connect.core.viewContact = function (contactId) {
+    connect.core.getUpstream().sendUpstream(connect.EventType.BROADCAST, {
+      event: connect.ContactEvents.VIEW,
+      data: {
+        contactId: contactId
+      }
+    });
   };
 
-  connect.BaseError = function (format, args) {
-    global.Error.call(this, connect.vsprintf(format, args));
+  /** ----- minimal view layer event handling **/
+ 
+  connect.core.onActivateChannelWithViewType = function (f) {
+    connect.core.getUpstream().onUpstream(connect.ChannelViewEvents.ACTIVATE_CHANNEL_WITH_VIEW_TYPE, f);
   };
-  connect.BaseError.prototype = Object.create(Error.prototype);
-  connect.BaseError.prototype.constructor = connect.BaseError;
-
-  connect.ValueError = function () {
-    var args = Array.prototype.slice.call(arguments, 0);
-    var format = args.shift();
-    connect.BaseError.call(this, format, args);
+ 
+  /**
+   * Used of agent interface control. 
+   * connect.core.activateChannelWithViewType() ->  this is currently programmed to get either the number pad, quick connects, or create task into view.
+   * the valid combinations are ("create_task", "task"), ("number_pad", "softphone"), ("create_task", "softphone"), ("quick_connects", "softphone")
+   * the softphone with create_task combo is a special case in the channel view to allow all three view type buttons to appear on the softphone screen
+   *
+   * The 'source' is an optional parameter which indicates the requester. For example, if invoked with ("create_task", "task", "agentapp") we would know agentapp requested open task view.
+   * 
+   * "caseId" is an optional parameter which is passed when a task is created from a Kesytone case
+   */
+   connect.core.activateChannelWithViewType = function (viewType, mediaType, source, caseId) {
+    const data = { viewType, mediaType };
+    if (source) {
+      data.source = source;
+    }
+    if (caseId) {
+      data.caseId = caseId;
+    }
+    connect.core.getUpstream().sendUpstream(connect.EventType.BROADCAST, {
+      event: connect.ChannelViewEvents.ACTIVATE_CHANNEL_WITH_VIEW_TYPE,
+      data
+    });
   };
-  connect.ValueError.prototype = Object.create(connect.BaseError.prototype);
-  connect.ValueError.prototype.constructor = connect.ValueError;
 
-  connect.NotImplementedError = function () {
-    var args = Array.prototype.slice.call(arguments, 0);
-    var format = args.shift();
-    connect.BaseError.call(this, format, args);
+  /**
+   * Used to publish 'task created' event
+   */
+  connect.core.triggerTaskCreated = function (data) {
+    connect.core.getUpstream().upstreamBus.trigger(connect.TaskEvents.CREATED, data);
   };
-  connect.NotImplementedError.prototype = Object.create(connect.BaseError.prototype);
-  connect.NotImplementedError.prototype.constructor = connect.NotImplementedError;
 
-  connect.StateError = function () {
-    var args = Array.prototype.slice.call(arguments, 0);
-    var format = args.shift();
-    connect.BaseError.call(this, format, args);
+  /** ------------------------------------------------- */
+ 
+  /**
+  * This will be helpful for the custom and embedded CCPs 
+  * to handle the access denied use case. 
+  */
+  connect.core.onAccessDenied = function (f) {
+    connect.core.getUpstream().onUpstream(connect.EventType.ACCESS_DENIED, f);
   };
-  connect.StateError.prototype = Object.create(connect.BaseError.prototype);
-  connect.StateError.prototype.constructor = connect.StateError;
+ 
+  /**
+  * This will be helpful for SAML use cases to handle the custom logins. 
+  */
+  connect.core.onAuthFail = function (f) {
+    connect.core.getUpstream().onUpstream(connect.EventType.AUTH_FAIL, f);
+  };
 
+  connect.core.onAuthorizeSuccess = function (f) {
+    connect.core.getUpstream().onUpstream(connect.EventType.AUTHORIZE_SUCCESS, f);
+  }
+
+  connect.core._handleAuthorizeSuccess = function() {
+    window.sessionStorage.setItem(connect.SessionStorageKeys.AUTHORIZE_RETRY_COUNT, 0);
+  }
+
+  connect.core._handleAuthFail = function(loginUrl, authorizeEndpoint, authFailData) {
+    if (authFailData && authFailData.authorize) {
+      connect.core._handleAuthorizeFail(loginUrl);
+    }
+    else {
+      connect.core._handleCTIAuthFail(authorizeEndpoint);
+    }
+  }
+
+  connect.core._handleAuthorizeFail = function(loginUrl) {
+    let authRetryCount = connect.core._getAuthRetryCount()
+    if (!connect.core.authorizeTimeoutId) {
+      if (authRetryCount < connect.core.MAX_AUTHORIZE_RETRY_COUNT_FOR_SESSION) {
+        connect.core._incrementAuthRetryCount();
+        let retryDelay = AWS.util.calculateRetryDelay(authRetryCount + 1 || 0, { base: 2000 });
+        connect.core.authorizeTimeoutId = setTimeout(() => {
+          connect.core._redirectToLogin(loginUrl);
+        }, retryDelay); //We don't have to clear the timeoutId because we are redirecting away from this origin once the timeout completes.
+      }
+      else  {
+        connect.getLog().warn("We have exhausted our authorization retries due to 401s from the authorize api. No more retries will be attempted in this session until the authorize api returns 200.").sendInternalLogToServer();
+        connect.core.getEventBus().trigger(connect.EventType.AUTHORIZE_RETRIES_EXHAUSTED);
+      }
+    }
+  }
+
+  connect.core._redirectToLogin = function(loginUrl) {
+    if (typeof(loginUrl) === 'string') {
+      location.assign(loginUrl);
+    } else {
+      location.reload();
+    }
+  }
+
+  connect.core._handleCTIAuthFail = function(authorizeEndpoint) {
+    if (!connect.core.ctiTimeoutId) {
+      if (connect.core.ctiAuthRetryCount < connect.core.MAX_CTI_AUTH_RETRY_COUNT) {
+        connect.core.ctiAuthRetryCount++;
+        let retryDelay = AWS.util.calculateRetryDelay(connect.core.ctiAuthRetryCount || 0, { base: 500 });
+        connect.core.ctiTimeoutId = setTimeout(() => {
+          connect.core.authorize(authorizeEndpoint).then(connect.core._triggerAuthorizeSuccess.bind(connect.core)).catch(connect.core._triggerAuthFail.bind(connect.core, {authorize: true}));
+          connect.core.ctiTimeoutId = null;
+        }, retryDelay);
+      }
+      else {
+        connect.getLog().warn("We have exhausted our authorization retries due to 401s from the CTI service. No more retries will be attempted until the page is refreshed.").sendInternalLogToServer();
+        connect.core.getEventBus().trigger(connect.EventType.CTI_AUTHORIZE_RETRIES_EXHAUSTED);
+      }
+    }
+  }
+
+  connect.core._triggerAuthorizeSuccess = function() {
+    connect.core.getUpstream().upstreamBus.trigger(connect.EventType.AUTHORIZE_SUCCESS);
+  }
+
+  connect.core._triggerAuthFail = function(data) {
+    connect.core.getUpstream().upstreamBus.trigger(connect.EventType.AUTH_FAIL, data);
+  }
+
+  connect.core._getAuthRetryCount = function() {
+    let item = window.sessionStorage.getItem(connect.SessionStorageKeys.AUTHORIZE_RETRY_COUNT);
+    if (item !== null) {
+      if (!isNaN(parseInt(item))) {
+        return parseInt(item);
+      } else {
+        throw new connect.StateError("The session storage value for auth retry count was NaN");
+      }
+    } else {
+      window.sessionStorage.setItem(connect.SessionStorageKeys.AUTHORIZE_RETRY_COUNT, 0);
+      return 0;
+    } 
+  }
+
+  connect.core._incrementAuthRetryCount = function() {
+    window.sessionStorage.setItem(connect.SessionStorageKeys.AUTHORIZE_RETRY_COUNT, (connect.core._getAuthRetryCount()+1).toString());
+  }
+
+  connect.core.onAuthorizeRetriesExhausted = function(f) {
+    connect.core.getEventBus().subscribe(connect.EventType.AUTHORIZE_RETRIES_EXHAUSTED, f);
+  }
+
+  connect.core.onCTIAuthorizeRetriesExhausted = function(f) {
+    connect.core.getEventBus().subscribe(connect.EventType.CTI_AUTHORIZE_RETRIES_EXHAUSTED, f);
+  }
+ 
+  /** ------------------------------------------------- */
+ 
+  /**
+   * Used for handling the rtc session stats.
+   * Usage
+   * connect.core.onSoftphoneSessionInit(function({ connectionId }) {
+   *     var softphoneManager = connect.core.getSoftphoneManager();
+   *     if(softphoneManager){
+   *        // access session
+   *        var session = softphoneManager.getSession(connectionId); 
+   *      }
+   * });
+   */
+ 
+  connect.core.onSoftphoneSessionInit = function (f) {
+    connect.core.getUpstream().onUpstream(connect.ConnectionEvents.SESSION_INIT, f);
+  };
+ 
+  /**-----------------------------------------------------------------------*/
+  connect.core.onConfigure = function(f) {
+    connect.core.getUpstream().onUpstream(connect.ConfigurationEvents.CONFIGURE, f);
+  }
+
+   /**-----------------------------------------------------------------------*/
+   connect.core.onInitialized = function(f) {
+    var bus = connect.core.getEventBus();
+    bus.subscribe(connect.EventType.INIT, f);
+  }
+
+  /**-----------------------------------------------------------------------*/
+  connect.core.getContactEventName = function (eventName, contactId) {
+    connect.assertNotNull(eventName, 'eventName');
+    connect.assertNotNull(contactId, 'contactId');
+    if (!connect.contains(connect.values(connect.ContactEvents), eventName)) {
+      throw new connect.ValueError('%s is not a valid contact event.', eventName);
+    }
+    return connect.sprintf('%s::%s', eventName, contactId);
+  };
+ 
+  /**-----------------------------------------------------------------------*/
+  connect.core.getEventBus = function () {
+    return connect.core.eventBus;
+  };
+ 
+  /**-----------------------------------------------------------------------*/
+  connect.core.getWebSocketManager = function () {
+    return connect.core.webSocketProvider;
+  };
+ 
+  /**-----------------------------------------------------------------------*/
+  connect.core.getAgentDataProvider = function () {
+    return connect.core.agentDataProvider;
+  };
+ 
+  /**-----------------------------------------------------------------------*/
+  connect.core.getLocalTimestamp = function () {
+    return connect.core.getAgentDataProvider().getAgentData().snapshot.localTimestamp;
+  };
+ 
+  /**-----------------------------------------------------------------------*/
+  connect.core.getSkew = function () {
+    return connect.core.getAgentDataProvider().getAgentData().snapshot.skew;
+  };
+ 
+  /**-----------------------------------------------------------------------*/
+  connect.core.getAgentRoutingEventGraph = function () {
+    return connect.core.agentRoutingEventGraph;
+  };
+  connect.core.agentRoutingEventGraph = new connect.EventGraph()
+    .assoc(connect.EventGraph.ANY, connect.AgentStateType.ROUTABLE,
+      connect.AgentEvents.ROUTABLE)
+    .assoc(connect.EventGraph.ANY, connect.AgentStateType.NOT_ROUTABLE,
+      connect.AgentEvents.NOT_ROUTABLE)
+    .assoc(connect.EventGraph.ANY, connect.AgentStateType.OFFLINE,
+      connect.AgentEvents.OFFLINE);
+ 
+  /**-----------------------------------------------------------------------*/
+  connect.core.getAgentStateEventGraph = function () {
+    return connect.core.agentStateEventGraph;
+  };
+  connect.core.agentStateEventGraph = new connect.EventGraph()
+    .assoc(connect.EventGraph.ANY,
+      connect.values(connect.AgentErrorStates),
+      connect.AgentEvents.ERROR)
+    .assoc(connect.EventGraph.ANY, connect.AgentAvailStates.AFTER_CALL_WORK,
+      connect.AgentEvents.ACW);
+ 
+  /**-----------------------------------------------------------------------*/
+  connect.core.getContactEventGraph = function () {
+    return connect.core.contactEventGraph;
+  };
+ 
+  connect.core.contactEventGraph = new connect.EventGraph()
+    .assoc(connect.EventGraph.ANY,
+      connect.ContactStateType.INCOMING,
+      connect.ContactEvents.INCOMING)
+    .assoc(connect.EventGraph.ANY,
+      connect.ContactStateType.PENDING,
+      connect.ContactEvents.PENDING)
+    .assoc(connect.EventGraph.ANY,
+      connect.ContactStateType.CONNECTING,
+      connect.ContactEvents.CONNECTING)
+    .assoc(connect.EventGraph.ANY,
+      connect.ContactStateType.CONNECTED,
+      connect.ContactEvents.CONNECTED)
+    .assoc(connect.ContactStateType.CONNECTING,
+      connect.ContactStateType.ERROR,
+      connect.ContactEvents.MISSED)
+    .assoc(connect.ContactStateType.INCOMING,
+      connect.ContactStateType.ERROR,
+      connect.ContactEvents.MISSED)
+    .assoc(connect.EventGraph.ANY,
+      connect.ContactStateType.ENDED,
+      connect.ContactEvents.ACW)
+    .assoc(connect.values(connect.CONTACT_ACTIVE_STATES),
+      connect.values(connect.relativeComplement(connect.CONTACT_ACTIVE_STATES, connect.ContactStateType)),
+      connect.ContactEvents.ENDED)
+    .assoc(connect.EventGraph.ANY,
+      connect.ContactStateType.ERROR,
+      connect.ContactEvents.ERROR)
+    .assoc(connect.ContactStateType.CONNECTING,
+      connect.ContactStateType.MISSED,
+      connect.ContactEvents.MISSED);
+
+  /**-----------------------------------------------------------------------*/
+  connect.core.getClient = function () {
+    if (!connect.core.client) {
+      throw new connect.StateError('The connect core has not been initialized!');
+    }
+    return connect.core.client;
+  };
+  connect.core.client = null;
+
+  /**-----------------------------------------------------------------------*/
+  connect.core.getAgentAppClient = function () {
+    if (!connect.core.agentAppClient) {
+      throw new connect.StateError('The connect AgentApp Client has not been initialized!');
+    }
+    return connect.core.agentAppClient;
+  };
+  connect.core.agentAppClient = null;
+ 
+  /**-----------------------------------------------------------------------*/
+  connect.core.getTaskTemplatesClient = function () {
+    if (!connect.core.taskTemplatesClient) {
+      throw new connect.StateError('The connect TaskTemplates Client has not been initialized!');
+    }
+    return connect.core.taskTemplatesClient;
+  };
+  connect.core.taskTemplatesClient = null;
+
+  /**-----------------------------------------------------------------------*/
+  connect.core.getMasterClient = function () {
+    if (!connect.core.masterClient) {
+      throw new connect.StateError('The connect master client has not been initialized!');
+    }
+    return connect.core.masterClient;
+  };
+  connect.core.masterClient = null;
+ 
+  /**-----------------------------------------------------------------------*/
+  connect.core.getSoftphoneManager = function () {
+    return connect.core.softphoneManager;
+  };
+  connect.core.softphoneManager = null;
+ 
+  /**-----------------------------------------------------------------------*/
+  connect.core.getNotificationManager = function () {
+    if (!connect.core.notificationManager) {
+      connect.core.notificationManager = new connect.NotificationManager();
+    }
+    return connect.core.notificationManager;
+  };
+  connect.core.notificationManager = null;
+ 
+  /**-----------------------------------------------------------------------*/
+  connect.core.getPopupManager = function () {
+    return connect.core.popupManager;
+  };
+  connect.core.popupManager = new connect.PopupManager();
+ 
+  /**-----------------------------------------------------------------------*/
+  connect.core.getUpstream = function () {
+    if (!connect.core.upstream) {
+      throw new connect.StateError('There is no upstream conduit!');
+    }
+    return connect.core.upstream;
+  };
+  connect.core.upstream = null;
+ 
+  /**-----------------------------------------------------------------------*/
+  connect.core.AgentDataProvider = AgentDataProvider;
+ 
 })();
+
+/***/ }),
+
+/***/ 592:
+/***/ (() => {
 
 /*
  * Copyright 2014-2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
@@ -22138,8 +27635,8 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
  * SPDX-License-Identifier: Apache-2.0
  */
 (function () {
-  var global = this;
-  connect = global.connect || {};
+  var global = this || globalThis;
+  var connect = global.connect || {};
   global.connect = connect;
 
   var ALL_EVENTS = '<<all>>';
@@ -22150,6 +27647,7 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
   var EventType = connect.makeEnum([
     'acknowledge',
     'ack_timeout',
+    'init',
     'api_request',
     'api_response',
     'auth_fail',
@@ -22167,7 +27665,22 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
     'broadcast',
     'api_metric',
     'client_metric',
-    'mute'
+    'softphone_stats',
+    'softphone_report',
+    'client_side_logs',
+    'server_bound_internal_log',
+    'mute',
+    "iframe_style",
+    "iframe_retries_exhausted",
+    "update_connected_ccps",
+    "outer_context_info",
+    "media_device_request",
+    "media_device_response",
+    "tab_id",
+    'authorize_success',
+    'authorize_retries_exhausted',
+    'cti_authorize_retries_exhausted',
+    'click_stream_data'
   ]);
 
   /**---------------------------------------------------------------
@@ -22195,9 +27708,13 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
     'offline',
     'error',
     'softphone_error',
+    'websocket_connection_lost',
+    'websocket_connection_gained',
     'state_change',
     'acw',
-    'mute_toggle'
+    'mute_toggle',
+    'local_media_stream_created',
+    'enqueued_next_state'
   ]);
 
   /**---------------------------------------------------------------
@@ -22205,6 +27722,9 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
   */
   var WebSocketEvents = connect.makeNamespacedEnum('webSocket', [
     'init_failure',
+    'connection_open',
+    'connection_close',
+    'connection_error',
     'connection_gain',
     'connection_lost',
     'subscription_update',
@@ -22233,12 +27753,41 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
     'accepted'
   ]);
 
+  var ChannelViewEvents = connect.makeNamespacedEnum('taskList', [
+    'activate_channel_with_view_type'
+  ]);
+  
+  var TaskEvents = connect.makeNamespacedEnum('task', [
+      'created'
+  ]);
+
 
   /**---------------------------------------------------------------
-  * enum ConnnectionEvents
+  * enum ConnectionEvents
   */
-  var ConnnectionEvents = connect.makeNamespacedEnum('connection', [
-    'session_init'
+  var ConnectionEvents = connect.makeNamespacedEnum('connection', [
+    'session_init',
+    'ready_to_start_session'
+  ]);
+
+  /**---------------------------------------------------------------
+   * enum Configuration Events
+   */
+  var ConfigurationEvents = connect.makeNamespacedEnum('configuration', [
+    'configure',
+    'set_speaker_device',
+    'set_microphone_device',
+    'set_ringer_device',
+    'speaker_device_changed',
+    'microphone_device_changed',
+    'ringer_device_changed'
+  ]);
+
+  /**---------------------------------------------------------------
+   * enum VoiceId Events
+   */
+   var VoiceIdEvents = connect.makeNamespacedEnum('voiceId', [
+    'update_domain_id'
   ]);
 
   /**---------------------------------------------------------------
@@ -22387,16 +27936,29 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
     var allEventSubs = this.subMap.getSubscriptions(ALL_EVENTS);
     var eventSubs = this.subMap.getSubscriptions(eventName);
 
-    if (this.logEvents && (eventName !== connect.EventType.LOG && eventName !== connect.EventType.MASTER_RESPONSE && eventName !== connect.EventType.API_METRIC)) {
-      connect.getLog().trace("Publishing event: %s", eventName);
+    if (this.logEvents &&
+        eventName !== connect.EventType.LOG &&
+        eventName !== connect.EventType.MASTER_RESPONSE &&
+        eventName !== connect.EventType.API_METRIC &&
+        eventName !== connect.EventType.SERVER_BOUND_INTERNAL_LOG
+    ) {
+      connect.getLog().trace("Publishing event: %s", eventName).sendInternalLogToServer();
+    }
+
+    if (
+      eventName.startsWith(connect.ContactEvents.ACCEPTED) &&
+      data &&
+      data.contactId &&
+      !(data instanceof connect.Contact)
+    ) {
+      data = new connect.Contact(data.contactId);
     }
 
     allEventSubs.concat(eventSubs).forEach(function (sub) {
       try {
         sub.f(data || null, eventName, self);
-
       } catch (e) {
-        connect.getLog().error("'%s' event handler failed.", eventName).withException(e);
+        connect.getLog().error("'%s' event handler failed.", eventName).withException(e).sendInternalLogToServer();
       }
     });
   };
@@ -22427,11 +27989,2657 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
   connect.EventFactory = EventFactory;
   connect.EventType = EventType;
   connect.AgentEvents = AgentEvents;
-  connect.ConnnectionEvents = ConnnectionEvents;
+  connect.ConfigurationEvents = ConfigurationEvents;
+  connect.ConnectionEvents = ConnectionEvents;
+  connect.ConnnectionEvents = ConnectionEvents; //deprecate on next major version release.
   connect.ContactEvents = ContactEvents;
+  connect.ChannelViewEvents = ChannelViewEvents;
+  connect.TaskEvents = TaskEvents;
+  connect.VoiceIdEvents = VoiceIdEvents;
   connect.WebSocketEvents = WebSocketEvents;
   connect.MasterTopics = MasterTopics;
 })();
+
+
+/***/ }),
+
+/***/ 286:
+/***/ (() => {
+
+!function(e){var n={};function t(o){if(n[o])return n[o].exports;var r=n[o]={i:o,l:!1,exports:{}};return e[o].call(r.exports,r,r.exports,t),r.l=!0,r.exports}t.m=e,t.c=n,t.d=function(e,n,o){t.o(e,n)||Object.defineProperty(e,n,{enumerable:!0,get:o})},t.r=function(e){"undefined"!=typeof Symbol&&Symbol.toStringTag&&Object.defineProperty(e,Symbol.toStringTag,{value:"Module"}),Object.defineProperty(e,"__esModule",{value:!0})},t.t=function(e,n){if(1&n&&(e=t(e)),8&n)return e;if(4&n&&"object"==typeof e&&e&&e.__esModule)return e;var o=Object.create(null);if(t.r(o),Object.defineProperty(o,"default",{enumerable:!0,value:e}),2&n&&"string"!=typeof e)for(var r in e)t.d(o,r,function(n){return e[n]}.bind(null,r));return o},t.n=function(e){var n=e&&e.__esModule?function(){return e.default}:function(){return e};return t.d(n,"a",n),n},t.o=function(e,n){return Object.prototype.hasOwnProperty.call(e,n)},t.p="",t(t.s=2)}([function(e,n,t){"use strict";var o=t(1),r="NULL",i="CLIENT_LOGGER",c="DEBUG",a=2e3,s="AMZ_WEB_SOCKET_MANAGER:",u="Network offline",l="Network online, connecting to WebSocket server",f="Network offline, ignoring this getWebSocketConnConfig request",d="Heartbeat response not received",p="Heartbeat response received",g="Sending heartbeat",b="Failed to send heartbeat since WebSocket is not open",y="WebSocket connection established!",m="WebSocket connection is closed",v="WebSocketManager Error, error_event: ",S="Scheduling WebSocket reinitialization, after delay ",h="WebSocket URL cannot be used to establish connection",k="WebSocket Initialization failed - Terminating and cleaning subscriptions",w="Terminating WebSocket Manager",C="Fetching new WebSocket connection configuration",L="Successfully fetched webSocket connection configuration",T="Failed to fetch webSocket connection configuration",O="Retrying fetching new WebSocket connection configuration",W="Initializing Websocket Manager",I="Initializing Websocket Manager Failed!",N="Websocket connection open",_="Websocket connection close",E="Websocket connection gain",F="Websocket connection lost",A="Websocket subscription failure",R="Reset Websocket state",x="WebSocketManager Message Error",D="Message received for topic ",j="Invalid incoming message",M="WebsocketManager invoke callbacks for topic success ",G="aws/subscribe",z="aws/unsubscribe",P="aws/heartbeat",H="connected",U="disconnected";function q(e){return(q="function"==typeof Symbol&&"symbol"==typeof Symbol.iterator?function(e){return typeof e}:function(e){return e&&"function"==typeof Symbol&&e.constructor===Symbol&&e!==Symbol.prototype?"symbol":typeof e})(e)}var J={assertTrue:function(e,n){if(!e)throw new Error(n)},assertNotNull:function(e,n){return J.assertTrue(null!==e&&void 0!==q(e),Object(o.sprintf)("%s must be provided",n||"A value")),e},isNonEmptyString:function(e){return"string"==typeof e&&e.length>0},assertIsList:function(e,n){if(!Array.isArray(e))throw new Error(n+" is not an array")},isFunction:function(e){return!!(e&&e.constructor&&e.call&&e.apply)},isObject:function(e){return!("object"!==q(e)||null===e)},isString:function(e){return"string"==typeof e},isNumber:function(e){return"number"==typeof e}},B=new RegExp("^(wss://)\\w*");J.validWSUrl=function(e){return B.test(e)},J.getSubscriptionResponse=function(e,n,t){return{topic:e,content:{status:n?"success":"failure",topics:t}}},J.assertIsObject=function(e,n){if(!J.isObject(e))throw new Error(n+" is not an object!")},J.addJitter=function(e){var n=arguments.length>1&&void 0!==arguments[1]?arguments[1]:1;n=Math.min(n,1);var t=Math.random()>.5?1:-1;return Math.floor(e+t*e*Math.random()*n)},J.isNetworkOnline=function(){return navigator.onLine},J.isNetworkFailure=function(e){return!(!e._debug||!e._debug.type)&&"NetworkingError"===e._debug.type};var V=J;function X(e,n){return!n||"object"!==Z(n)&&"function"!=typeof n?function(e){if(void 0===e)throw new ReferenceError("this hasn't been initialised - super() hasn't been called");return e}(e):n}function $(e){return($=Object.setPrototypeOf?Object.getPrototypeOf:function(e){return e.__proto__||Object.getPrototypeOf(e)})(e)}function K(e,n){return(K=Object.setPrototypeOf||function(e,n){return e.__proto__=n,e})(e,n)}function Z(e){return(Z="function"==typeof Symbol&&"symbol"==typeof Symbol.iterator?function(e){return typeof e}:function(e){return e&&"function"==typeof Symbol&&e.constructor===Symbol&&e!==Symbol.prototype?"symbol":typeof e})(e)}function Q(e,n){if(!(e instanceof n))throw new TypeError("Cannot call a class as a function")}function Y(e,n){for(var t=0;t<n.length;t++){var o=n[t];o.enumerable=o.enumerable||!1,o.configurable=!0,"value"in o&&(o.writable=!0),Object.defineProperty(e,o.key,o)}}function ee(e,n,t){return n&&Y(e.prototype,n),t&&Y(e,t),e}var ne=function(){function e(){Q(this,e)}return ee(e,[{key:"debug",value:function(e){}},{key:"info",value:function(e){}},{key:"warn",value:function(e){}},{key:"error",value:function(e){}},{key:"advancedLog",value:function(e){}}]),e}(),te=s,oe={DEBUG:10,INFO:20,WARN:30,ERROR:40,ADVANCED_LOG:50},re=function(){function e(){Q(this,e),this.updateLoggerConfig(),this.consoleLoggerWrapper=ae()}return ee(e,[{key:"writeToClientLogger",value:function(e,n){if(this.hasClientLogger())switch(e){case oe.DEBUG:return this._clientLogger.debug(n)||n;case oe.INFO:return this._clientLogger.info(n)||n;case oe.WARN:return this._clientLogger.warn(n)||n;case oe.ERROR:return this._clientLogger.error(n)||n;case oe.ADVANCED_LOG:return this._advancedLogWriter?this._clientLogger[this._advancedLogWriter](n)||n:""}}},{key:"isLevelEnabled",value:function(e){return e>=this._level}},{key:"hasClientLogger",value:function(){return null!==this._clientLogger}},{key:"getLogger",value:function(e){var n=e.prefix||te;return this._logsDestination===c?this.consoleLoggerWrapper:new ce(n)}},{key:"updateLoggerConfig",value:function(e){var n=e||{};this._level=n.level||oe.INFO,this._advancedLogWriter="warn",n.advancedLogWriter&&(this._advancedLogWriter=n.advancedLogWriter),n.customizedLogger&&"object"===Z(n.customizedLogger)&&(this.useClientLogger=!0),this._clientLogger=n.logger||this.selectLogger(n),this._logsDestination=r,n.debug&&(this._logsDestination=c),n.logger&&(this._logsDestination=i)}},{key:"selectLogger",value:function(e){return e.customizedLogger&&"object"===Z(e.customizedLogger)?e.customizedLogger:e.useDefaultLogger?(this.consoleLoggerWrapper=ae(),this.consoleLoggerWrapper):null}}]),e}(),ie=function(){function e(){Q(this,e)}return ee(e,[{key:"debug",value:function(){}},{key:"info",value:function(){}},{key:"warn",value:function(){}},{key:"error",value:function(){}},{key:"advancedLog",value:function(){}}]),e}(),ce=function(e){function n(e){var t;return Q(this,n),(t=X(this,$(n).call(this))).prefix=e||te,t}return function(e,n){if("function"!=typeof n&&null!==n)throw new TypeError("Super expression must either be null or a function");e.prototype=Object.create(n&&n.prototype,{constructor:{value:e,writable:!0,configurable:!0}}),n&&K(e,n)}(n,ie),ee(n,[{key:"debug",value:function(){for(var e=arguments.length,n=new Array(e),t=0;t<e;t++)n[t]=arguments[t];return this._log(oe.DEBUG,n)}},{key:"info",value:function(){for(var e=arguments.length,n=new Array(e),t=0;t<e;t++)n[t]=arguments[t];return this._log(oe.INFO,n)}},{key:"warn",value:function(){for(var e=arguments.length,n=new Array(e),t=0;t<e;t++)n[t]=arguments[t];return this._log(oe.WARN,n)}},{key:"error",value:function(){for(var e=arguments.length,n=new Array(e),t=0;t<e;t++)n[t]=arguments[t];return this._log(oe.ERROR,n)}},{key:"advancedLog",value:function(){for(var e=arguments.length,n=new Array(e),t=0;t<e;t++)n[t]=arguments[t];return this._log(oe.ADVANCED_LOG,n)}},{key:"_shouldLog",value:function(e){return se.hasClientLogger()&&se.isLevelEnabled(e)}},{key:"_writeToClientLogger",value:function(e,n){return se.writeToClientLogger(e,n)}},{key:"_log",value:function(e,n){if(this._shouldLog(e)){var t=se.useClientLogger?n:this._convertToSingleStatement(n,e);return this._writeToClientLogger(e,t)}}},{key:"_convertToSingleStatement",value:function(e,n){var t=new Date(Date.now()).toISOString(),o=this._getLogLevelByValue(n),r="[".concat(t,"][").concat(o,"]");this.prefix&&(r+=this.prefix+" "),this.options&&(this.options.prefix?r+=" "+this.options.prefix+":":r+="",this.options.logMetaData?r+=" Meta data: "+JSON.stringify(this.options.logMetaData):r+="");for(var i=0;i<e.length;i++){var c=e[i];r+=this._convertToString(c)+" "}return r}},{key:"_getLogLevelByValue",value:function(e){switch(e){case 10:return"DEBUG";case 20:return"INFO";case 30:return"WARN";case 40:return"ERROR";case 50:return"ADVANCED_LOG"}}},{key:"_convertToString",value:function(e){try{if(!e)return"";if(V.isString(e))return e;if(V.isObject(e)&&V.isFunction(e.toString)){var n=e.toString();if("[object Object]"!==n)return n}return JSON.stringify(e)}catch(n){return console.error("Error while converting argument to string",e,n),""}}}]),n}(),ae=function(){var e=new ie;return e.debug=function(){for(var e=arguments.length,n=new Array(e),t=0;t<e;t++)n[t]=arguments[t];return console.debug.apply(window.console,[].concat(n))},e.info=function(){for(var e=arguments.length,n=new Array(e),t=0;t<e;t++)n[t]=arguments[t];return console.info.apply(window.console,[].concat(n))},e.warn=function(){for(var e=arguments.length,n=new Array(e),t=0;t<e;t++)n[t]=arguments[t];return console.warn.apply(window.console,[].concat(n))},e.error=function(){for(var e=arguments.length,n=new Array(e),t=0;t<e;t++)n[t]=arguments[t];return console.error.apply(window.console,[].concat(n))},e},se=new re;function ue(e,n){for(var t=0;t<n.length;t++){var o=n[t];o.enumerable=o.enumerable||!1,o.configurable=!0,"value"in o&&(o.writable=!0),Object.defineProperty(e,o.key,o)}}var le=function(){function e(n){var t=arguments.length>1&&void 0!==arguments[1]?arguments[1]:a;!function(e,n){if(!(e instanceof n))throw new TypeError("Cannot call a class as a function")}(this,e),this.numAttempts=0,this.executor=n,this.hasActiveReconnection=!1,this.defaultRetry=t}var n,t,o;return n=e,(t=[{key:"retry",value:function(){var e=this;this.hasActiveReconnection||(this.hasActiveReconnection=!0,setTimeout(function(){e._execute()},this._getDelay()))}},{key:"_execute",value:function(){this.hasActiveReconnection=!1,this.executor(),this.numAttempts++}},{key:"connected",value:function(){this.numAttempts=0}},{key:"_getDelay",value:function(){var e=Math.pow(2,this.numAttempts)*this.defaultRetry;return e<=3e4?e:3e4}},{key:"getIsConnected",value:function(){return!this.numAttempts}}])&&ue(n.prototype,t),o&&ue(n,o),e}();t.d(n,"a",function(){return de});var fe=function(){var e=se.getLogger({prefix:s}),n=V.isNetworkOnline(),t={primary:null,secondary:null},o={reconnectWebSocket:!0,websocketInitFailed:!1,exponentialBackOffTime:1e3,exponentialTimeoutHandle:null,lifeTimeTimeoutHandle:null,webSocketInitCheckerTimeoutId:null,connState:null},r={connectWebSocketRetryCount:0,connectionAttemptStartTime:null,noOpenConnectionsTimestamp:null},i={pendingResponse:!1,intervalHandle:null},c={initFailure:new Set,getWebSocketTransport:null,subscriptionUpdate:new Set,subscriptionFailure:new Set,topic:new Map,allMessage:new Set,connectionGain:new Set,connectionLost:new Set,connectionOpen:new Set,connectionClose:new Set},a={connConfig:null,promiseHandle:null,promiseCompleted:!0},q={subscribed:new Set,pending:new Set,subscriptionHistory:new Set},J={responseCheckIntervalId:null,requestCompleted:!0,reSubscribeIntervalId:null,consecutiveFailedSubscribeAttempts:0,consecutiveNoResponseRequest:0},B=new le(function(){he()}),X=new Set([G,z,P]),$=setInterval(function(){if(n!==V.isNetworkOnline()){if(!(n=V.isNetworkOnline()))return e.advancedLog(u),void Ce(e.info(u));var t=te();n&&(!t||Y(t,WebSocket.CLOSING)||Y(t,WebSocket.CLOSED))&&(e.advancedLog(l),Ce(e.info(l)),he())}},250),K=function(n,t){n.forEach(function(n){try{n(t)}catch(n){Ce(e.error("Error executing callback",n))}})},Z=function(e){if(null===e)return"NULL";switch(e.readyState){case WebSocket.CONNECTING:return"CONNECTING";case WebSocket.OPEN:return"OPEN";case WebSocket.CLOSING:return"CLOSING";case WebSocket.CLOSED:return"CLOSED";default:return"UNDEFINED"}},Q=function(){var n=arguments.length>0&&void 0!==arguments[0]?arguments[0]:"";Ce(e.debug("["+n+"] Primary WebSocket: "+Z(t.primary)+" | Secondary WebSocket: "+Z(t.secondary)))},Y=function(e,n){return e&&e.readyState===n},ee=function(e){return Y(e,WebSocket.OPEN)},ne=function(e){return null===e||void 0===e.readyState||Y(e,WebSocket.CLOSED)},te=function(){return null!==t.secondary?t.secondary:t.primary},oe=function(){return ee(te())},re=function(){if(i.pendingResponse)return e.advancedLog(d),Ce(e.warn(d)),clearInterval(i.intervalHandle),i.pendingResponse=!1,void he();oe()?(Ce(e.debug(g)),te().send(ve(P)),i.pendingResponse=!0):(e.advancedLog(b),Ce(e.warn(b)),Q("sendHeartBeat"),he())},ie=function(){e.advancedLog(R),o.exponentialBackOffTime=1e3,i.pendingResponse=!1,o.reconnectWebSocket=!0,clearTimeout(o.lifeTimeTimeoutHandle),clearInterval(i.intervalHandle),clearTimeout(o.exponentialTimeoutHandle),clearTimeout(o.webSocketInitCheckerTimeoutId)},ce=function(){J.consecutiveFailedSubscribeAttempts=0,J.consecutiveNoResponseRequest=0,clearInterval(J.responseCheckIntervalId),clearInterval(J.reSubscribeIntervalId)},ae=function(){r.connectWebSocketRetryCount=0,r.connectionAttemptStartTime=null,r.noOpenConnectionsTimestamp=null},ue=function(){B.connected();try{e.advancedLog(y),Ce(e.info(y)),Q("webSocketOnOpen"),null!==o.connState&&o.connState!==U||K(c.connectionGain),o.connState=H;var n=Date.now();K(c.connectionOpen,{connectWebSocketRetryCount:r.connectWebSocketRetryCount,connectionAttemptStartTime:r.connectionAttemptStartTime,noOpenConnectionsTimestamp:r.noOpenConnectionsTimestamp,connectionEstablishedTime:n,timeToConnect:n-r.connectionAttemptStartTime,timeWithoutConnection:r.noOpenConnectionsTimestamp?n-r.noOpenConnectionsTimestamp:null}),ae(),ie(),te().openTimestamp=Date.now(),0===q.subscribed.size&&ee(t.secondary)&&ge(t.primary,"[Primary WebSocket] Closing WebSocket"),(q.subscribed.size>0||q.pending.size>0)&&(ee(t.secondary)&&Ce(e.info("Subscribing secondary websocket to topics of primary websocket")),q.subscribed.forEach(function(e){q.subscriptionHistory.add(e),q.pending.add(e)}),q.subscribed.clear(),pe()),re(),i.intervalHandle=setInterval(re,1e4);var s=1e3*a.connConfig.webSocketTransport.transportLifeTimeInSeconds;Ce(e.debug("Scheduling WebSocket manager reconnection, after delay "+s+" ms")),o.lifeTimeTimeoutHandle=setTimeout(function(){Ce(e.debug("Starting scheduled WebSocket manager reconnection")),he()},s)}catch(n){Ce(e.error("Error after establishing WebSocket connection",n))}},fe=function(n){Q("webSocketOnError"),e.advancedLog(v,JSON.stringify(n)),Ce(e.error(v,JSON.stringify(n))),B.getIsConnected()?he():B.retry()},de=function(n){var o=JSON.parse(n.data);switch(o.topic){case G:if(Ce(e.debug("Subscription Message received from webSocket server",n.data)),J.requestCompleted=!0,J.consecutiveNoResponseRequest=0,"success"===o.content.status)J.consecutiveFailedSubscribeAttempts=0,o.content.topics.forEach(function(e){q.subscriptionHistory.delete(e),q.pending.delete(e),q.subscribed.add(e)}),0===q.subscriptionHistory.size?ee(t.secondary)&&(Ce(e.info("Successfully subscribed secondary websocket to all topics of primary websocket")),ge(t.primary,"[Primary WebSocket] Closing WebSocket")):pe(),K(c.subscriptionUpdate,o);else{if(clearInterval(J.reSubscribeIntervalId),++J.consecutiveFailedSubscribeAttempts,5===J.consecutiveFailedSubscribeAttempts)return K(c.subscriptionFailure,o),void(J.consecutiveFailedSubscribeAttempts=0);J.reSubscribeIntervalId=setInterval(function(){pe()},500)}break;case P:Ce(e.debug(p)),i.pendingResponse=!1;break;default:if(o.topic){if(e.advancedLog(D,o.topic),Ce(e.debug(D+o.topic)),ee(t.primary)&&ee(t.secondary)&&0===q.subscriptionHistory.size&&this===t.primary)return void Ce(e.warn("Ignoring Message for Topic "+o.topic+", to avoid duplicates"));if(0===c.allMessage.size&&0===c.topic.size)return void Ce(e.warn("No registered callback listener for Topic",o.topic));e.advancedLog(M,o.topic),K(c.allMessage,o),c.topic.has(o.topic)&&K(c.topic.get(o.topic),o)}else o.message?(e.advancedLog(x,o),Ce(e.warn(x,o))):(e.advancedLog(j,o),Ce(e.warn(j,o)))}},pe=function n(){if(J.consecutiveNoResponseRequest>3)return Ce(e.warn("Ignoring subscribePendingTopics since we have exhausted max subscription retries with no response")),void K(c.subscriptionFailure,V.getSubscriptionResponse(G,!1,Array.from(q.pending)));oe()?0!==Array.from(q.pending).length&&(clearInterval(J.responseCheckIntervalId),te().send(ve(G,{topics:Array.from(q.pending)})),J.requestCompleted=!1,J.responseCheckIntervalId=setInterval(function(){J.requestCompleted||(++J.consecutiveNoResponseRequest,n())},1e3)):Ce(e.warn("Ignoring subscribePendingTopics call since Default WebSocket is not open"))},ge=function(n,t){Y(n,WebSocket.CONNECTING)||Y(n,WebSocket.OPEN)?n.close(1e3,t):Ce(e.warn("Ignoring WebSocket Close request, WebSocket State: "+Z(n)))},be=function(e){ge(t.primary,"[Primary] WebSocket "+e),ge(t.secondary,"[Secondary] WebSocket "+e)},ye=function(){r.connectWebSocketRetryCount++;var n=V.addJitter(o.exponentialBackOffTime,.3);Date.now()+n<=a.connConfig.urlConnValidTime?(e.advancedLog(S),Ce(e.debug(S+n+" ms")),o.exponentialTimeoutHandle=setTimeout(function(){return ke()},n),o.exponentialBackOffTime*=2):(e.advancedLog(h),Ce(e.warn(h)),he())},me=function(n){ie(),ce(),e.advancedLog(k,n),Ce(e.error(k)),o.websocketInitFailed=!0,be(w),clearInterval($),K(c.initFailure,{connectWebSocketRetryCount:r.connectWebSocketRetryCount,connectionAttemptStartTime:r.connectionAttemptStartTime,reason:n}),ae()},ve=function(e,n){return JSON.stringify({topic:e,content:n})},Se=function(n){return!!(V.isObject(n)&&V.isObject(n.webSocketTransport)&&V.isNonEmptyString(n.webSocketTransport.url)&&V.validWSUrl(n.webSocketTransport.url)&&1e3*n.webSocketTransport.transportLifeTimeInSeconds>=3e5)||(Ce(e.error("Invalid WebSocket Connection Configuration",n)),!1)},he=function(){if(!V.isNetworkOnline())return e.advancedLog(f),void Ce(e.info(f));if(o.websocketInitFailed)Ce(e.debug("WebSocket Init had failed, ignoring this getWebSocketConnConfig request"));else{if(a.promiseCompleted)return ie(),e.advancedLog(C),Ce(e.info(C)),r.connectionAttemptStartTime=r.connectionAttemptStartTime||Date.now(),a.promiseCompleted=!1,a.promiseHandle=c.getWebSocketTransport(),a.promiseHandle.then(function(n){return a.promiseCompleted=!0,e.advancedLog(L),Ce(e.debug(L,n)),Se(n)?(a.connConfig=n,a.connConfig.urlConnValidTime=Date.now()+85e3,ke()):(me("Invalid WebSocket connection configuration: "+n),{webSocketConnectionFailed:!0})},function(n){return a.promiseCompleted=!0,e.advancedLog(T),Ce(e.error(T,n)),V.isNetworkFailure(n)?(e.advancedLog(O+JSON.stringify(n)),Ce(e.info(O+JSON.stringify(n))),B.retry()):me("Failed to fetch webSocket connection configuration: "+JSON.stringify(n)),{webSocketConnectionFailed:!0}});Ce(e.debug("There is an ongoing getWebSocketConnConfig request, this request will be ignored"))}},ke=function(){if(o.websocketInitFailed)return Ce(e.info("web-socket initializing had failed, aborting re-init")),{webSocketConnectionFailed:!0};if(!V.isNetworkOnline())return Ce(e.warn("System is offline aborting web-socket init")),{webSocketConnectionFailed:!0};e.advancedLog(W),Ce(e.info(W)),Q("initWebSocket");try{if(Se(a.connConfig)){var n=null;return ee(t.primary)?(Ce(e.debug("Primary Socket connection is already open")),Y(t.secondary,WebSocket.CONNECTING)||(Ce(e.debug("Establishing a secondary web-socket connection")),B.numAttempts=0,t.secondary=we()),n=t.secondary):(Y(t.primary,WebSocket.CONNECTING)||(Ce(e.debug("Establishing a primary web-socket connection")),t.primary=we()),n=t.primary),o.webSocketInitCheckerTimeoutId=setTimeout(function(){ee(n)||ye()},1e3),{webSocketConnectionFailed:!1}}}catch(n){return Ce(e.error("Error Initializing web-socket-manager",n)),me("Failed to initialize new WebSocket: "+n.message),{webSocketConnectionFailed:!0}}},we=function(){var n=new WebSocket(a.connConfig.webSocketTransport.url);return n.addEventListener("open",ue),n.addEventListener("message",de),n.addEventListener("error",fe),n.addEventListener("close",function(i){return function(n,i){e.advancedLog(m,JSON.stringify(n)),Ce(e.info(m,JSON.stringify(n))),Q("webSocketOnClose before-cleanup"),K(c.connectionClose,{openTimestamp:i.openTimestamp,closeTimestamp:Date.now(),connectionDuration:Date.now()-i.openTimestamp,code:n.code,reason:n.reason}),ne(t.primary)&&(t.primary=null),ne(t.secondary)&&(t.secondary=null),o.reconnectWebSocket&&(ee(t.primary)||ee(t.secondary)?ne(t.primary)&&ee(t.secondary)&&(Ce(e.info("[Primary] WebSocket Cleanly Closed")),t.primary=t.secondary,t.secondary=null):(Ce(e.warn("Neither primary websocket and nor secondary websocket have open connections, attempting to re-establish connection")),o.connState===U?Ce(e.info("Ignoring connectionLost callback invocation")):(K(c.connectionLost,{openTimestamp:i.openTimestamp,closeTimestamp:Date.now(),connectionDuration:Date.now()-i.openTimestamp,code:n.code,reason:n.reason}),r.noOpenConnectionsTimestamp=Date.now()),o.connState=U,he()),Q("webSocketOnClose after-cleanup"))}(i,n)}),n},Ce=function(e){return e&&"function"==typeof e.sendInternalLogToServer&&e.sendInternalLogToServer(),e};this.init=function(n){if(V.assertTrue(V.isFunction(n),"transportHandle must be a function"),null===c.getWebSocketTransport)return c.getWebSocketTransport=n,he();Ce(e.warn("Web Socket Manager was already initialized"))},this.onInitFailure=function(n){return e.advancedLog(I),V.assertTrue(V.isFunction(n),"cb must be a function"),c.initFailure.add(n),o.websocketInitFailed&&n(),function(){return c.initFailure.delete(n)}},this.onConnectionOpen=function(n){return e.advancedLog(N),V.assertTrue(V.isFunction(n),"cb must be a function"),c.connectionOpen.add(n),function(){return c.connectionOpen.delete(n)}},this.onConnectionClose=function(n){return e.advancedLog(_),V.assertTrue(V.isFunction(n),"cb must be a function"),c.connectionClose.add(n),function(){return c.connectionClose.delete(n)}},this.onConnectionGain=function(n){return e.advancedLog(E),V.assertTrue(V.isFunction(n),"cb must be a function"),c.connectionGain.add(n),oe()&&n(),function(){return c.connectionGain.delete(n)}},this.onConnectionLost=function(n){return e.advancedLog(F),V.assertTrue(V.isFunction(n),"cb must be a function"),c.connectionLost.add(n),o.connState===U&&n(),function(){return c.connectionLost.delete(n)}},this.onSubscriptionUpdate=function(e){return V.assertTrue(V.isFunction(e),"cb must be a function"),c.subscriptionUpdate.add(e),function(){return c.subscriptionUpdate.delete(e)}},this.onSubscriptionFailure=function(n){return e.advancedLog(A),V.assertTrue(V.isFunction(n),"cb must be a function"),c.subscriptionFailure.add(n),function(){return c.subscriptionFailure.delete(n)}},this.onMessage=function(e,n){return V.assertNotNull(e,"topicName"),V.assertTrue(V.isFunction(n),"cb must be a function"),c.topic.has(e)?c.topic.get(e).add(n):c.topic.set(e,new Set([n])),function(){return c.topic.get(e).delete(n)}},this.onAllMessage=function(e){return V.assertTrue(V.isFunction(e),"cb must be a function"),c.allMessage.add(e),function(){return c.allMessage.delete(e)}},this.subscribeTopics=function(e){V.assertNotNull(e,"topics"),V.assertIsList(e),e.forEach(function(e){q.subscribed.has(e)||q.pending.add(e)}),J.consecutiveNoResponseRequest=0,pe()},this.sendMessage=function(n){if(V.assertIsObject(n,"payload"),void 0===n.topic||X.has(n.topic))Ce(e.warn("Cannot send message, Invalid topic",n));else{try{n=JSON.stringify(n)}catch(t){return void Ce(e.warn("Error stringify message",n))}oe()?te().send(n):Ce(e.warn("Cannot send message, web socket connection is not open"))}},this.closeWebSocket=function(){ie(),ce(),o.reconnectWebSocket=!1,clearInterval($),be("User request to close WebSocket")},this.terminateWebSocketManager=me},de={create:function(){return new fe},setGlobalConfig:function(e){var n=e&&e.loggerConfig;se.updateLoggerConfig(n)},LogLevel:oe,Logger:ne}},function(e,n,t){var o;!function(){"use strict";var r={not_string:/[^s]/,not_bool:/[^t]/,not_type:/[^T]/,not_primitive:/[^v]/,number:/[diefg]/,numeric_arg:/[bcdiefguxX]/,json:/[j]/,not_json:/[^j]/,text:/^[^\x25]+/,modulo:/^\x25{2}/,placeholder:/^\x25(?:([1-9]\d*)\$|\(([^)]+)\))?(\+)?(0|'[^$])?(-)?(\d+)?(?:\.(\d+))?([b-gijostTuvxX])/,key:/^([a-z_][a-z_\d]*)/i,key_access:/^\.([a-z_][a-z_\d]*)/i,index_access:/^\[(\d+)\]/,sign:/^[+-]/};function i(e){return function(e,n){var t,o,c,a,s,u,l,f,d,p=1,g=e.length,b="";for(o=0;o<g;o++)if("string"==typeof e[o])b+=e[o];else if("object"==typeof e[o]){if((a=e[o]).keys)for(t=n[p],c=0;c<a.keys.length;c++){if(null==t)throw new Error(i('[sprintf] Cannot access property "%s" of undefined value "%s"',a.keys[c],a.keys[c-1]));t=t[a.keys[c]]}else t=a.param_no?n[a.param_no]:n[p++];if(r.not_type.test(a.type)&&r.not_primitive.test(a.type)&&t instanceof Function&&(t=t()),r.numeric_arg.test(a.type)&&"number"!=typeof t&&isNaN(t))throw new TypeError(i("[sprintf] expecting number but found %T",t));switch(r.number.test(a.type)&&(f=t>=0),a.type){case"b":t=parseInt(t,10).toString(2);break;case"c":t=String.fromCharCode(parseInt(t,10));break;case"d":case"i":t=parseInt(t,10);break;case"j":t=JSON.stringify(t,null,a.width?parseInt(a.width):0);break;case"e":t=a.precision?parseFloat(t).toExponential(a.precision):parseFloat(t).toExponential();break;case"f":t=a.precision?parseFloat(t).toFixed(a.precision):parseFloat(t);break;case"g":t=a.precision?String(Number(t.toPrecision(a.precision))):parseFloat(t);break;case"o":t=(parseInt(t,10)>>>0).toString(8);break;case"s":t=String(t),t=a.precision?t.substring(0,a.precision):t;break;case"t":t=String(!!t),t=a.precision?t.substring(0,a.precision):t;break;case"T":t=Object.prototype.toString.call(t).slice(8,-1).toLowerCase(),t=a.precision?t.substring(0,a.precision):t;break;case"u":t=parseInt(t,10)>>>0;break;case"v":t=t.valueOf(),t=a.precision?t.substring(0,a.precision):t;break;case"x":t=(parseInt(t,10)>>>0).toString(16);break;case"X":t=(parseInt(t,10)>>>0).toString(16).toUpperCase()}r.json.test(a.type)?b+=t:(!r.number.test(a.type)||f&&!a.sign?d="":(d=f?"+":"-",t=t.toString().replace(r.sign,"")),u=a.pad_char?"0"===a.pad_char?"0":a.pad_char.charAt(1):" ",l=a.width-(d+t).length,s=a.width&&l>0?u.repeat(l):"",b+=a.align?d+t+s:"0"===u?d+s+t:s+d+t)}return b}(function(e){if(a[e])return a[e];var n,t=e,o=[],i=0;for(;t;){if(null!==(n=r.text.exec(t)))o.push(n[0]);else if(null!==(n=r.modulo.exec(t)))o.push("%");else{if(null===(n=r.placeholder.exec(t)))throw new SyntaxError("[sprintf] unexpected placeholder");if(n[2]){i|=1;var c=[],s=n[2],u=[];if(null===(u=r.key.exec(s)))throw new SyntaxError("[sprintf] failed to parse named argument key");for(c.push(u[1]);""!==(s=s.substring(u[0].length));)if(null!==(u=r.key_access.exec(s)))c.push(u[1]);else{if(null===(u=r.index_access.exec(s)))throw new SyntaxError("[sprintf] failed to parse named argument key");c.push(u[1])}n[2]=c}else i|=2;if(3===i)throw new Error("[sprintf] mixing positional and named placeholders is not (yet) supported");o.push({placeholder:n[0],param_no:n[1],keys:n[2],sign:n[3],pad_char:n[4],align:n[5],width:n[6],precision:n[7],type:n[8]})}t=t.substring(n[0].length)}return a[e]=o}(e),arguments)}function c(e,n){return i.apply(null,[e].concat(n||[]))}var a=Object.create(null);n.sprintf=i,n.vsprintf=c,"undefined"!=typeof window&&(window.sprintf=i,window.vsprintf=c,void 0===(o=function(){return{sprintf:i,vsprintf:c}}.call(n,t,n,e))||(e.exports=o))}()},function(e,n,t){"use strict";t.r(n),function(e){t.d(n,"WebSocketManager",function(){return r});var o=t(0);e.connect=e.connect||{},connect.WebSocketManager=o.a;var r=o.a}.call(this,t(3))},function(e,n){var t;t=function(){return this}();try{t=t||new Function("return this")()}catch(e){"object"==typeof window&&(t=window)}e.exports=t}]);
+//# sourceMappingURL=amazon-connect-websocket-manager.js.map
+
+
+/***/ }),
+
+/***/ 151:
+/***/ (() => {
+
+/*
+ * Copyright 2014-2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+(function () {
+  var global = this || globalThis;
+  var connect = global.connect || {};
+  global.connect = connect;
+  global.lily = connect;
+
+  // How frequently softphone logs should be collected and reported to shared worker.
+  var SOFTPHONE_LOG_REPORT_INTERVAL_MILLIS = 5000;
+
+  // How frequently logs should be collected and sent downstream
+  var LOGS_REPORT_INTERVAL_MILLIS = 5000;
+
+  // The default log roll interval (30min)
+  var DEFAULT_LOG_ROLL_INTERVAL = 1800000;
+
+  /**
+   * An enumeration of common logging levels.
+   */
+  var LogLevel = {
+    TEST: "TEST",
+    TRACE: "TRACE",
+    DEBUG: "DEBUG",
+    INFO: "INFO",
+    LOG: "LOG",
+    WARN: "WARN",
+    ERROR: "ERROR",
+    CRITICAL: "CRITICAL"
+  };
+
+  /**
+   * An enumeration of common logging components.
+   */
+  var LogComponent = {
+    CCP: "ccp",
+    SOFTPHONE: "softphone",
+    CHAT: "chat",
+    TASK: "task"
+  };
+
+  /**
+   * The numeric order of the logging levels above.
+   * They are spaced to allow the addition of other log
+   * levels at a later time.
+   */
+  var LogLevelOrder = {
+    TEST: 0,
+    TRACE: 10,
+    DEBUG: 20,
+    INFO: 30,
+    LOG: 40,
+    WARN: 50,
+    ERROR: 100,
+    CRITICAL: 200
+
+  };
+
+  /**
+   * A map from log level to console logger function.
+   */
+  var CONSOLE_LOGGER_MAP = {
+    TRACE: function (text) { console.info(text); },
+    DEBUG: function (text) { console.info(text); },
+    INFO: function (text) { console.info(text); },
+    LOG: function (text) { console.log(text); },
+    TEST: function (text) { console.log(text); },
+    WARN: function (text) { console.warn(text); },
+    ERROR: function (text) { console.error(text); },
+    CRITICAL: function (text) { console.error(text); }
+  };
+
+  /**
+  * Checks if it is a valid log component enum
+  */
+
+  var isValidLogComponent = function (component) {
+    return Object.values(LogComponent).indexOf(component) !== -1;
+  };
+
+  /**
+  * Extract the custom arguments as required by the logger
+  */
+  var extractLoggerArgs = function (loggerArgs) {
+    var args = Array.prototype.slice.call(loggerArgs, 0);
+    var firstArg = args.shift();
+    var format;
+    var component;
+
+    if (isValidLogComponent(firstArg)) {
+      component = firstArg;
+      format = args.shift();
+    } else {
+      //default to CCP component
+      format = firstArg;
+      component = LogComponent.CCP;
+    }
+
+    return {
+      format: format,
+      component: component,
+      args: args
+    };
+  };
+
+  /**
+   * A log entry.
+   *
+   * @param component The logging component.
+   * @param level The log level of this log entry.
+   * @param text The text contained in the log entry.
+   * @param loggerId The root logger id.
+   *
+   * Log entries are aware of their timestamp, order,
+   * and can contain objects and exception stack traces.
+   */
+  var LogEntry = function (component, level, text, loggerId) {
+    this.component = component;
+    this.level = level;
+    this.text = text;
+    this.time = new Date();
+    this.exception = null;
+    this.objects = [];
+    this.line = 0;
+    this.agentResourceId = null;
+    try {
+      if (connect.agent.initialized){
+        this.agentResourceId = new connect.Agent()._getResourceId();
+      }
+    } catch(e) {
+      console.log("Issue finding agentResourceId: ", e); //can't use our logger here as we might infinitely attempt to log this error.
+    }
+    this.loggerId = loggerId;
+  };
+
+  LogEntry.fromObject = function (obj) {
+    var entry = new LogEntry(LogComponent.CCP, obj.level, obj.text, obj.loggerId);
+
+    // Required to check for Date objects sent across frame boundaries
+    if (Object.prototype.toString.call(obj.time) === '[object Date]') {
+      entry.time = new Date(obj.time.getTime());
+    } else if (typeof obj.time === 'number') {
+      entry.time = new Date(obj.time);
+    } else if (typeof obj.time === 'string') {
+      entry.time = Date.parse(obj.time);
+    } else {
+      entry.time = new Date();
+    }
+    entry.exception = obj.exception;
+    entry.objects = obj.objects;
+    return entry;
+  };
+
+  /**
+   * Private method to remove sensitive info from client log
+   */
+  var redactSensitiveInfo = function(data) {
+    var authTokenRegex = /AuthToken.*\=/g;
+    if(data && typeof data === 'object') {
+      Object.keys(data).forEach(function(key) {
+        if (typeof data[key] === 'object') {
+          redactSensitiveInfo(data[key])
+        } else if(typeof data[key] === 'string') {
+          if (key === "url" || key === "text") {
+            data[key] = data[key].replace(authTokenRegex, "[redacted]");
+          } else if (["quickConnectName"].includes(key)) {
+            data[key] = "[redacted]";
+          } else if (["customerId", "CustomerId", "SpeakerId", "CustomerSpeakerId"].includes(key)) {
+            data[key] = md5(data[key]);
+          }
+        }
+      });
+    }
+  }
+
+  /**
+   * Pulls the type, message, and stack trace
+   * out of the given exception for JSON serialization.
+   */
+  var LoggedException = function (e) {
+    this.type = (e instanceof Error) ? e.name : e.code || Object.prototype.toString.call(e);
+    this.message = e.message;
+    this.stack = [];
+    if (e.stack){
+      try {
+          if (Array.isArray(e.stack)) {
+              this.stack = e.stack;
+          } else if (typeof e.stack === 'object') {
+              this.stack = [JSON.stringify(e.stack)];
+          } else if (typeof e.stack === 'string') {
+              this.stack = e.stack.split('\n');
+          }
+      } catch {}
+    }
+  };
+
+  /**
+   * Minimally stringify this log entry for printing
+   * to the console.
+   */
+  LogEntry.prototype.toString = function () {
+    return connect.sprintf("[%s] [%s] [%s]: %s",
+      this.getTime() && this.getTime().toISOString ? this.getTime().toISOString() : "???",
+      this.getLevel(),
+      this.getAgentResourceId(),
+      this.getText());
+  };
+
+  /**
+   * Get the log entry timestamp.
+   */
+  LogEntry.prototype.getTime = function () {
+    return this.time;
+  };
+
+  LogEntry.prototype.getAgentResourceId = function () {
+    return this.agentResourceId;
+  }
+
+  /**
+   * Get the level of the log entry.
+   */
+  LogEntry.prototype.getLevel = function () {
+    return this.level;
+  };
+
+  /**
+   * Get the log entry text.
+   */
+  LogEntry.prototype.getText = function () {
+    return this.text;
+  };
+
+  /**
+   * Get the log entry component.
+   */
+  LogEntry.prototype.getComponent = function () {
+    return this.component;
+  };
+
+  /**
+   * Add an exception stack trace to this log entry.
+   * A log entry may contain only one exception stack trace.
+   */
+  LogEntry.prototype.withException = function (e) {
+    this.exception = new LoggedException(e);
+    return this;
+  };
+
+  /**
+   * Add an arbitrary object to the log entry.  A log entry
+   * may contain any number of objects.
+   */
+  LogEntry.prototype.withObject = function (obj) {
+    var copiedObj = connect.deepcopy(obj);
+    redactSensitiveInfo(copiedObj);
+    this.objects.push(copiedObj);
+    return this;
+  };
+
+  /**
+   * Add a cross origin event object to the log entry.  A log entry
+   * may contain any number of objects.
+   */
+   LogEntry.prototype.withCrossOriginEventObject = function (obj) {
+    var copiedObj = connect.deepcopyCrossOriginEvent(obj);
+    redactSensitiveInfo(copiedObj);
+    this.objects.push(copiedObj);
+    return this;
+  };
+
+  /**
+   * Indicate that this log entry should be sent to the server
+   * NOTE: This should be used for internal logs only
+   */
+  LogEntry.prototype.sendInternalLogToServer = function () {
+    connect.getLog()._serverBoundInternalLogs.push(this);
+    return this;
+  };
+
+  /**
+   * The logger instance.
+   */
+  var Logger = function () {
+    this._logs = [];
+    this._rolledLogs = [];
+    this._logsToPush = [];
+    this._serverBoundInternalLogs = [];
+    this._echoLevel = LogLevelOrder.INFO;
+    this._logLevel = LogLevelOrder.INFO;
+    this._lineCount = 0;
+    this._logRollInterval = 0;
+    this._logRollTimer = null;
+    this._loggerId = new Date().getTime() + "-" + Math.random().toString(36).slice(2);
+    this.setLogRollInterval(DEFAULT_LOG_ROLL_INTERVAL);
+    this._startLogIndexToPush = 0;
+  };
+
+  /**
+   * Sets the interval in milliseconds that the logs will be rotated.
+   * Logs are rotated out completely at the end of the second roll
+   * and will eventually be garbage collected.
+   */
+  Logger.prototype.setLogRollInterval = function (interval) {
+    var self = this;
+
+    if (!(this._logRollTimer) || interval !== this._logRollInterval) {
+      if (this._logRollTimer) {
+        global.clearInterval(this._logRollTimer);
+      }
+      this._logRollInterval = interval;
+      this._logRollTimer = global.setInterval(function () {
+        self._rolledLogs = self._logs;
+        self._logs = [];
+        self._startLogIndexToPush = 0;
+        self.info("Log roll interval occurred.");
+      }, this._logRollInterval);
+    } else {
+      this.warn("Logger is already set to the given interval: %d", this._logRollInterval);
+    }
+  };
+
+  /**
+   * Set the log level.  This is the minimum level at which logs will
+   * be kept for later archiving.
+   */
+  Logger.prototype.setLogLevel = function (level) {
+    if (level in LogLevelOrder) {
+      this._logLevel = LogLevelOrder[level];
+    } else {
+      throw new Error("Unknown logging level: " + level);
+    }
+  };
+
+  /**
+   * Set the echo level.  This is the minimum level at which logs will
+   * be printed to the javascript console.
+   */
+  Logger.prototype.setEchoLevel = function (level) {
+    if (level in LogLevelOrder) {
+      this._echoLevel = LogLevelOrder[level];
+    } else {
+      throw new Error("Unknown logging level: " + level);
+    }
+  };
+
+  /**
+   * Write a particular log entry.
+   *
+   * @param level The logging level of the entry.
+   * @param text The text contents of the entry.
+   *
+   * @returns The new log entry.
+   */
+  Logger.prototype.write = function (component, level, text) {
+    var logEntry = new LogEntry(component, level, text, this.getLoggerId());
+    redactSensitiveInfo(logEntry);
+    this.addLogEntry(logEntry);
+    return logEntry;
+  };
+
+  Logger.prototype.addLogEntry = function (logEntry) {
+    // Call this second time as in some places this function is called directly
+    redactSensitiveInfo(logEntry);
+    this._logs.push(logEntry);
+
+    //For now only send softphone logs only.
+    //TODO add CCP logs once we are sure that no sensitive data is being logged.
+    if (LogComponent.SOFTPHONE === logEntry.component) {
+      this._logsToPush.push(logEntry);
+    }
+
+    if (logEntry.level in LogLevelOrder &&
+      LogLevelOrder[logEntry.level] >= this._logLevel) {
+
+      if (LogLevelOrder[logEntry.level] >= this._echoLevel) {
+        CONSOLE_LOGGER_MAP[logEntry.getLevel()](logEntry.toString());
+      }
+
+      logEntry.line = this._lineCount++;
+    }
+  };
+
+  Logger.prototype.sendInternalLogEntryToServer = function (logEntry) {
+    this._serverBoundInternalLogs.push(logEntry);
+
+    if (logEntry.level in LogLevelOrder &&
+      LogLevelOrder[logEntry.level] >= this._logLevel) {
+
+      if (LogLevelOrder[logEntry.level] >= this._echoLevel) {
+        CONSOLE_LOGGER_MAP[logEntry.getLevel()](logEntry.toString());
+      }
+
+      logEntry.line = this._lineCount++;
+    }
+  };
+
+  /**
+   * Remove all objects from all log entries.
+   */
+  Logger.prototype.clearObjects = function () {
+    for (var x = 0; x < this._logs.length; x++) {
+      if (this._logs[x].objects) {
+        delete this._logs[x].objects;
+      }
+    }
+  };
+
+  /**
+   * Remove all exception stack traces from the log entries.
+   */
+  Logger.prototype.clearExceptions = function () {
+    for (var x = 0; x < this._logs.length; x++) {
+      if (this._logs[x].exception) {
+        delete this._logs[x].exception;
+      }
+    }
+  };
+
+  Logger.prototype.trace = function () {
+    var logArgs = extractLoggerArgs(arguments);
+    return this.write(logArgs.component, LogLevel.TRACE, connect.vsprintf(logArgs.format, logArgs.args));
+  };
+
+  Logger.prototype.debug = function () {
+    var logArgs = extractLoggerArgs(arguments);
+    return this.write(logArgs.component, LogLevel.DEBUG, connect.vsprintf(logArgs.format, logArgs.args));
+  };
+
+  Logger.prototype.info = function () {
+    var logArgs = extractLoggerArgs(arguments);
+    return this.write(logArgs.component, LogLevel.INFO, connect.vsprintf(logArgs.format, logArgs.args));
+  };
+
+  Logger.prototype.log = function () {
+    var logArgs = extractLoggerArgs(arguments);
+    return this.write(logArgs.component, LogLevel.LOG, connect.vsprintf(logArgs.format, logArgs.args));
+  };
+
+  Logger.prototype.test = function () {
+    var logArgs = extractLoggerArgs(arguments);
+    return this.write(logArgs.component, LogLevel.TEST, connect.vsprintf(logArgs.format, logArgs.args));
+  };
+
+  Logger.prototype.warn = function () {
+    var logArgs = extractLoggerArgs(arguments);
+    return this.write(logArgs.component, LogLevel.WARN, connect.vsprintf(logArgs.format, logArgs.args));
+  };
+
+  Logger.prototype.error = function () {
+    var logArgs = extractLoggerArgs(arguments);
+    return this.write(logArgs.component, LogLevel.ERROR, connect.vsprintf(logArgs.format, logArgs.args));
+  };
+
+  Logger.prototype.critical = function () {
+    var logArgs = extractLoggerArgs(arguments);
+    return this.write(logArgs.component, LogLevel.ERROR, connect.vsprintf(logArgs.format, logArgs.args));
+  };
+
+  /**
+   * Create a string representation of the logger contents.
+   */
+  Logger.prototype.toString = function () {
+    var lines = [];
+    for (var x = 0; x < this._logs.length; x++) {
+      lines.push(this._logs[x].toString());
+    }
+
+    return lines.join("\n");
+  };
+  
+  /**
+   * Download/Archive logs to a file, 
+   * By default, it returns all logs.
+   * To filter logs by the minimum log level set by setLogLevel or the default set in _logLevel, 
+   * pass in filterByLogLevel to true in options
+   * 
+   * @param options download options [Object|String]. 
+   * - of type Object: 
+   *   { logName: 'my-log-name',
+   *     filterByLogLevel: false, //download all logs
+   *   }
+   * - of type String (for backward compatibility), the file's name
+   */
+  Logger.prototype.download = function(options) {
+    var logName = 'agent-log';
+    var filterByLogLevel = false;
+
+    if (typeof options === 'object') {
+      logName = options.logName || logName;
+      filterByLogLevel = options.filterByLogLevel || filterByLogLevel;
+    }
+    else if (typeof options === 'string') {
+      logName = options || logName;
+    }
+
+    var self = this;
+    var logs = this._rolledLogs.concat(this._logs);
+    if (filterByLogLevel) {
+      logs = logs.filter(function(entry) {
+        return LogLevelOrder[entry.level] >= self._logLevel;
+      });
+    }
+
+    var logBlob = new global.Blob([JSON.stringify(logs, undefined, 4)], ['text/plain']);
+    var downloadLink = document.createElement('a');
+    var logName = logName || 'agent-log';
+    downloadLink.href = global.URL.createObjectURL(logBlob);
+    downloadLink.download = logName + '.txt';
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    document.body.removeChild(downloadLink);
+  };
+
+  Logger.prototype.scheduleUpstreamLogPush = function (conduit) {
+    if (!connect.upstreamLogPushScheduled) {
+      connect.upstreamLogPushScheduled = true;
+      /** Schedule pushing logs frequently to sharedworker upstream, sharedworker will report to the CTI backend*/
+      global.setInterval(connect.hitch(this, this.reportMasterLogsUpStream, conduit), SOFTPHONE_LOG_REPORT_INTERVAL_MILLIS);
+    }
+  };
+
+  Logger.prototype.reportMasterLogsUpStream = function (conduit) {
+    var logsToPush = this._logsToPush.slice();
+    this._logsToPush = [];
+    connect.ifMaster(connect.MasterTopics.SEND_LOGS, function () {
+      if (logsToPush.length > 0) {
+        conduit.sendUpstream(connect.EventType.SEND_LOGS, logsToPush);
+      }
+    });
+  };
+
+  Logger.prototype.scheduleUpstreamOuterContextCCPserverBoundLogsPush = function(conduit) {
+    global.setInterval(connect.hitch(this, this.pushOuterContextCCPserverBoundLogsUpstream, conduit), 1000);
+  }
+
+  Logger.prototype.scheduleUpstreamOuterContextCCPLogsPush = function(conduit) {
+    global.setInterval(connect.hitch(this, this.pushOuterContextCCPLogsUpstream, conduit), 1000);
+  }
+
+  Logger.prototype.pushOuterContextCCPserverBoundLogsUpstream = function(conduit) {
+    if (this._serverBoundInternalLogs.length > 0) {
+      for (var i = 0; i < this._serverBoundInternalLogs.length; i++) {
+        this._serverBoundInternalLogs[i].text = this._serverBoundInternalLogs[i].text;
+      }
+
+      conduit.sendUpstream(connect.EventType.SERVER_BOUND_INTERNAL_LOG, this._serverBoundInternalLogs);
+      this._serverBoundInternalLogs = [];
+    }
+  }
+
+  Logger.prototype.pushOuterContextCCPLogsUpstream = function(conduit) {
+    for (var i = this._startLogIndexToPush; i < this._logs.length; i++) {
+      if (this._logs[i].loggerId !== this._loggerId) {
+        continue;
+      }
+      conduit.sendUpstream(connect.EventType.LOG, this._logs[i]);
+    }
+    this._startLogIndexToPush = this._logs.length;
+  }
+
+  Logger.prototype.getLoggerId = function () {
+    return this._loggerId;
+  };
+
+  Logger.prototype.scheduleDownstreamClientSideLogsPush = function () {
+    global.setInterval(connect.hitch(this, this.pushClientSideLogsDownstream), LOGS_REPORT_INTERVAL_MILLIS);
+  }
+
+  Logger.prototype.pushClientSideLogsDownstream = function () {
+    var logs = [];
+
+    // We do not send a request if we have less than 50 records so that we minimize the number of
+    // requests per second. 
+    // 500 is the max we accept on the server. 
+    // We chose 500 because this is the limit imposed by Firehose for a put batch request
+    if (this._serverBoundInternalLogs.length < 50) {
+      return;
+    } else if (this._serverBoundInternalLogs.length > 500) {
+      logs = this._serverBoundInternalLogs.splice(0, 500);
+    } else {
+      logs = this._serverBoundInternalLogs;
+      this._serverBoundInternalLogs = [];
+    }
+
+    connect.publishClientSideLogs(logs);
+  }
+
+  var DownstreamConduitLogger = function (conduit) {
+    Logger.call(this);
+    this.conduit = conduit;
+    
+    global.setInterval(connect.hitch(this, this._pushLogsDownstream),
+      DownstreamConduitLogger.LOG_PUSH_INTERVAL);
+
+    // Disable log rolling, we will purge our own logs once they have
+    // been pushed downstream.
+    global.clearInterval(this._logRollTimer);
+    this._logRollTimer = null;
+  };
+  // How frequently logs should be collected and delivered downstream.
+  DownstreamConduitLogger.LOG_PUSH_INTERVAL = 1000;
+  DownstreamConduitLogger.prototype = Object.create(Logger.prototype);
+  DownstreamConduitLogger.prototype.constructor = DownstreamConduitLogger;
+
+  DownstreamConduitLogger.prototype.pushLogsDownstream = function (logs) {
+    var self = this;
+    logs.forEach(function (log) {
+      self.conduit.sendDownstream(connect.EventType.LOG, log);
+    });
+  };
+
+  DownstreamConduitLogger.prototype._pushLogsDownstream = function () {
+    var self = this;
+    
+    this._logs.forEach(function (log) {
+      self.conduit.sendDownstream(connect.EventType.LOG, log);
+    });
+    this._logs = [];
+
+    for (var i = 0; i < this._serverBoundInternalLogs.length; i++) {
+      this.conduit.sendDownstream(connect.EventType.SERVER_BOUND_INTERNAL_LOG, this._serverBoundInternalLogs[i]);
+    }
+
+    this._serverBoundInternalLogs = [];
+  };
+
+  /**
+   * Wrap a function with try catch block
+   */
+  var tryCatchWrapperMethod = function (fn) {
+    var wrappedfunction = function() {
+      try {
+        return fn.apply(this, arguments);
+      } catch (e) {
+        // Since this wraps Logger class, we can only print it in the console and eat it.
+        CONSOLE_LOGGER_MAP.ERROR(e);
+      }
+    }
+    return wrappedfunction;
+  }
+  /**
+   * This is a wrapper method to wrap each function
+   * in an object with try catch block.
+   */
+  var tryCatchWrapperObject = function (obj) {
+    for (var method in obj) {
+      if (typeof(obj[method]) === 'function') {
+        obj[method] = tryCatchWrapperMethod(obj[method]);
+      }
+    }
+  }
+
+  /** Create the singleton logger instance. */
+  connect.rootLogger = new Logger();
+  tryCatchWrapperObject(connect.rootLogger);
+
+
+  /** Fetch the singleton logger instance. */
+  var getLog = function () {
+    return connect.rootLogger;
+  };
+
+  connect = connect || {};
+  connect.getLog = getLog;
+  connect.LogEntry = LogEntry;
+  connect.Logger = Logger;
+  connect.LogLevel = LogLevel;
+  connect.LogComponent = LogComponent;
+  connect.DownstreamConduitLogger = DownstreamConduitLogger;
+})();
+
+
+/***/ }),
+
+/***/ 163:
+/***/ (function() {
+
+/*
+ * JavaScript MD5
+ * https://github.com/blueimp/JavaScript-MD5
+ *
+ * Copyright 2011, Sebastian Tschan
+ * https://blueimp.net
+ *
+ * Licensed under the MIT license:
+ * https://opensource.org/licenses/MIT
+ *
+ * Based on
+ * A JavaScript implementation of the RSA Data Security, Inc. MD5 Message
+ * Digest Algorithm, as defined in RFC 1321.
+ * Version 2.2 Copyright (C) Paul Johnston 1999 - 2009
+ * Other contributors: Greg Holt, Andrew Kepert, Ydnar, Lostinet
+ * Distributed under the BSD License
+ * See http://pajhome.org.uk/crypt/md5 for more info.
+ */
+
+/* global define */
+
+/* eslint-disable strict */
+
+;(function ($) {
+	var ctx = this || globalThis;
+
+  /**
+   * Add integers, wrapping at 2^32.
+   * This uses 16-bit operations internally to work around bugs in interpreters.
+   *
+   * @param {number} x First integer
+   * @param {number} y Second integer
+   * @returns {number} Sum
+   */
+  function safeAdd(x, y) {
+    var lsw = (x & 0xffff) + (y & 0xffff)
+    var msw = (x >> 16) + (y >> 16) + (lsw >> 16)
+    return (msw << 16) | (lsw & 0xffff)
+  }
+
+  /**
+   * Bitwise rotate a 32-bit number to the left.
+   *
+   * @param {number} num 32-bit number
+   * @param {number} cnt Rotation count
+   * @returns {number} Rotated number
+   */
+  function bitRotateLeft(num, cnt) {
+    return (num << cnt) | (num >>> (32 - cnt))
+  }
+
+  /**
+   * Basic operation the algorithm uses.
+   *
+   * @param {number} q q
+   * @param {number} a a
+   * @param {number} b b
+   * @param {number} x x
+   * @param {number} s s
+   * @param {number} t t
+   * @returns {number} Result
+   */
+  function md5cmn(q, a, b, x, s, t) {
+    return safeAdd(bitRotateLeft(safeAdd(safeAdd(a, q), safeAdd(x, t)), s), b)
+  }
+  /**
+   * Basic operation the algorithm uses.
+   *
+   * @param {number} a a
+   * @param {number} b b
+   * @param {number} c c
+   * @param {number} d d
+   * @param {number} x x
+   * @param {number} s s
+   * @param {number} t t
+   * @returns {number} Result
+   */
+  function md5ff(a, b, c, d, x, s, t) {
+    return md5cmn((b & c) | (~b & d), a, b, x, s, t)
+  }
+  /**
+   * Basic operation the algorithm uses.
+   *
+   * @param {number} a a
+   * @param {number} b b
+   * @param {number} c c
+   * @param {number} d d
+   * @param {number} x x
+   * @param {number} s s
+   * @param {number} t t
+   * @returns {number} Result
+   */
+  function md5gg(a, b, c, d, x, s, t) {
+    return md5cmn((b & d) | (c & ~d), a, b, x, s, t)
+  }
+  /**
+   * Basic operation the algorithm uses.
+   *
+   * @param {number} a a
+   * @param {number} b b
+   * @param {number} c c
+   * @param {number} d d
+   * @param {number} x x
+   * @param {number} s s
+   * @param {number} t t
+   * @returns {number} Result
+   */
+  function md5hh(a, b, c, d, x, s, t) {
+    return md5cmn(b ^ c ^ d, a, b, x, s, t)
+  }
+  /**
+   * Basic operation the algorithm uses.
+   *
+   * @param {number} a a
+   * @param {number} b b
+   * @param {number} c c
+   * @param {number} d d
+   * @param {number} x x
+   * @param {number} s s
+   * @param {number} t t
+   * @returns {number} Result
+   */
+  function md5ii(a, b, c, d, x, s, t) {
+    return md5cmn(c ^ (b | ~d), a, b, x, s, t)
+  }
+
+  /**
+   * Calculate the MD5 of an array of little-endian words, and a bit length.
+   *
+   * @param {Array} x Array of little-endian words
+   * @param {number} len Bit length
+   * @returns {Array<number>} MD5 Array
+   */
+  function binlMD5(x, len) {
+    /* append padding */
+    x[len >> 5] |= 0x80 << len % 32
+    x[(((len + 64) >>> 9) << 4) + 14] = len
+
+    var i
+    var olda
+    var oldb
+    var oldc
+    var oldd
+    var a = 1732584193
+    var b = -271733879
+    var c = -1732584194
+    var d = 271733878
+
+    for (i = 0; i < x.length; i += 16) {
+      olda = a
+      oldb = b
+      oldc = c
+      oldd = d
+
+      a = md5ff(a, b, c, d, x[i], 7, -680876936)
+      d = md5ff(d, a, b, c, x[i + 1], 12, -389564586)
+      c = md5ff(c, d, a, b, x[i + 2], 17, 606105819)
+      b = md5ff(b, c, d, a, x[i + 3], 22, -1044525330)
+      a = md5ff(a, b, c, d, x[i + 4], 7, -176418897)
+      d = md5ff(d, a, b, c, x[i + 5], 12, 1200080426)
+      c = md5ff(c, d, a, b, x[i + 6], 17, -1473231341)
+      b = md5ff(b, c, d, a, x[i + 7], 22, -45705983)
+      a = md5ff(a, b, c, d, x[i + 8], 7, 1770035416)
+      d = md5ff(d, a, b, c, x[i + 9], 12, -1958414417)
+      c = md5ff(c, d, a, b, x[i + 10], 17, -42063)
+      b = md5ff(b, c, d, a, x[i + 11], 22, -1990404162)
+      a = md5ff(a, b, c, d, x[i + 12], 7, 1804603682)
+      d = md5ff(d, a, b, c, x[i + 13], 12, -40341101)
+      c = md5ff(c, d, a, b, x[i + 14], 17, -1502002290)
+      b = md5ff(b, c, d, a, x[i + 15], 22, 1236535329)
+
+      a = md5gg(a, b, c, d, x[i + 1], 5, -165796510)
+      d = md5gg(d, a, b, c, x[i + 6], 9, -1069501632)
+      c = md5gg(c, d, a, b, x[i + 11], 14, 643717713)
+      b = md5gg(b, c, d, a, x[i], 20, -373897302)
+      a = md5gg(a, b, c, d, x[i + 5], 5, -701558691)
+      d = md5gg(d, a, b, c, x[i + 10], 9, 38016083)
+      c = md5gg(c, d, a, b, x[i + 15], 14, -660478335)
+      b = md5gg(b, c, d, a, x[i + 4], 20, -405537848)
+      a = md5gg(a, b, c, d, x[i + 9], 5, 568446438)
+      d = md5gg(d, a, b, c, x[i + 14], 9, -1019803690)
+      c = md5gg(c, d, a, b, x[i + 3], 14, -187363961)
+      b = md5gg(b, c, d, a, x[i + 8], 20, 1163531501)
+      a = md5gg(a, b, c, d, x[i + 13], 5, -1444681467)
+      d = md5gg(d, a, b, c, x[i + 2], 9, -51403784)
+      c = md5gg(c, d, a, b, x[i + 7], 14, 1735328473)
+      b = md5gg(b, c, d, a, x[i + 12], 20, -1926607734)
+
+      a = md5hh(a, b, c, d, x[i + 5], 4, -378558)
+      d = md5hh(d, a, b, c, x[i + 8], 11, -2022574463)
+      c = md5hh(c, d, a, b, x[i + 11], 16, 1839030562)
+      b = md5hh(b, c, d, a, x[i + 14], 23, -35309556)
+      a = md5hh(a, b, c, d, x[i + 1], 4, -1530992060)
+      d = md5hh(d, a, b, c, x[i + 4], 11, 1272893353)
+      c = md5hh(c, d, a, b, x[i + 7], 16, -155497632)
+      b = md5hh(b, c, d, a, x[i + 10], 23, -1094730640)
+      a = md5hh(a, b, c, d, x[i + 13], 4, 681279174)
+      d = md5hh(d, a, b, c, x[i], 11, -358537222)
+      c = md5hh(c, d, a, b, x[i + 3], 16, -722521979)
+      b = md5hh(b, c, d, a, x[i + 6], 23, 76029189)
+      a = md5hh(a, b, c, d, x[i + 9], 4, -640364487)
+      d = md5hh(d, a, b, c, x[i + 12], 11, -421815835)
+      c = md5hh(c, d, a, b, x[i + 15], 16, 530742520)
+      b = md5hh(b, c, d, a, x[i + 2], 23, -995338651)
+
+      a = md5ii(a, b, c, d, x[i], 6, -198630844)
+      d = md5ii(d, a, b, c, x[i + 7], 10, 1126891415)
+      c = md5ii(c, d, a, b, x[i + 14], 15, -1416354905)
+      b = md5ii(b, c, d, a, x[i + 5], 21, -57434055)
+      a = md5ii(a, b, c, d, x[i + 12], 6, 1700485571)
+      d = md5ii(d, a, b, c, x[i + 3], 10, -1894986606)
+      c = md5ii(c, d, a, b, x[i + 10], 15, -1051523)
+      b = md5ii(b, c, d, a, x[i + 1], 21, -2054922799)
+      a = md5ii(a, b, c, d, x[i + 8], 6, 1873313359)
+      d = md5ii(d, a, b, c, x[i + 15], 10, -30611744)
+      c = md5ii(c, d, a, b, x[i + 6], 15, -1560198380)
+      b = md5ii(b, c, d, a, x[i + 13], 21, 1309151649)
+      a = md5ii(a, b, c, d, x[i + 4], 6, -145523070)
+      d = md5ii(d, a, b, c, x[i + 11], 10, -1120210379)
+      c = md5ii(c, d, a, b, x[i + 2], 15, 718787259)
+      b = md5ii(b, c, d, a, x[i + 9], 21, -343485551)
+
+      a = safeAdd(a, olda)
+      b = safeAdd(b, oldb)
+      c = safeAdd(c, oldc)
+      d = safeAdd(d, oldd)
+    }
+    return [a, b, c, d]
+  }
+
+  /**
+   * Convert an array of little-endian words to a string
+   *
+   * @param {Array<number>} input MD5 Array
+   * @returns {string} MD5 string
+   */
+  function binl2rstr(input) {
+    var i
+    var output = ''
+    var length32 = input.length * 32
+    for (i = 0; i < length32; i += 8) {
+      output += String.fromCharCode((input[i >> 5] >>> i % 32) & 0xff)
+    }
+    return output
+  }
+
+  /**
+   * Convert a raw string to an array of little-endian words
+   * Characters >255 have their high-byte silently ignored.
+   *
+   * @param {string} input Raw input string
+   * @returns {Array<number>} Array of little-endian words
+   */
+  function rstr2binl(input) {
+    var i
+    var output = []
+    output[(input.length >> 2) - 1] = undefined
+    for (i = 0; i < output.length; i += 1) {
+      output[i] = 0
+    }
+    var length8 = input.length * 8
+    for (i = 0; i < length8; i += 8) {
+      output[i >> 5] |= (input.charCodeAt(i / 8) & 0xff) << i % 32
+    }
+    return output
+  }
+
+  /**
+   * Calculate the MD5 of a raw string
+   *
+   * @param {string} s Input string
+   * @returns {string} Raw MD5 string
+   */
+  function rstrMD5(s) {
+    return binl2rstr(binlMD5(rstr2binl(s), s.length * 8))
+  }
+
+  /**
+   * Calculates the HMAC-MD5 of a key and some data (raw strings)
+   *
+   * @param {string} key HMAC key
+   * @param {string} data Raw input string
+   * @returns {string} Raw MD5 string
+   */
+  function rstrHMACMD5(key, data) {
+    var i
+    var bkey = rstr2binl(key)
+    var ipad = []
+    var opad = []
+    var hash
+    ipad[15] = opad[15] = undefined
+    if (bkey.length > 16) {
+      bkey = binlMD5(bkey, key.length * 8)
+    }
+    for (i = 0; i < 16; i += 1) {
+      ipad[i] = bkey[i] ^ 0x36363636
+      opad[i] = bkey[i] ^ 0x5c5c5c5c
+    }
+    hash = binlMD5(ipad.concat(rstr2binl(data)), 512 + data.length * 8)
+    return binl2rstr(binlMD5(opad.concat(hash), 512 + 128))
+  }
+
+  /**
+   * Convert a raw string to a hex string
+   *
+   * @param {string} input Raw input string
+   * @returns {string} Hex encoded string
+   */
+  function rstr2hex(input) {
+    var hexTab = '0123456789abcdef'
+    var output = ''
+    var x
+    var i
+    for (i = 0; i < input.length; i += 1) {
+      x = input.charCodeAt(i)
+      output += hexTab.charAt((x >>> 4) & 0x0f) + hexTab.charAt(x & 0x0f)
+    }
+    return output
+  }
+
+  /**
+   * Encode a string as UTF-8
+   *
+   * @param {string} input Input string
+   * @returns {string} UTF8 string
+   */
+  function str2rstrUTF8(input) {
+    return unescape(encodeURIComponent(input))
+  }
+
+  /**
+   * Encodes input string as raw MD5 string
+   *
+   * @param {string} s Input string
+   * @returns {string} Raw MD5 string
+   */
+  function rawMD5(s) {
+    return rstrMD5(str2rstrUTF8(s))
+  }
+  /**
+   * Encodes input string as Hex encoded string
+   *
+   * @param {string} s Input string
+   * @returns {string} Hex encoded string
+   */
+  function hexMD5(s) {
+    return rstr2hex(rawMD5(s))
+  }
+  /**
+   * Calculates the raw HMAC-MD5 for the given key and data
+   *
+   * @param {string} k HMAC key
+   * @param {string} d Input string
+   * @returns {string} Raw MD5 string
+   */
+  function rawHMACMD5(k, d) {
+    return rstrHMACMD5(str2rstrUTF8(k), str2rstrUTF8(d))
+  }
+  /**
+   * Calculates the Hex encoded HMAC-MD5 for the given key and data
+   *
+   * @param {string} k HMAC key
+   * @param {string} d Input string
+   * @returns {string} Raw MD5 string
+   */
+  function hexHMACMD5(k, d) {
+    return rstr2hex(rawHMACMD5(k, d))
+  }
+
+  /**
+   * Calculates MD5 value for a given string.
+   * If a key is provided, calculates the HMAC-MD5 value.
+   * Returns a Hex encoded string unless the raw argument is given.
+   *
+   * @param {string} string Input string
+   * @param {string} [key] HMAC key
+   * @param {boolean} [raw] Raw output switch
+   * @returns {string} MD5 output
+   */
+  function md5(string, key, raw) {
+    if (!key) {
+      if (!raw) {
+        return hexMD5(string)
+      }
+      return rawMD5(string)
+    }
+    if (!raw) {
+      return hexHMACMD5(key, string)
+    }
+    return rawHMACMD5(key, string)
+  }
+
+	ctx.md5 = md5
+})(this)
+
+/***/ }),
+
+/***/ 439:
+/***/ (() => {
+
+/*
+ * Copyright 2014-2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ *
+ * Licensed under the Amazon Software License (the "License"). You may not use
+ * this file except in compliance with the License. A copy of the License is
+ * located at
+ *
+ *    http://aws.amazon.com/asl/
+ *
+ * or in the "license" file accompanying this file. This file is distributed
+ * on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, express
+ * or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
+ */
+
+(function () {
+  var global = this || globalThis;
+  var connect = global.connect || {};
+  global.connect = connect;
+
+  connect.ChatMediaController = function (mediaInfo, metadata) {
+    var logger = connect.getLog();
+    var logComponent = connect.LogComponent.CHAT;
+
+    var createMediaInstance = function () {
+      publishTelemetryEvent("Chat media controller init", mediaInfo.contactId);
+      logger.info(logComponent, "Chat media controller init")
+        .withObject(mediaInfo).sendInternalLogToServer();
+
+      connect.ChatSession.setGlobalConfig({
+        loggerConfig: {
+          logger: logger
+        },
+        region: metadata.region
+      });
+
+      /** Could be also CUSTOMER -  For now we are creating only Agent connection media object */
+      var controller = connect.ChatSession.create({
+        chatDetails: mediaInfo,
+        type: "AGENT",
+        websocketManager: connect.core.getWebSocketManager()
+      });
+      
+      trackChatConnectionStatus(controller);
+      return controller
+        .connect()
+        .then(function (data) {
+          logger.info(logComponent, "Chat Session Successfully established for contactId %s", mediaInfo.contactId)
+            .sendInternalLogToServer();
+          publishTelemetryEvent("Chat Session Successfully established", mediaInfo.contactId);
+          return controller;
+        })
+        .catch(function (error) {
+          logger.error(logComponent, "Chat Session establishement failed for contact %s", mediaInfo.contactId)
+            .withException(error).sendInternalLogToServer();
+          publishTelemetryEvent("Chat Session establishement failed", mediaInfo.contactId, error);
+          throw error;
+        });
+    };
+
+    var publishTelemetryEvent = function (eventName, data) {
+      connect.publishMetric({
+        name: eventName,
+        contactId: mediaInfo.contactId,
+        data: data || mediaInfo
+      });
+    };
+
+    var trackChatConnectionStatus = function (controller) {
+      controller.onConnectionBroken(function (data) {
+        logger.error(logComponent, "Chat Session connection broken")
+          .withException(data).sendInternalLogToServer();
+        publishTelemetryEvent("Chat Session connection broken", data);
+      });
+
+      controller.onConnectionEstablished(function (data) {
+        logger.info(logComponent, "Chat Session connection established")
+          .withObject(data).sendInternalLogToServer();
+        publishTelemetryEvent("Chat Session connection established", data);
+      });
+    }
+
+    return {
+      get: function () {
+        return createMediaInstance();
+      }
+    }
+  }
+})();
+
+
+/***/ }),
+
+/***/ 279:
+/***/ (() => {
+
+/*
+ * Copyright 2014-2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ *
+ * Licensed under the Amazon Software License (the "License"). You may not use
+ * this file except in compliance with the License. A copy of the License is
+ * located at
+ *
+ *    http://aws.amazon.com/asl/
+ *
+ * or in the "license" file accompanying this file. This file is distributed
+ * on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, express
+ * or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
+ */
+
+(function () {
+  var global = this || globalThis;
+  var connect = global.connect || {};
+  global.connect = connect;
+
+  connect.MediaFactory = function (params) {
+    /** controller holder */
+    var mediaControllers = {};
+    var toBeDestroyed = new Set();
+
+    var logger = connect.getLog();
+    var logComponent = connect.LogComponent.CHAT;
+
+    var metadata = connect.merge({}, params) || {};
+    metadata.region =  metadata.region || "us-west-2"; // Default it to us-west-2
+
+    var getMediaController = function (connectionObj) {
+      var connectionId = connectionObj.getConnectionId();
+      var mediaInfo = connectionObj.getMediaInfo();
+      /** if we do not have the media info then just reject the request */
+      if (!mediaInfo) {
+        logger.error(logComponent, "Media info does not exist for a media type %s", connectionObj.getMediaType())
+          .withObject(connectionObj).sendInternalLogToServer();
+        return Promise.reject("Media info does not exist for this connection");
+      }
+
+      if (!mediaControllers[connectionId]) {
+        logger.info(logComponent, "media controller of type %s init", connectionObj.getMediaType())
+          .withObject(connectionObj).sendInternalLogToServer();
+        switch (connectionObj.getMediaType()) {
+          case connect.MediaType.CHAT:
+            return mediaControllers[connectionId] = new connect.ChatMediaController(connectionObj.getMediaInfo(), metadata).get();
+          case connect.MediaType.SOFTPHONE:
+            return mediaControllers[connectionId] = new connect.SoftphoneMediaController(connectionObj.getMediaInfo()).get();
+          case connect.MediaType.TASK:
+            return mediaControllers[connectionId] = new connect.TaskMediaController(connectionObj.getMediaInfo()).get();
+          default:
+            logger.error(logComponent, "Unrecognized media type %s ", connectionObj.getMediaType())
+              .sendInternalLogToServer();
+            return Promise.reject();
+        }
+      } else {
+        return mediaControllers[connectionId];
+      }
+    };
+
+    /** Check all the active states for the connection */
+    var ifConnectionActive = function (connectionObj) {
+      return connectionObj.isActive();
+    };
+
+    var get = function (connectionObj) {
+      if (ifConnectionActive(connectionObj)) {
+        return getMediaController(connectionObj);
+      } else {
+        destroy(connectionObj.getConnectionId());
+        return Promise.reject("Media Controller is no longer available for this connection");
+      }
+    };
+
+    var destroy = function (connectionId) {
+      if (mediaControllers[connectionId] && !toBeDestroyed.has(connectionId)) {
+        logger.info(
+          logComponent,
+          "Destroying mediaController for %s",
+          connectionId
+        );
+        toBeDestroyed.add(connectionId);
+        mediaControllers[connectionId]
+          .then(function() {
+            if (typeof controller.cleanUp === "function") controller.cleanUp();
+            delete mediaControllers[connectionId];
+            toBeDestroyed.delete(connectionId);
+          })
+          .catch(function() {
+            delete mediaControllers[connectionId];
+            toBeDestroyed.delete(connectionId);
+          });
+      }
+    };
+
+    return {
+      get: get,
+      destroy: destroy
+    };
+  }
+})();
+
+
+/***/ }),
+
+/***/ 418:
+/***/ (() => {
+
+/*
+ * Copyright 2014-2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ *
+ * Licensed under the Amazon Software License (the "License"). You may not use
+ * this file except in compliance with the License. A copy of the License is
+ * located at
+ *
+ *    http://aws.amazon.com/asl/
+ *
+ * or in the "license" file accompanying this file. This file is distributed
+ * on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, express
+ * or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
+ */
+
+(function () {
+  var global = this || globalThis;
+  var connect = global.connect || {};
+  global.connect = connect;
+
+  // TODO move softphone implementations here - Wil do this for GA
+  connect.SoftphoneMediaController = function (mediaInfo) {
+    return {
+      get: function () {
+        return Promise.resolve(mediaInfo)
+      }
+    }
+  }
+})();
+
+
+/***/ }),
+
+/***/ 187:
+/***/ (() => {
+
+/*
+ * Copyright 2014-2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ *
+ * Licensed under the Amazon Software License (the "License"). You may not use
+ * this file except in compliance with the License. A copy of the License is
+ * located at
+ *
+ *    http://aws.amazon.com/asl/
+ *
+ * or in the "license" file accompanying this file. This file is distributed
+ * on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, express
+ * or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
+ */
+
+(function () {
+  var global = this || globalThis;
+  var connect = global.connect || {};
+  global.connect = connect;
+
+  connect.TaskMediaController = function (mediaInfo) {
+    var logger = connect.getLog();
+    var logComponent = connect.LogComponent.TASK;
+
+    var createMediaInstance = function () {
+      publishTelemetryEvent("Task media controller init", mediaInfo.contactId);
+      logger
+        .info(logComponent, "Task media controller init")
+        .withObject(mediaInfo);
+
+      var controller = connect.TaskSession.create({
+        contactId: mediaInfo.contactId,
+        initialContactId: mediaInfo.initialContactId,
+        websocketManager: connect.core.getWebSocketManager(),
+      });
+
+      trackTaskConnectionStatus(controller);
+
+      return controller
+        .connect()
+        .then(function () {
+          logger.info(
+            logComponent,
+            "Task Session Successfully established for contactId %s",
+            mediaInfo.contactId
+          );
+          publishTelemetryEvent(
+            "Task Session Successfully established",
+            mediaInfo.contactId
+          );
+          return controller;
+        })
+        .catch(function (error) {
+          logger
+            .error(
+              logComponent,
+              "Task Session establishement failed for contact %s",
+              mediaInfo.contactId
+            )
+            .withException(error);
+          publishTelemetryEvent(
+            "Chat Session establishement failed",
+            mediaInfo.contactId,
+            error
+          );
+          throw error;
+        });
+    };
+
+    var publishTelemetryEvent = function (eventName, data) {
+      connect.publishMetric({
+        name: eventName,
+        contactId: mediaInfo.contactId,
+        data: data || mediaInfo,
+      });
+    };
+
+    var trackTaskConnectionStatus = function (controller) {
+      controller.onConnectionBroken(function (data) {
+        logger
+          .error(logComponent, "Task Session connection broken")
+          .withException(data);
+        publishTelemetryEvent("Task Session connection broken", data);
+      });
+
+      controller.onConnectionEstablished(function (data) {
+        logger
+          .info(logComponent, "Task Session connection established")
+          .withObject(data);
+        publishTelemetryEvent("Task Session connection established", data);
+      });
+    };
+
+    return {
+      get: function () {
+        return createMediaInstance();
+      },
+    };
+  };
+})();
+
+
+/***/ }),
+
+/***/ 743:
+/***/ (() => {
+
+/*
+ * Copyright 2014-2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+(function () {
+  var global = this || globalThis;
+  var connect = global.connect || {};
+  global.connect = connect;
+  global.lily = connect;
+
+  var RingtoneEngineBase = function (ringtoneConfig) {
+    var self = this;
+    this._prevContactId = null;
+
+    connect.assertNotNull(ringtoneConfig, "ringtoneConfig");
+    if (!ringtoneConfig.ringtoneUrl) {
+      throw new Error("ringtoneUrl is required!");
+    }
+
+    if (global.Audio && typeof global.Promise !== "undefined") {
+      this._playableAudioPromise = new Promise(function (resolve, reject) {
+        self._audio = new Audio(ringtoneConfig.ringtoneUrl);
+        self._audio.loop = true;
+        self._audio.addEventListener("canplay", function () {
+          connect.getLog().info("Ringtone is ready to play: ", + ringtoneConfig.ringtoneUrl).sendInternalLogToServer();
+          self._audioPlayable = true;
+          resolve(self._audio);
+        });
+      });
+
+    } else {
+      this._audio = null;
+      connect.getLog().error("Unable to provide a ringtone.").sendInternalLogToServer();
+    }
+
+    self._driveRingtone();
+  };
+
+  RingtoneEngineBase.prototype._driveRingtone = function () {
+    throw new Error("Not implemented.");
+  };
+
+  RingtoneEngineBase.prototype._startRingtone = function (contact) {
+    var self = this;
+    if (this._audio) {
+      this._audio.play()
+        .catch(function(e) {
+          self._publishTelemetryEvent("Ringtone Playback Failure", contact);
+          connect.getLog().error("Ringtone Playback Failure").withException(e).withObject({currentSrc: self._audio.currentSrc, sinkId: self._audio.sinkId, volume: self._audio.volume}).sendInternalLogToServer();
+        });
+      self._publishTelemetryEvent("Ringtone Start", contact);
+      connect.getLog().info("Ringtone Start").sendInternalLogToServer();
+    }
+  };
+
+  RingtoneEngineBase.prototype._stopRingtone = function (contact) {
+    if (this._audio) {
+      this._audio.pause();
+      this._audio.currentTime = 0;
+      this._publishTelemetryEvent("Ringtone Stop", contact);
+      connect.getLog().info("Ringtone Stop").sendInternalLogToServer();
+    }
+  };
+
+  /**
+   * Stop ringtone.
+   */
+  RingtoneEngineBase.prototype.stopRingtone = function () {
+    this._stopRingtone();
+  };
+
+  RingtoneEngineBase.prototype._ringtoneSetup = function (contact) {
+    var self = this;
+    connect.ifMaster(connect.MasterTopics.RINGTONE, function () {
+      self._startRingtone(contact);
+      self._prevContactId = contact.getContactId();
+
+      contact.onConnected(lily.hitch(self, self._stopRingtone));
+      contact.onAccepted(lily.hitch(self, self._stopRingtone));
+      contact.onEnded(lily.hitch(self, self._stopRingtone));
+      // Just to make sure to stop the ringtone in case of the failures of specific callbacks(onAccepted,onConnected);
+      contact.onRefresh(function (contact) {
+        if (contact.getStatus().type !== connect.ContactStatusType.CONNECTING &&
+          contact.getStatus().type !== connect.ContactStatusType.INCOMING) {
+          self._stopRingtone();
+        }
+      });
+    });
+  };
+
+  RingtoneEngineBase.prototype._publishTelemetryEvent = function (eventName, contact) {
+    if (contact && contact.getContactId()) {
+      connect.publishMetric({
+        name: eventName,
+        contactId: contact.getContactId()
+      });
+    }
+  };
+
+  /**
+   * Change the audio device used to play ringtone.
+   * If audio element is not fully initialized, the API will wait _audioPlayablePromise for 3 seconds and fail on timeout.
+   * This API is supported only by browsers that implemented ES6 Promise and http://www.w3.org/TR/audio-output/
+   * Return a Promise that indicates the result of changing output device.
+   */
+  RingtoneEngineBase.prototype.setOutputDevice = function (deviceId) {
+    if (this._playableAudioPromise) {
+      var playableAudioWithTimeout = Promise.race([
+        this._playableAudioPromise,
+        new Promise(function (resolve, reject) {
+          global.setTimeout(function () { reject("Timed out waiting for playable audio"); }, 3000/*ms*/);
+        })
+      ]);
+      return playableAudioWithTimeout.then(function (audio) {
+        if (audio) {
+          if (audio.setSinkId) {
+            return Promise.resolve(audio.setSinkId(deviceId));
+          } else {
+            return Promise.reject("Not supported");
+          }
+        } else {
+          return Promise.reject("No audio found");
+        }
+      });
+    }
+
+    if (global.Promise) {
+      return Promise.reject("Not eligible ringtone owner");
+    }
+  };
+
+  var VoiceRingtoneEngine = function (ringtoneConfig) {
+    RingtoneEngineBase.call(this, ringtoneConfig);
+  };
+  VoiceRingtoneEngine.prototype = Object.create(RingtoneEngineBase.prototype);
+  VoiceRingtoneEngine.prototype.constructor = VoiceRingtoneEngine;
+
+  VoiceRingtoneEngine.prototype._driveRingtone = function () {
+    var self = this;
+
+    var onContactConnect = function (contact) {
+      if (contact.getType() === lily.ContactType.VOICE &&
+        contact.isSoftphoneCall() && contact.isInbound()) {
+        self._ringtoneSetup(contact);
+        self._publishTelemetryEvent("Ringtone Connecting", contact);
+        connect.getLog().info("Ringtone Connecting").sendInternalLogToServer();
+      }
+    };
+
+    connect.contact(function (contact) {
+      contact.onConnecting(onContactConnect);
+    });
+
+    new connect.Agent().getContacts().forEach(function (contact) {
+      if (contact.getStatus().type === connect.ContactStatusType.CONNECTING) {
+        onContactConnect(contact);
+      }
+    });
+  };
+
+
+  var ChatRingtoneEngine = function (ringtoneConfig) {
+    RingtoneEngineBase.call(this, ringtoneConfig);
+  };
+  ChatRingtoneEngine.prototype = Object.create(RingtoneEngineBase.prototype);
+  ChatRingtoneEngine.prototype.constructor = ChatRingtoneEngine;
+
+  ChatRingtoneEngine.prototype._driveRingtone = function () {
+    var self = this;
+
+    var onContactConnect = function (contact) {
+      if (contact.getType() === lily.ContactType.CHAT && contact.isInbound()) {
+        self._ringtoneSetup(contact);
+        self._publishTelemetryEvent("Chat Ringtone Connecting", contact);
+        connect.getLog().info("Chat Ringtone Connecting").sendInternalLogToServer();
+      }
+    };
+
+    connect.contact(function (contact) {
+      contact.onConnecting(onContactConnect);
+    });
+  };
+
+  var TaskRingtoneEngine = function (ringtoneConfig) {
+    RingtoneEngineBase.call(this, ringtoneConfig);
+  };
+  TaskRingtoneEngine.prototype = Object.create(RingtoneEngineBase.prototype);
+  TaskRingtoneEngine.prototype.constructor = TaskRingtoneEngine;
+
+  TaskRingtoneEngine.prototype._driveRingtone = function () {
+    var self = this;
+
+    var onContactConnect = function (contact) {
+      if (contact.getType() === lily.ContactType.TASK && contact.isInbound()) {
+        self._ringtoneSetup(contact);
+        self._publishTelemetryEvent("Task Ringtone Connecting", contact);
+        connect.getLog().info("Task Ringtone Connecting").sendInternalLogToServer();
+      }
+    };
+
+    connect.contact(function (contact) {
+      contact.onConnecting(onContactConnect);
+    });
+  };
+
+
+  var QueueCallbackRingtoneEngine = function (ringtoneConfig) {
+    RingtoneEngineBase.call(this, ringtoneConfig);
+  };
+  QueueCallbackRingtoneEngine.prototype = Object.create(RingtoneEngineBase.prototype);
+  QueueCallbackRingtoneEngine.prototype.constructor = QueueCallbackRingtoneEngine;
+
+  QueueCallbackRingtoneEngine.prototype._driveRingtone = function () {
+    var self = this;
+
+    connect.contact(function (contact) {
+      contact.onIncoming(function () {
+        if (contact.getType() === lily.ContactType.QUEUE_CALLBACK) {
+          self._ringtoneSetup(contact);
+          self._publishTelemetryEvent("Callback Ringtone Connecting", contact);
+          connect.getLog().info("Callback Ringtone Connecting").sendInternalLogToServer();
+        }
+      });
+    });
+  };
+
+  /* export connect.RingtoneEngine */
+  connect.VoiceRingtoneEngine = VoiceRingtoneEngine;
+  connect.ChatRingtoneEngine = ChatRingtoneEngine;
+  connect.TaskRingtoneEngine = TaskRingtoneEngine;
+  connect.QueueCallbackRingtoneEngine = QueueCallbackRingtoneEngine;
+})();
+
+
+/***/ }),
+
+/***/ 642:
+/***/ (() => {
+
+/*
+ * Copyright 2014-2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+(function () {
+  var global = this || globalThis;
+  var connect = global.connect || {};
+  global.connect = connect;
+  global.lily = connect;
+  global.ccpVersion = "V2";
+
+  var RTPJobIntervalMs = 1000;
+  var statsReportingJobIntervalMs = 30000;
+  var streamBufferSize = 500;
+  var CallTypeMap = {};
+  CallTypeMap[connect.SoftphoneCallType.AUDIO_ONLY] = 'Audio';
+  CallTypeMap[connect.SoftphoneCallType.VIDEO_ONLY] = 'Video';
+  CallTypeMap[connect.SoftphoneCallType.AUDIO_VIDEO] = 'AudioVideo';
+  CallTypeMap[connect.SoftphoneCallType.NONE] = 'None';
+  var AUDIO_INPUT = 'audio_input';
+  var AUDIO_OUTPUT = 'audio_output';
+
+  var MediaTypeMap = {};
+  MediaTypeMap[connect.ContactType.VOICE] = "Voice";
+  var UNKNOWN_MEDIA_TYPE = "Unknown";
+
+  var timeSeriesStreamStatsBuffer = [];
+  var aggregatedUserAudioStats = {};
+  var aggregatedRemoteAudioStats = {};
+  var rtpStatsJob = null;
+  var reportStatsJob = null;
+  //Logger specific to softphone.
+  var logger = null;
+  var SoftphoneErrorTypes = connect.SoftphoneErrorTypes;
+  var HANG_UP_MULTIPLE_SESSIONS_EVENT = "MultiSessionHangUp";
+  var MULTIPLE_SESSIONS_EVENT = "MultiSessions";
+
+  var localMediaStream = {};
+
+  var softphoneClientId = connect.randomId();
+
+  var requestIceAccess = function (transport) {
+    return new Promise(function (resolve, reject) {
+      connect.core.getClient().call(connect.ClientMethods.CREATE_TRANSPORT, transport, {
+        success: function (data) {
+          resolve(data.softphoneTransport.softphoneMediaConnections);
+        },
+        failure: function (reason) {
+          if (reason.message && reason.message.includes("SoftphoneConnectionLimitBreachedException")) {
+            publishError("multiple_softphone_active_sessions", "Number of active sessions are more then allowed limit.", "");
+          }
+          reject(Error("requestIceAccess failed"));
+        },
+        authFailure: function () {
+          reject(Error("Authentication failed while requestIceAccess"));
+        },
+        accessDenied: function () {
+          reject(Error("Access Denied while requestIceAccess"));
+        }
+      });
+    });
+  };
+
+  var SoftphoneManager = function (softphoneParams) {
+    var self = this;
+    logger = new SoftphoneLogger(connect.getLog());
+    logger.info("[Softphone Manager] softphone manager initialization has begun").sendInternalLogToServer();
+    var rtcPeerConnectionFactory;
+    if (connect.RtcPeerConnectionFactory) {
+      rtcPeerConnectionFactory = new connect.RtcPeerConnectionFactory(logger,
+        connect.core.getWebSocketManager(),
+        softphoneClientId,
+        connect.hitch(self, requestIceAccess, {
+          transportType: "softphone",
+          softphoneClientId: softphoneClientId
+        }),
+        connect.hitch(self, publishError));
+    }
+    if (!isBrowserSoftPhoneSupported()) {
+      publishError(SoftphoneErrorTypes.UNSUPPORTED_BROWSER,
+        "Connect does not support this browser. Some functionality may not work. ",
+        "");
+    }
+    var gumPromise = fetchUserMedia({
+      success: function (stream) {
+        publishTelemetryEvent("ConnectivityCheckResult", null, 
+        {
+          connectivityCheckType: "MicrophonePermission",
+          status: "granted"
+        });
+      },
+      failure: function (err) {
+        publishError(err, "Your microphone is not enabled in your browser. ", "");
+        publishTelemetryEvent("ConnectivityCheckResult", null, 
+        {
+          connectivityCheckType: "MicrophonePermission",
+          status: "denied"
+        });
+      }
+    });
+    
+    handleSoftPhoneMuteToggle();
+    handleSpeakerDeviceChange();
+    handleMicrophoneDeviceChange();
+    monitorMicrophonePermission();
+
+    this.ringtoneEngine = null;
+    var rtcSessions = {};
+    // Tracks the agent connection ID, so that if the same contact gets re-routed to the same agent, it'll still set up softphone
+    var callsDetected = {};
+    this.onInitContactSub = {};
+    this.onInitContactSub.unsubscribe = function() {};
+
+    // variables for firefox multitab
+    var isSessionPending = false;
+    var pendingContact = null;
+    var pendingAgentConnectionId = null;
+    var postponeStartingSession = function (contact, agentConnectionId) {
+      isSessionPending = true;
+      pendingContact = contact;
+      pendingAgentConnectionId = agentConnectionId;
+    }
+    var cancelPendingSession = function () {
+      isSessionPending = false;
+      pendingContact = null;
+      pendingAgentConnectionId = null;
+    }
+
+    // helper method to provide access to rtc sessions
+    this.getSession = function (connectionId) {
+      return rtcSessions[connectionId];
+    }
+
+    this.replaceLocalMediaTrack = function(connectionId, track) {
+      var stream = localMediaStream[connectionId].stream;
+      if(stream){
+        var oldTrack = stream.getAudioTracks()[0];
+        track.enabled = oldTrack.enabled;
+        oldTrack.enabled = false;
+        stream.removeTrack(oldTrack);
+        stream.addTrack(track);
+      }
+    };
+
+    var isContactTerminated = function (contact) {
+      return contact.getStatus().type === connect.ContactStatusType.ENDED ||
+        contact.getStatus().type === connect.ContactStatusType.ERROR ||
+        contact.getStatus().type === connect.ContactStatusType.MISSED;
+    };
+
+    var destroySession = function (agentConnectionId) {
+      if (rtcSessions.hasOwnProperty(agentConnectionId)) {
+        var session = rtcSessions[agentConnectionId];
+        // Currently the assumption is it will throw an exception only and if only it already has been hung up.
+        // TODO: Update once the hangup API does not throw exceptions
+        new Promise(function (resolve, reject) {
+          delete rtcSessions[agentConnectionId];
+          delete callsDetected[agentConnectionId];
+          session.hangup();
+        }).catch(function (err) {
+          lily.getLog().warn("Clean up the session locally " + agentConnectionId, err.message).sendInternalLogToServer();
+        });
+      }
+    };
+
+    // When multiple RTC sessions detected, ignore the new call and hang up the previous sessions.
+    // TODO: Update when connect-rtc exposes an API to detect session status.
+    var sanityCheckActiveSessions = function (rtcSessions) {
+      if (Object.keys(rtcSessions).length > 0) {
+        // Error! our state doesn't match, tear it all down.
+        for (var connectionId in rtcSessions) {
+          if (rtcSessions.hasOwnProperty(connectionId)) {
+            // Log an error for the session we are about to end.
+            publishMultipleSessionsEvent(HANG_UP_MULTIPLE_SESSIONS_EVENT, rtcSessions[connectionId].callId, connectionId);
+            destroySession(connectionId);
+          }
+        }
+        throw new Error("duplicate session detected, refusing to setup new connection");
+      }
+    };
+
+    this.startSession = function (_contact, _agentConnectionId) {
+      var contact = isSessionPending ? pendingContact : _contact;
+      var agentConnectionId = isSessionPending ? pendingAgentConnectionId : _agentConnectionId;
+      if (!contact || !agentConnectionId) {
+        return;
+      }
+      cancelPendingSession();
+      
+      // Set to true, this will block subsequent invokes from entering.
+      callsDetected[agentConnectionId] = true;
+      logger.info("Softphone call detected:", "contactId " + contact.getContactId(), "agent connectionId " + agentConnectionId).sendInternalLogToServer();
+
+      // Ensure our session state matches our contact state to prevent issues should we lose track of a contact.
+      sanityCheckActiveSessions(rtcSessions);
+
+      if (contact.getStatus().type === connect.ContactStatusType.CONNECTING) {
+        publishTelemetryEvent("Softphone Connecting", contact.getContactId());
+      }
+
+      initializeParams();
+      var softphoneInfo = contact.getAgentConnection().getSoftphoneMediaInfo();
+      var callConfig = parseCallConfig(softphoneInfo.callConfigJson);
+      var webSocketProvider;
+      if (callConfig.useWebSocketProvider) {
+        webSocketProvider = connect.core.getWebSocketManager();
+      }
+      var session = new connect.RTCSession(
+        callConfig.signalingEndpoint,
+        callConfig.iceServers,
+        softphoneInfo.callContextToken,
+        logger,
+        contact.getContactId(),
+        agentConnectionId,
+        webSocketProvider);
+
+      rtcSessions[agentConnectionId] = session;
+
+      if (connect.core.getSoftphoneUserMediaStream()) {
+        session.mediaStream = connect.core.getSoftphoneUserMediaStream();
+      }
+
+      // Custom Event to indicate the session init operations
+      connect.core.getUpstream().sendUpstream(connect.EventType.BROADCAST, {
+        event: connect.ConnectionEvents.SESSION_INIT,
+        data: {
+          connectionId: agentConnectionId
+        }
+      });
+
+      session.onSessionFailed = function (rtcSession, reason) {
+        delete rtcSessions[agentConnectionId];
+        delete callsDetected[agentConnectionId];
+        publishSoftphoneFailureLogs(rtcSession, reason);
+        publishSessionFailureTelemetryEvent(contact.getContactId(), reason);
+        stopJobsAndReport(contact, rtcSession.sessionReport);
+      };
+      session.onSessionConnected = function (rtcSession) {
+        publishTelemetryEvent("Softphone Session Connected", contact.getContactId());
+        // Become master to send logs, since we need logs from softphone tab.
+        connect.becomeMaster(connect.MasterTopics.SEND_LOGS);
+        //start stats collection and reporting jobs
+        startStatsCollectionJob(rtcSession);
+        startStatsReportingJob(contact);
+        fireContactAcceptedEvent(contact);
+      };
+
+      session.onSessionCompleted = function (rtcSession) {
+        publishTelemetryEvent("Softphone Session Completed", contact.getContactId());
+
+        delete rtcSessions[agentConnectionId];
+        delete callsDetected[agentConnectionId];
+        // Stop all jobs and perform one last job.
+        stopJobsAndReport(contact, rtcSession.sessionReport);
+
+        // Cleanup the cached streams
+        deleteLocalMediaStream(agentConnectionId);
+      };
+
+      session.onLocalStreamAdded = function (rtcSession, stream) {
+        // Cache the streams for mute/unmute
+        localMediaStream[agentConnectionId] = {
+          stream: stream
+        };
+        connect.core.getUpstream().sendUpstream(connect.EventType.BROADCAST, {
+          event: connect.AgentEvents.LOCAL_MEDIA_STREAM_CREATED,
+          data: {
+            connectionId: agentConnectionId
+          }
+        });
+      };
+
+      session.remoteAudioElement = document.getElementById('remote-audio');
+      if (rtcPeerConnectionFactory) {
+        session.connect(rtcPeerConnectionFactory.get(callConfig.iceServers));
+      } else {
+        session.connect();
+      }
+    }
+
+    var onRefreshContact = function (contact, agentConnectionId) {
+      if (rtcSessions[agentConnectionId] && isContactTerminated(contact)) {
+        destroySession(agentConnectionId);
+        cancelPendingSession();
+      }
+      if (contact.isSoftphoneCall() && !callsDetected[agentConnectionId] && (
+        contact.getStatus().type === connect.ContactStatusType.CONNECTING ||
+        contact.getStatus().type === connect.ContactStatusType.INCOMING)) {
+          if (connect.isFirefoxBrowser() && connect.hasOtherConnectedCCPs()) {
+            postponeStartingSession(contact, agentConnectionId);
+          } else {
+            self.startSession(contact, agentConnectionId);
+          }
+      }
+    };
+
+    var onInitContact = function (contact) {
+      var agentConnectionId = contact.getAgentConnection().connectionId;
+      logger.info("Contact detected:", "contactId " + contact.getContactId(), "agent connectionId " + agentConnectionId).sendInternalLogToServer();
+
+      if (!callsDetected[agentConnectionId]) {
+        contact.onRefresh(function () {
+          onRefreshContact(contact, agentConnectionId);
+        });
+      }
+    };
+
+    self.onInitContactSub = connect.contact(onInitContact);
+
+    // Contact already in connecting state scenario - In this case contact INIT is missed hence the OnRefresh callback is missed. 
+    new connect.Agent().getContacts().forEach(function (contact) {
+      var agentConnectionId = contact.getAgentConnection().connectionId;
+      logger.info("Contact exist in the snapshot. Reinitiate the Contact and RTC session creation for contactId" + contact.getContactId(), "agent connectionId " + agentConnectionId)
+        .sendInternalLogToServer();
+      onInitContact(contact);
+      onRefreshContact(contact, agentConnectionId);
+    });
+  };
+
+  var fireContactAcceptedEvent = function (contact) {
+    var conduit = connect.core.getUpstream();
+    var agentConnection = contact.getAgentConnection();
+    if (!agentConnection) {
+      logger.info("Not able to retrieve the auto-accept setting from null AgentConnection, ignoring event publish..").sendInternalLogToServer();
+      return;
+    }
+    var softphoneMediaInfo = agentConnection.getSoftphoneMediaInfo();
+    if (!softphoneMediaInfo) {
+      logger.info("Not able to retrieve the auto-accept setting from null SoftphoneMediaInfo, ignoring event publish..").sendInternalLogToServer();
+      return;
+    }
+    if (softphoneMediaInfo.autoAccept === true) {
+      logger.info("Auto-accept is enabled, sending out Accepted event to stop ringtone..").sendInternalLogToServer();
+      conduit.sendUpstream(connect.EventType.BROADCAST, {
+        event: connect.ContactEvents.ACCEPTED,
+        data: new connect.Contact(contact.contactId)
+      });
+      conduit.sendUpstream(connect.EventType.BROADCAST, {
+        event: connect.core.getContactEventName(connect.ContactEvents.ACCEPTED, contact.contactId),
+        data: new connect.Contact(contact.contactId)
+      });
+    } else {
+      logger.info("Auto-accept is disabled, ringtone will be stopped by user action.").sendInternalLogToServer();
+    }
+  };
+
+  // Bind events for mute
+  var handleSoftPhoneMuteToggle = function () {
+    var bus = connect.core.getEventBus();
+    bus.subscribe(connect.EventType.MUTE, muteToggle);
+  };
+
+  var handleSpeakerDeviceChange = function() {
+    var bus = connect.core.getEventBus();
+    bus.subscribe(connect.ConfigurationEvents.SET_SPEAKER_DEVICE, setSpeakerDevice);
+  }
+
+  var handleMicrophoneDeviceChange = function () {
+    var bus = connect.core.getEventBus();
+    bus.subscribe(connect.ConfigurationEvents.SET_MICROPHONE_DEVICE, setMicrophoneDevice);
+  }
+
+  var monitorMicrophonePermission = function () {
+    try {
+      if (connect.isChromeBrowser() && connect.getChromeBrowserVersion() > 43){
+        navigator.permissions.query({name: 'microphone'})
+        .then(function(permissionStatus){
+          permissionStatus.onchange = function(){
+            logger.info("Microphone Permission: " + permissionStatus.state);
+            publishTelemetryEvent("ConnectivityCheckResult", null, 
+            {
+              connectivityCheckType: "MicrophonePermission",
+              status: permissionStatus.state
+            });
+            if(permissionStatus.state === 'denied'){
+              publishError(SoftphoneErrorTypes.MICROPHONE_NOT_SHARED,
+                "Your microphone is not enabled in your browser. ",
+                "");
+            }
+          }
+        })
+      }
+    } catch (e) {
+      logger.error("Failed in detecting microphone permission status: " + e);
+    }
+  }
+
+  // Make sure once we disconnected we get the mute state back to normal
+  var deleteLocalMediaStream = function (connectionId) {
+    delete localMediaStream[connectionId];
+    connect.core.getUpstream().sendUpstream(connect.EventType.BROADCAST, {
+      event: connect.AgentEvents.MUTE_TOGGLE,
+      data: { muted: false }
+    });
+  };
+
+  // Check for the local streams if exists  -  revert it
+  // And inform other clients about the change 
+  var muteToggle = function (data) {
+    var status;
+    if (connect.keys(localMediaStream).length === 0) {
+      return;
+    }
+
+    if (data && data.mute !== undefined) {
+      status = data.mute;
+    }
+
+    for (var connectionId in localMediaStream) {
+      if (localMediaStream.hasOwnProperty(connectionId)) {
+        var localMedia = localMediaStream[connectionId].stream;
+        if (localMedia) {
+          var audioTracks = localMedia.getAudioTracks()[0];
+          if (status !== undefined) {
+            audioTracks.enabled = !status;
+            localMediaStream[connectionId].muted = status;
+
+            if (status) {
+              logger.info("Agent has muted the contact, connectionId -  " + connectionId).sendInternalLogToServer();
+            } else {
+              logger.info("Agent has unmuted the contact, connectionId - " + connectionId).sendInternalLogToServer();
+            }
+
+          } else {
+            status = localMediaStream[connectionId].muted || false;
+          }
+        }
+      }
+    }
+
+    connect.core.getUpstream().sendUpstream(connect.EventType.BROADCAST, {
+      event: connect.AgentEvents.MUTE_TOGGLE,
+      data: { muted: status }
+    });
+  };
+
+  var setSpeakerDevice = function (data) {
+    if (connect.keys(localMediaStream).length === 0 || !data || !data.deviceId) {
+      return;
+    }
+    var deviceId = data.deviceId;
+    var remoteAudioElement = document.getElementById('remote-audio');
+    try {
+      logger.info("Trying to set speaker to device " + deviceId);
+      if (remoteAudioElement && typeof remoteAudioElement.setSinkId === 'function') {
+        remoteAudioElement.setSinkId(deviceId);
+      }
+    } catch (e) {
+      logger.error("Failed to set speaker to device " + deviceId);
+    }
+
+    connect.core.getUpstream().sendUpstream(connect.EventType.BROADCAST, {
+      event: connect.ConfigurationEvents.SPEAKER_DEVICE_CHANGED,
+      data: { deviceId: deviceId }
+    });
+  }
+
+  var setMicrophoneDevice = function (data) {
+    if (connect.keys(localMediaStream).length === 0  || !data || !data.deviceId) {
+      return;
+    }
+    var deviceId = data.deviceId;
+    var softphoneManager = connect.core.getSoftphoneManager();
+    try {
+      navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: deviceId } } })
+        .then(function (newMicrophoneStream) {
+          var newMicrophoneTrack = newMicrophoneStream.getAudioTracks()[0];
+          for (var connectionId in localMediaStream) {
+            if (localMediaStream.hasOwnProperty(connectionId)) {
+              var localMedia = localMediaStream[connectionId].stream;
+              var session = softphoneManager.getSession(connectionId);
+              //Replace the audio track in the RtcPeerConnection
+              session._pc.getSenders()[0].replaceTrack(newMicrophoneTrack).then(function () {
+                //Replace the audio track in the local media stream (for mute / unmute)
+                softphoneManager.replaceLocalMediaTrack(connectionId, newMicrophoneTrack);
+              });
+            }
+          }
+        });
+    } catch(e) {
+      logger.error("Failed to set microphone device " + deviceId);
+    }
+
+    connect.core.getUpstream().sendUpstream(connect.EventType.BROADCAST, {
+      event: connect.ConfigurationEvents.MICROPHONE_DEVICE_CHANGED,
+      data: { deviceId: deviceId }
+    });
+  }
+
+  var publishSoftphoneFailureLogs = function (rtcSession, reason) {
+    if (reason === connect.RTCErrors.ICE_COLLECTION_TIMEOUT) {
+      var endPointUrl = "\n";
+      for (var i = 0; i < rtcSession._iceServers.length; i++) {
+        for (var j = 0; j < rtcSession._iceServers[i].urls.length; j++) {
+          endPointUrl = endPointUrl + rtcSession._iceServers[i].urls[j] + "\n";
+        }
+      }
+      publishError(SoftphoneErrorTypes.ICE_COLLECTION_TIMEOUT, "Ice collection timedout. ", endPointUrl);
+    } else if (reason === connect.RTCErrors.USER_BUSY) {
+      publishError(SoftphoneErrorTypes.USER_BUSY_ERROR,
+        "Softphone call UserBusy error. ",
+        "");
+    } else if (reason === connect.RTCErrors.SIGNALLING_HANDSHAKE_FAILURE) {
+      publishError(SoftphoneErrorTypes.SIGNALLING_HANDSHAKE_FAILURE,
+        "Handshaking with Signalling Server " + rtcSession._signalingUri + " failed. ",
+        rtcSession._signalingUri);
+    } else if (reason === connect.RTCErrors.GUM_TIMEOUT_FAILURE || reason === connect.RTCErrors.GUM_OTHER_FAILURE) {
+      publishError(SoftphoneErrorTypes.MICROPHONE_NOT_SHARED,
+        "Your microphone is not enabled in your browser. ",
+        "");
+    } else if (reason === connect.RTCErrors.SIGNALLING_CONNECTION_FAILURE) {
+      publishError(SoftphoneErrorTypes.SIGNALLING_CONNECTION_FAILURE,
+        "URL " + rtcSession._signalingUri + " cannot be reached. ",
+        rtcSession._signalingUri);
+    } else if (reason === connect.RTCErrors.CALL_NOT_FOUND) {
+      // No need to publish any softphone error for this case. CCP UX will handle this case.
+      logger.error("Softphone call failed due to CallNotFoundException.").sendInternalLogToServer();
+    } else {
+      publishError(SoftphoneErrorTypes.WEBRTC_ERROR,
+        "webrtc system error. ",
+        "");
+    }
+  };
+
+  /** Parse the JSON encoded web call config into the data it represents. */
+  var parseCallConfig = function (serializedConfig) {
+    // Our underscore is too old for unescape
+    // https://issues.amazon.com/issues/CSWF-1467
+    var decodedJSON = serializedConfig.replace(/&quot;/g, '"');
+    return JSON.parse(decodedJSON);
+  };
+
+  var fetchUserMedia = function (callbacksIn) {
+    var callbacks = callbacksIn || {};
+    callbacks.success = callbacks.success || function () { };
+    callbacks.failure = callbacks.failure || function () { };
+
+    var CONSTRAINT = {
+      audio: true
+    };
+
+    var promise = null;
+
+    if (typeof Promise !== "function") {
+      callbacks.failure(SoftphoneErrorTypes.UNSUPPORTED_BROWSER);
+      return;
+    }
+
+    if (typeof navigator.mediaDevices === "object" && typeof navigator.mediaDevices.getUserMedia === "function") {
+      promise = navigator.mediaDevices.getUserMedia(CONSTRAINT);
+
+    } else if (typeof navigator.webkitGetUserMedia === "function") {
+      promise = new Promise(function (resolve, reject) {
+        navigator.webkitGetUserMedia(CONSTRAINT, resolve, reject);
+      });
+
+    } else {
+      callbacks.failure(SoftphoneErrorTypes.UNSUPPORTED_BROWSER);
+      return;
+    }
+
+    promise.then(function (stream) {
+      var audioTracks = stream.getAudioTracks();
+      if (audioTracks && audioTracks.length > 0) {
+        callbacks.success(stream);
+      } else {
+        callbacks.failure(SoftphoneErrorTypes.MICROPHONE_NOT_SHARED);
+      }
+    }, function (err) {
+      callbacks.failure(SoftphoneErrorTypes.MICROPHONE_NOT_SHARED);
+    });
+    return promise;
+  };
+
+  var publishError = function (errorType, message, endPointUrl) {
+    logger.error("Softphone error occurred : ", errorType,
+      message || "").sendInternalLogToServer();
+
+    connect.core.getUpstream().sendUpstream(connect.EventType.BROADCAST, {
+      event: connect.AgentEvents.SOFTPHONE_ERROR,
+      data: new connect.SoftphoneError(errorType, message, endPointUrl)
+    });
+  };
+
+  var publishSessionFailureTelemetryEvent = function (contactId, reason) {
+    publishTelemetryEvent("Softphone Session Failed", contactId, {
+      failedReason: reason
+    });
+  };
+
+  var publishTelemetryEvent = function (eventName, contactId, data) {
+    connect.publishMetric({
+      name: eventName,
+      contactId: contactId,
+      data: data
+    });
+  };
+
+  // Publish the contact and agent information in a multiple sessions scenarios
+  var publishMultipleSessionsEvent = function (eventName, contactId, agentConnectionId) {
+    publishTelemetryEvent(eventName, contactId, [{
+      name: "AgentConnectionId",
+      value: agentConnectionId
+    }]);
+    logger.info("Publish multiple session error metrics", eventName, "contactId " + contactId, "agent connectionId " + agentConnectionId)
+      .sendInternalLogToServer();
+  };
+
+  var isBrowserSoftPhoneSupported = function () {
+    // In Opera, the true version is after "Opera" or after "Version"
+    if (connect.isOperaBrowser() && connect.getOperaBrowserVersion() > 17) {
+      return true;
+    }
+    // In Chrome, the true version is after "Chrome"
+    else if (connect.isChromeBrowser() && connect.getChromeBrowserVersion() > 22) {
+      return true;
+    }
+    // In Firefox, the true version is after "Firefox"
+    else if (connect.isFirefoxBrowser() && connect.getFirefoxBrowserVersion() > 21) {
+      return true;
+    } else {
+      return false;
+    }
+  };
+
+  var sendSoftphoneMetrics = function (contact) {
+    var streamStats = timeSeriesStreamStatsBuffer.slice();
+    timeSeriesStreamStatsBuffer = [];
+    if (streamStats.length > 0) {
+      contact.sendSoftphoneMetrics(streamStats, {
+        success: function () {
+          logger.info("sendSoftphoneMetrics success" + JSON.stringify(streamStats))
+            .sendInternalLogToServer();
+        },
+        failure: function (data) {
+          logger.error("sendSoftphoneMetrics failed.")
+            .withObject(data)
+            .sendInternalLogToServer();
+        }
+      });
+    }
+  };
+
+  var sendSoftphoneReport = function (contact, report, userAudioStats, remoteAudioStats) {
+    report.streamStats = [addStreamTypeToStats(userAudioStats, AUDIO_INPUT),
+    addStreamTypeToStats(remoteAudioStats, AUDIO_OUTPUT)];
+    var callReport = {
+      callStartTime: report.sessionStartTime,
+      callEndTime: report.sessionEndTime,
+      gumTimeMillis: report.gumTimeMillis,
+      initializationTimeMillis: report.initializationTimeMillis,
+      iceCollectionTimeMillis: report.iceCollectionTimeMillis,
+      signallingConnectTimeMillis: report.signallingConnectTimeMillis,
+      handshakingTimeMillis: report.handshakingTimeMillis,
+      preTalkingTimeMillis: report.preTalkingTimeMillis,
+      talkingTimeMillis: report.talkingTimeMillis,
+      cleanupTimeMillis: report.cleanupTimeMillis,
+      iceCollectionFailure: report.iceCollectionFailure,
+      signallingConnectionFailure: report.signallingConnectionFailure,
+      handshakingFailure: report.handshakingFailure,
+      gumOtherFailure: report.gumOtherFailure,
+      gumTimeoutFailure: report.gumTimeoutFailure,
+      createOfferFailure: report.createOfferFailure,
+      setLocalDescriptionFailure: report.setLocalDescriptionFailure,
+      userBusyFailure: report.userBusyFailure,
+      invalidRemoteSDPFailure: report.invalidRemoteSDPFailure,
+      noRemoteIceCandidateFailure: report.noRemoteIceCandidateFailure,
+      setRemoteDescriptionFailure: report.setRemoteDescriptionFailure,
+      softphoneStreamStatistics: report.streamStats
+    };
+    contact.sendSoftphoneReport(callReport, {
+      success: function () {
+        logger.info("sendSoftphoneReport success" + JSON.stringify(callReport))
+          .sendInternalLogToServer();
+      },
+      failure: function (data) {
+        logger.error("sendSoftphoneReport failed.")
+          .withObject(data)
+          .sendInternalLogToServer();
+      }
+    });
+  };
+
+  var startStatsCollectionJob = function (rtcSession) {
+    rtpStatsJob = window.setInterval(function () {
+      rtcSession.getUserAudioStats().then(function (stats) {
+        var previousUserStats = aggregatedUserAudioStats;
+        aggregatedUserAudioStats = stats;
+        timeSeriesStreamStatsBuffer.push(getTimeSeriesStats(aggregatedUserAudioStats, previousUserStats, AUDIO_INPUT));
+      }, function (error) {
+        logger.debug("Failed to get user audio stats.", error).sendInternalLogToServer();
+      });
+      rtcSession.getRemoteAudioStats().then(function (stats) {
+        var previousRemoteStats = aggregatedRemoteAudioStats;
+        aggregatedRemoteAudioStats = stats;
+        timeSeriesStreamStatsBuffer.push(getTimeSeriesStats(aggregatedRemoteAudioStats, previousRemoteStats, AUDIO_OUTPUT));
+      }, function (error) {
+        logger.debug("Failed to get remote audio stats.", error).sendInternalLogToServer();
+      });
+    }, 1000);
+  };
+
+  var startStatsReportingJob = function (contact) {
+    reportStatsJob = window.setInterval(function () {
+      sendSoftphoneMetrics(contact);
+    }, statsReportingJobIntervalMs);
+  };
+
+  var initializeParams = function () {
+    aggregatedUserAudioStats = null;
+    aggregatedRemoteAudioStats = null;
+    timeSeriesStreamStatsBuffer = [];
+    rtpStatsJob = null;
+    reportStatsJob = null;
+  };
+
+  var getTimeSeriesStats = function (currentStats, previousStats, streamType) {
+    if (previousStats && currentStats) {
+      var packetsLost = currentStats.packetsLost > previousStats.packetsLost ? currentStats.packetsLost - previousStats.packetsLost : 0;
+      var packetsCount = currentStats.packetsCount > previousStats.packetsCount ? currentStats.packetsCount - previousStats.packetsCount : 0;
+      return new RTPStreamStats(currentStats.timestamp,
+        packetsLost,
+        packetsCount,
+        streamType,
+        currentStats.audioLevel,
+        currentStats.jbMilliseconds,
+        currentStats.rttMilliseconds);
+    } else {
+      return new RTPStreamStats(currentStats.timestamp,
+        currentStats.packetsLost,
+        currentStats.packetsCount,
+        streamType,
+        currentStats.audioLevel,
+        currentStats.jbMilliseconds,
+        currentStats.rttMilliseconds);
+    }
+  };
+
+  var stopJob = function (task) {
+    if (task !== null) {
+      window.clearInterval(task);
+    }
+    return null;
+  };
+
+  var stopJobsAndReport = function (contact, sessionReport) {
+    rtpStatsJob = stopJob(rtpStatsJob);
+    reportStatsJob = stopJob(reportStatsJob);
+    sendSoftphoneReport(contact, sessionReport, addStreamTypeToStats(aggregatedUserAudioStats, AUDIO_INPUT), addStreamTypeToStats(aggregatedRemoteAudioStats, AUDIO_OUTPUT));
+    sendSoftphoneMetrics(contact);
+  };
+
+  /**
+  *   Adding streamtype parameter on top of RTCJS RTStats object.
+  */
+  var RTPStreamStats = function (timestamp, packetsLost, packetsCount, streamType, audioLevel, jitterBufferMillis, roundTripTimeMillis) {
+    this.softphoneStreamType = streamType;
+    this.timestamp = timestamp;
+    this.packetsLost = packetsLost;
+    this.packetsCount = packetsCount;
+    this.audioLevel = audioLevel;
+    this.jitterBufferMillis = jitterBufferMillis;
+    this.roundTripTimeMillis = roundTripTimeMillis;
+  };
+
+  var addStreamTypeToStats = function (stats, streamType) {
+    stats = stats || {};
+    return new RTPStreamStats(stats.timestamp, stats.packetsLost, stats.packetsCount, streamType, stats.audioLevel);
+  };
+
+  var SoftphoneLogger = function (logger) {
+    this._originalLogger = logger;
+    var self = this;
+    this._tee = function (level, method) {
+      return function () {
+        // call the original logger object to output to browser
+        //Connect logger follows %s format to print objects to console.
+        var args = Array.prototype.slice.call(arguments[0]);
+        var format = "";
+        args.forEach(function () {
+          format = format + " %s";
+        });
+        return method.apply(self._originalLogger, [connect.LogComponent.SOFTPHONE, format].concat(args));
+      };
+    };
+  };
+
+  SoftphoneLogger.prototype.debug = function () {
+    return this._tee(1, this._originalLogger.debug)(arguments);
+  };
+  SoftphoneLogger.prototype.info = function () {
+    return this._tee(2, this._originalLogger.info)(arguments);
+  };
+  SoftphoneLogger.prototype.log = function () {
+    return this._tee(3, this._originalLogger.log)(arguments);
+  };
+  SoftphoneLogger.prototype.warn = function () {
+    return this._tee(4, this._originalLogger.warn)(arguments);
+  };
+  SoftphoneLogger.prototype.error = function () {
+    return this._tee(5, this._originalLogger.error)(arguments);
+  };
+
+  connect.SoftphoneManager = SoftphoneManager;
+})();
+
+
+/***/ }),
+
+/***/ 944:
+/***/ (() => {
+
+/*! @license sprintf.js | Copyright (c) 2007-2013 Alexandru Marasteanu <hello at alexei dot ro> | 3 clause BSD license */
+
+(function() {
+   var ctx = this || globalThis;
+
+	var sprintf = function() {
+		if (!sprintf.cache.hasOwnProperty(arguments[0])) {
+			sprintf.cache[arguments[0]] = sprintf.parse(arguments[0]);
+		}
+		return sprintf.format.call(null, sprintf.cache[arguments[0]], arguments);
+	};
+
+	sprintf.format = function(parse_tree, argv) {
+		var cursor = 1, tree_length = parse_tree.length, node_type = '', arg, output = [], i, k, match, pad, pad_character, pad_length;
+		for (i = 0; i < tree_length; i++) {
+			node_type = get_type(parse_tree[i]);
+			if (node_type === 'string') {
+				output.push(parse_tree[i]);
+			}
+			else if (node_type === 'array') {
+				match = parse_tree[i]; // convenience purposes only
+				if (match[2]) { // keyword argument
+					arg = argv[cursor];
+					for (k = 0; k < match[2].length; k++) {
+						if (!arg.hasOwnProperty(match[2][k])) {
+							throw(sprintf('[sprintf] property "%s" does not exist', match[2][k]));
+						}
+						arg = arg[match[2][k]];
+					}
+				}
+				else if (match[1]) { // positional argument (explicit)
+					arg = argv[match[1]];
+				}
+				else { // positional argument (implicit)
+					arg = argv[cursor++];
+				}
+
+				if (/[^s]/.test(match[8]) && (get_type(arg) != 'number')) {
+					throw(sprintf('[sprintf] expecting number but found %s', get_type(arg)));
+				}
+				switch (match[8]) {
+					case 'b': arg = arg.toString(2); break;
+					case 'c': arg = String.fromCharCode(arg); break;
+					case 'd': arg = parseInt(arg, 10); break;
+					case 'e': arg = match[7] ? arg.toExponential(match[7]) : arg.toExponential(); break;
+					case 'f': arg = match[7] ? parseFloat(arg).toFixed(match[7]) : parseFloat(arg); break;
+					case 'o': arg = arg.toString(8); break;
+					case 's': arg = ((arg = String(arg)) && match[7] ? arg.substring(0, match[7]) : arg); break;
+					case 'u': arg = arg >>> 0; break;
+					case 'x': arg = arg.toString(16); break;
+					case 'X': arg = arg.toString(16).toUpperCase(); break;
+				}
+				arg = (/[def]/.test(match[8]) && match[3] && arg >= 0 ? '+'+ arg : arg);
+				pad_character = match[4] ? match[4] == '0' ? '0' : match[4].charAt(1) : ' ';
+				pad_length = match[6] - String(arg).length;
+				pad = match[6] ? str_repeat(pad_character, pad_length) : '';
+				output.push(match[5] ? arg + pad : pad + arg);
+			}
+		}
+		return output.join('');
+	};
+
+	sprintf.cache = {};
+
+	sprintf.parse = function(fmt) {
+		var _fmt = fmt, match = [], parse_tree = [], arg_names = 0;
+		while (_fmt) {
+			if ((match = /^[^\x25]+/.exec(_fmt)) !== null) {
+				parse_tree.push(match[0]);
+			}
+			else if ((match = /^\x25{2}/.exec(_fmt)) !== null) {
+				parse_tree.push('%');
+			}
+			else if ((match = /^\x25(?:([1-9]\d*)\$|\(([^\)]+)\))?(\+)?(0|'[^$])?(-)?(\d+)?(?:\.(\d+))?([b-fosuxX])/.exec(_fmt)) !== null) {
+				if (match[2]) {
+					arg_names |= 1;
+					var field_list = [], replacement_field = match[2], field_match = [];
+					if ((field_match = /^([a-z_][a-z_\d]*)/i.exec(replacement_field)) !== null) {
+						field_list.push(field_match[1]);
+						while ((replacement_field = replacement_field.substring(field_match[0].length)) !== '') {
+							if ((field_match = /^\.([a-z_][a-z_\d]*)/i.exec(replacement_field)) !== null) {
+								field_list.push(field_match[1]);
+							}
+							else if ((field_match = /^\[(\d+)\]/.exec(replacement_field)) !== null) {
+								field_list.push(field_match[1]);
+							}
+							else {
+								throw('[sprintf] huh?');
+							}
+						}
+					}
+					else {
+						throw('[sprintf] huh?');
+					}
+					match[2] = field_list;
+				}
+				else {
+					arg_names |= 2;
+				}
+				if (arg_names === 3) {
+					throw('[sprintf] mixing positional and named placeholders is not (yet) supported');
+				}
+				parse_tree.push(match);
+			}
+			else {
+				throw('[sprintf] huh?');
+			}
+			_fmt = _fmt.substring(match[0].length);
+		}
+		return parse_tree;
+	};
+
+	var vsprintf = function(fmt, argv, _argv) {
+		_argv = argv.slice(0);
+		_argv.splice(0, 0, fmt);
+		return sprintf.apply(null, _argv);
+	};
+
+	/**
+	 * helpers
+	 */
+	function get_type(variable) {
+		return Object.prototype.toString.call(variable).slice(8, -1).toLowerCase();
+	}
+
+	function str_repeat(input, multiplier) {
+		for (var output = []; multiplier > 0; output[--multiplier] = input) {/* do nothing */}
+		return output.join('');
+	}
+
+	/**
+	 * export to either browser or node.js
+	 */
+	ctx.sprintf = sprintf;
+	ctx.vsprintf = vsprintf;
+})();
+
+
+
+/***/ }),
+
+/***/ 82:
+/***/ (() => {
 
 /*
  * Copyright 2014-2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
@@ -22439,8 +30647,8 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
  * SPDX-License-Identifier: Apache-2.0
  */
 (function() {
-   var global = this;
-   connect = global.connect || {};
+   var global = this || globalThis;
+   var connect = global.connect || {};
    global.connect = connect;
    global.lily = connect;
 
@@ -22529,7 +30737,11 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
    };
 
    WindowIOStream.prototype.onMessage = function(f) {
-      this.input.addEventListener("message", f);
+      this.input.addEventListener("message", (message) => {
+         if (message.source === this.output) {
+            f(message);
+         }
+      });
    };
 
    /**---------------------------------------------------------------
@@ -22759,327 +30971,11 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
    connect.IFrameConduit = IFrameConduit;
 })();
 
-/*
- * Copyright 2014-2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
- *
- * SPDX-License-Identifier: Apache-2.0
- */
-(function() {
-   var global = this;
-   connect = global.connect || {};
-   global.connect = connect;
-   global.lily = connect;
 
-   /**---------------------------------------------------------------
-    * enum ClientMethods
-    */
-   connect.ClientMethods = connect.makeEnum([
-         'getAgentSnapshot',
-         'putAgentState',
-         'getAgentStates',
-         'getDialableCountryCodes',
-         'getRoutingProfileQueues',
-         'getAgentPermissions',
-         'getAgentConfiguration',
-         'updateAgentConfiguration',
-         'acceptContact',
-         'createOutboundContact',
-         'completeContact',
-         'destroyContact',
-         'notifyContactIssue',
-         'updateContactAttributes',
-         'createAdditionalConnection',
-         'destroyConnection',
-         'holdConnection',
-         'resumeConnection',
-         'toggleActiveConnections',
-         'conferenceConnections',
-         'sendClientLogs',
-         'sendDigits',
-         'sendSoftphoneCallReport',
-         'sendSoftphoneCallMetrics',
-         'getEndpoints',
-         'getNewAuthToken',
-         'createTransport'
-   ]);
+/***/ }),
 
-   /**---------------------------------------------------------------
-    * enum MasterMethods
-    */
-   connect.MasterMethods = connect.makeEnum([
-         'becomeMaster',
-         'checkMaster'
-   ]);
-
-   /**---------------------------------------------------------------
-    * abstract class ClientBase
-    */
-   var ClientBase = function() {};
-   ClientBase.EMPTY_CALLBACKS = {
-      success: function() { },
-      failure: function() { }
-   };
-
-   ClientBase.prototype.call = function(method, paramsIn, callbacksIn) {
-      connect.assertNotNull(method, 'method');
-      var params = paramsIn || {};
-      var callbacks = callbacksIn || ClientBase.EMPTY_CALLBACKS;
-      this._callImpl(method, params, callbacks);
-   };
-
-   ClientBase.prototype._callImpl = function(method, params, callbacks) {
-      throw new connect.NotImplementedError();
-   };
-
-   /**---------------------------------------------------------------
-    * class NullClient extends ClientBase
-    */
-   var NullClient = function() {
-      ClientBase.call(this);
-   };
-   NullClient.prototype = Object.create(ClientBase.prototype);
-   NullClient.prototype.constructor = NullClient;
-
-   NullClient.prototype._callImpl = function(method, params, callbacks) {
-      if (callbacks && callbacks.failure) {
-         var message = connect.sprintf('No such method exists on NULL client: %s', method);
-         callbacks.failure(new connect.ValueError(message), {message: message});
-      }
-   };
-
-   /**---------------------------------------------------------------
-    * abstract class UpstreamConduitClientBase extends ClientBase
-    */
-   var UpstreamConduitClientBase = function(conduit, requestEvent, responseEvent) {
-      ClientBase.call(this);
-      this.conduit = conduit;
-      this.requestEvent = requestEvent;
-      this.responseEvent = responseEvent;
-      this._requestIdCallbacksMap = {};
-
-      this.conduit.onUpstream(responseEvent, connect.hitch(this, this._handleResponse));
-   };
-
-   UpstreamConduitClientBase.prototype = Object.create(ClientBase.prototype);
-   UpstreamConduitClientBase.prototype.constructor = UpstreamConduitClientBase;
-
-   UpstreamConduitClientBase.prototype._callImpl = function(method, params, callbacks) {
-      var request = connect.EventFactory.createRequest(this.requestEvent, method, params);
-      this._requestIdCallbacksMap[request.requestId] = callbacks;
-      this.conduit.sendUpstream(request.event, request);
-   };
-
-   UpstreamConduitClientBase.prototype._getCallbacksForRequest = function(requestId) {
-      var callbacks = this._requestIdCallbacksMap[requestId] || null;
-
-      if (callbacks != null) {
-         delete this._requestIdCallbacksMap[requestId];
-      }
-
-      return callbacks;
-   };
-
-   UpstreamConduitClientBase.prototype._handleResponse = function(data) {
-      var callbacks = this._getCallbacksForRequest(data.requestId);
-      if (callbacks == null) {
-         return;
-      }
-
-      if (data.err && callbacks.failure) {
-         callbacks.failure(data.err, data.data);
-
-      } else if (callbacks.success) {
-         callbacks.success(data.data);
-      }
-   };
-
-   /**---------------------------------------------------------------
-    * class UpstreamConduitClient extends ClientBase
-    */
-   var UpstreamConduitClient = function(conduit) {
-      UpstreamConduitClientBase.call(this, conduit, connect.EventType.API_REQUEST, connect.EventType.API_RESPONSE);
-   };
-   UpstreamConduitClient.prototype = Object.create(UpstreamConduitClientBase.prototype);
-   UpstreamConduitClient.prototype.constructor = UpstreamConduitClient;
-
-   /**---------------------------------------------------------------
-    * class UpstreamConduitMasterClient extends ClientBase
-    */
-   var UpstreamConduitMasterClient = function(conduit) {
-      UpstreamConduitClientBase.call(this, conduit, connect.EventType.MASTER_REQUEST, connect.EventType.MASTER_RESPONSE);
-   };
-   UpstreamConduitMasterClient.prototype = Object.create(UpstreamConduitClientBase.prototype);
-   UpstreamConduitMasterClient.prototype.constructor = UpstreamConduitMasterClient;
-
-   /**---------------------------------------------------------------
-    * class AWSClient extends ClientBase
-    */
-   var AWSClient = function(authToken, region, endpointIn) {
-      connect.assertNotNull(authToken, 'authToken');
-      connect.assertNotNull(region, 'region');
-      ClientBase.call(this);
-      AWS.config.credentials = new AWS.Credentials({});
-      AWS.config.region = region;
-      this.authToken = authToken;
-      var endpointUrl = endpointIn || connect.getBaseUrl() + '/connect/api';
-      var endpoint = new AWS.Endpoint(endpointUrl);
-      this.client = new AWS.Connect({endpoint: endpoint});
-   };
-   AWSClient.prototype = Object.create(ClientBase.prototype);
-   AWSClient.prototype.constructor = AWSClient;
-
-   AWSClient.prototype._callImpl = function(method, params, callbacks) {
-      var self = this;
-      var log = connect.getLog();
-
-      if (! connect.contains(this.client, method)) {
-         var message = connect.sprintf('No such method exists on AWS client: %s', method);
-         callbacks.failure(new connect.ValueError(message), {message: message});
-
-      } else {
-         params = this._translateParams(method, params);
-
-         log.trace("AWSClient: --> Calling operation '%s'", method);
-
-         this.client[method](params)
-            .on('build', function(request) {
-               request.httpRequest.headers['X-Amz-Bearer'] = self.authToken;
-            })
-            .send(function(err, data) {
-               try {
-                  if (err) {
-                     if (err.code === connect.CTIExceptions.UNAUTHORIZED_EXCEPTION) {
-                        callbacks.authFailure();
-                     } else if (callbacks.accessDenied && (err.code === connect.CTIExceptions.ACCESS_DENIED_EXCEPTION || err.statusCode === 403)) {
-                        callbacks.accessDenied();
-                     } else {
-                        // Can't pass err directly to postMessage
-                        // postMessage() tries to clone the err object and failed.
-                        // Refer to https://github.com/goatslacker/alt-devtool/issues/5
-                        var error = {};
-                        error.type = err.code;
-                        error.message = err.message;
-                        error.stack = err.stack ? err.stack.split('\n') : [];
-                        callbacks.failure(error, data);
-                     }
-
-                     log.trace("AWSClient: <-- Operation '%s' failed: %s", method, JSON.stringify(err));
-
-                  } else {
-                     log.trace("AWSClient: <-- Operation '%s' succeeded.", method).withObject(data);
-                     callbacks.success(data);
-                  }
-               } catch (e) {
-                  connect.getLog().error("Failed to handle AWS API request for method %s", method)
-                        .withException(e);
-               }
-            });
-      }
-   };
-
-   AWSClient.prototype._requiresAuthenticationParam = function(method) {
-      return method !== connect.ClientMethods.COMPLETE_CONTACT;
-   };
-
-   AWSClient.prototype._translateParams = function(method, params) {
-      switch (method) {
-         case connect.ClientMethods.UPDATE_AGENT_CONFIGURATION:
-            params.configuration = this._translateAgentConfiguration(params.configuration);
-            break;
-
-         case connect.ClientMethods.SEND_SOFTPHONE_CALL_METRICS:
-            params.softphoneStreamStatistics = this._translateSoftphoneStreamStatistics(
-                  params.softphoneStreamStatistics);
-            break;
-
-         case connect.ClientMethods.SEND_SOFTPHONE_CALL_REPORT:
-            params.report = this._translateSoftphoneCallReport(params.report);
-            break;
-
-         default:
-            break;
-      }
-
-      if (this._requiresAuthenticationParam(method)) {
-         params.authentication = {
-            authToken: this.authToken
-         };
-      }
-
-      return params;
-   };
-
-   AWSClient.prototype._translateAgentConfiguration = function(config) {
-      return {
-         name: config.name,
-         softphoneEnabled: config.softphoneEnabled,
-         softphoneAutoAccept: config.softphoneAutoAccept,
-         extension: config.extension,
-         routingProfile: this._translateRoutingProfile(config.routingProfile),
-         agentPreferences: config.agentPreferences
-      };
-   };
-
-   AWSClient.prototype._translateRoutingProfile = function(profile) {
-      return {
-         name: profile.name,
-         routingProfileARN: profile.routingProfileARN,
-         defaultOutboundQueue: this._translateQueue(profile.defaultOutboundQueue)
-      };
-   };
-
-   AWSClient.prototype._translateQueue = function(queue) {
-      return {
-         queueARN:   queue.queueARN,
-         name:       queue.name
-      };
-   };
-
-   AWSClient.prototype._translateSoftphoneStreamStatistics = function(stats) {
-      stats.forEach(function(stat) {
-         if ('packetsCount' in stat) {
-            stat.packetCount = stat.packetsCount;
-            delete stat.packetsCount;
-         }
-      });
-
-      return stats;
-   };
-
-   AWSClient.prototype._translateSoftphoneCallReport = function(report) {
-      if ('handshakingTimeMillis' in report) {
-         report.handshakeTimeMillis = report.handshakingTimeMillis;
-         delete report.handshakingTimeMillis;
-      }
-
-      if ('preTalkingTimeMillis' in report) {
-         report.preTalkTimeMillis = report.preTalkingTimeMillis;
-         delete report.preTalkingTimeMillis;
-      }
-
-      if ('handshakingFailure' in report) {
-         report.handshakeFailure = report.handshakingFailure;
-         delete report.handshakingFailure;
-      }
-
-      if ('talkingTimeMillis' in report) {
-         report.talkTimeMillis = report.talkingTimeMillis;
-         delete report.talkingTimeMillis;
-      }
-
-      report.softphoneStreamStatistics = this._translateSoftphoneStreamStatistics(
-            report.softphoneStreamStatistics);
-
-      return report;
-   };
-
-   connect.ClientBase = ClientBase;
-   connect.NullClient = NullClient;
-   connect.UpstreamConduitClient = UpstreamConduitClient;
-   connect.UpstreamConduitMasterClient = UpstreamConduitMasterClient;
-   connect.AWSClient = AWSClient;
-
-})();
+/***/ 833:
+/***/ (() => {
 
 /*
  * Copyright 2014-2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
@@ -23087,8 +30983,8 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
  * SPDX-License-Identifier: Apache-2.0
  */
 (function() {
-   var global = this;
-   connect = global.connect || {};
+   var global = this || globalThis;
+   var connect = global.connect || {};
    global.connect = connect;
    global.lily = connect;
 
@@ -23248,1169 +31144,11 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
 
 })();
 
-/*
- * Copyright 2014-2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
- *
- * SPDX-License-Identifier: Apache-2.0
- */
-(function () {
-  var global = this;
-  connect = global.connect || {};
-  global.connect = connect;
-  global.lily = connect;
 
-  /*----------------------------------------------------------------
-   * enum AgentStateType
-   */
-  connect.AgentStateType = connect.makeEnum([
-    'init',
-    'routable',
-    'not_routable',
-    'offline'
-  ]);
-  connect.AgentStatusType = connect.AgentStateType;
+/***/ }),
 
-  /**
-   * enum AgentAvailStates
-   */
-  connect.AgentAvailStates = connect.makeEnum([
-    'Init',
-    'Busy',
-    'AfterCallWork',
-    'CallingCustomer',
-    'Dialing',
-    'Joining',
-    'PendingAvailable',
-    'PendingBusy'
-  ]);
-
-  /**
-   * enum AgentErrorStates
-   */
-  connect.AgentErrorStates = connect.makeEnum([
-    'Error',
-    'AgentHungUp',
-    'BadAddressAgent',
-    'BadAddressCustomer',
-    'Default',
-    'FailedConnectAgent',
-    'FailedConnectCustomer',
-    'LineEngagedAgent',
-    'LineEngagedCustomer',
-    'MissedCallAgent',
-    'MissedCallCustomer',
-    'MultipleCcpWindows',
-    'RealtimeCommunicationError'
-  ]);
-
-  /*----------------------------------------------------------------
-   * enum AddressType
-   */
-  connect.EndpointType = connect.makeEnum([
-    'phone_number',
-    'agent',
-    'queue'
-  ]);
-  connect.AddressType = connect.EndpointType;
-
-  /*----------------------------------------------------------------
-   * enum ConnectionType
-   */
-  connect.ConnectionType = connect.makeEnum([
-    'agent',
-    'inbound',
-    'outbound',
-    'monitoring'
-  ]);
-
-  /*----------------------------------------------------------------
-   * enum ConnectionStateType
-   */
-  connect.ConnectionStateType = connect.makeEnum([
-    'init',
-    'connecting',
-    'connected',
-    'hold',
-    'disconnected'
-  ]);
-  connect.ConnectionStatusType = connect.ConnectionStateType;
-
-  connect.CONNECTION_ACTIVE_STATES = connect.set([
-    connect.ConnectionStateType.CONNECTING,
-    connect.ConnectionStateType.CONNECTED,
-    connect.ConnectionStateType.HOLD
-  ]);
-
-  /*----------------------------------------------------------------
-   * enum ContactStateType
-   */
-  connect.ContactStateType = connect.makeEnum([
-    'init',
-    'incoming',
-    'pending',
-    'connecting',
-    'connected',
-    'missed',
-    'error',
-    'ended'
-  ]);
-  connect.ContactStatusType = connect.ContactStateType;
-
-  connect.CONTACT_ACTIVE_STATES = connect.makeEnum([
-    'incoming',
-    'pending',
-    'connecting',
-    'connected'
-  ]);
-
-  /*----------------------------------------------------------------
-   * enum ContactType
-   */
-  connect.ContactType = connect.makeEnum([
-    'voice',
-    'queue_callback',
-    'chat'
-  ]);
-
-  /*----------------------------------------------------------------
-  * enum ChannelType
-  */
-  connect.ChannelType = connect.makeEnum([
-    'VOICE',
-    'CHAT'
-  ]);
-
-  /*----------------------------------------------------------------
-  * enum MediaType
-  */
-  connect.MediaType = connect.makeEnum([
-    'softphone',
-    'chat'
-  ]);
-
-  /*----------------------------------------------------------------
-   * enum SoftphoneCallType
-   */
-  connect.SoftphoneCallType = connect.makeEnum([
-    'audio_video',
-    'video_only',
-    'audio_only',
-    'none'
-  ]);
-
-  /*----------------------------------------------------------------
-   * enum for SoftphoneErrorTypes
-   */
-  connect.SoftphoneErrorTypes = connect.makeEnum([
-    'unsupported_browser',
-    'microphone_not_shared',
-    'signalling_handshake_failure',
-    'signalling_connection_failure',
-    'ice_collection_timeout',
-    'user_busy_error',
-    'webrtc_error',
-    'realtime_communication_error',
-    'other'
-  ]);
-
-  /*----------------------------------------------------------------
-   * enum for CTI exceptions
-   */
-  connect.CTIExceptions = connect.makeEnum([
-    "AccessDeniedException",
-    "InvalidStateException",
-    "BadEndpointException",
-    "InvalidAgentARNException",
-    "InvalidConfigurationException",
-    "InvalidContactTypeException",
-    "PaginationException",
-    "RefreshTokenExpiredException",
-    "SendDataFailedException",
-    "UnauthorizedException"
-  ]);
-  /*----------------------------------------------------------------
-   * class Agent
-   */
-  var Agent = function () {
-    if (!connect.agent.initialized) {
-      throw new connect.StateError("The agent is not yet initialized!");
-    }
-  };
-
-  Agent.prototype._getData = function () {
-    return connect.core.getAgentDataProvider().getAgentData();
-  };
-
-  Agent.prototype._createContactAPI = function (contactData) {
-    return new connect.Contact(contactData.contactId);
-  };
-
-  Agent.prototype.onContactPending = function (f) {
-    var bus = connect.core.getEventBus();
-    bus.subscribe(connect.AgentEvents.CONTACT_PENDING, f);
-  };
-
-  Agent.prototype.onRefresh = function (f) {
-    var bus = connect.core.getEventBus();
-    bus.subscribe(connect.AgentEvents.REFRESH, f);
-  };
-
-  Agent.prototype.onRoutable = function (f) {
-    var bus = connect.core.getEventBus();
-    bus.subscribe(connect.AgentEvents.ROUTABLE, f);
-  };
-
-  Agent.prototype.onNotRoutable = function (f) {
-    var bus = connect.core.getEventBus();
-    bus.subscribe(connect.AgentEvents.NOT_ROUTABLE, f);
-  };
-
-  Agent.prototype.onOffline = function (f) {
-    var bus = connect.core.getEventBus();
-    bus.subscribe(connect.AgentEvents.OFFLINE, f);
-  };
-
-  Agent.prototype.onError = function (f) {
-    var bus = connect.core.getEventBus();
-    bus.subscribe(connect.AgentEvents.ERROR, f);
-  };
-
-  Agent.prototype.onSoftphoneError = function (f) {
-    var bus = connect.core.getEventBus();
-    bus.subscribe(connect.AgentEvents.SOFTPHONE_ERROR, f);
-  };
-
-  Agent.prototype.onAfterCallWork = function (f) {
-    var bus = connect.core.getEventBus();
-    bus.subscribe(connect.AgentEvents.ACW, f);
-  };
-
-  Agent.prototype.onStateChange = function (f) {
-    var bus = connect.core.getEventBus();
-    bus.subscribe(connect.AgentEvents.STATE_CHANGE, f);
-  };
-
-  Agent.prototype.onMuteToggle = function (f) {
-    connect.core.getUpstream().onUpstream(connect.AgentEvents.MUTE_TOGGLE, f);
-  };
-
-  Agent.prototype.mute = function () {
-    connect.core.getUpstream().sendUpstream(connect.EventType.BROADCAST,
-      {
-        event: connect.EventType.MUTE,
-        data: { mute: true }
-      });
-  };
-
-  Agent.prototype.unmute = function () {
-    connect.core.getUpstream().sendUpstream(connect.EventType.BROADCAST,
-      {
-        event: connect.EventType.MUTE,
-        data: { mute: false }
-      });
-  };
-
-  Agent.prototype.getState = function () {
-    return this._getData().snapshot.state;
-  };
-
-  Agent.prototype.getStatus = Agent.prototype.getState;
-
-  Agent.prototype.getStateDuration = function () {
-    return connect.now() - this._getData().snapshot.state.startTimestamp.getTime() + connect.core.getSkew();
-  };
-
-  Agent.prototype.getStatusDuration = Agent.prototype.getStateDuration;
-
-  Agent.prototype.getPermissions = function () {
-    return this.getConfiguration().permissions;
-  };
-
-  Agent.prototype.getContacts = function (contactTypeFilter) {
-    var self = this;
-    return this._getData().snapshot.contacts.map(function (contactData) {
-      return self._createContactAPI(contactData);
-    }).filter(function (contact) {
-      return (!contactTypeFilter) || contact.getType() === contactTypeFilter;
-    });
-  };
-
-  Agent.prototype.getConfiguration = function () {
-    return this._getData().configuration;
-  };
-
-  Agent.prototype.getAgentStates = function () {
-    return this.getConfiguration().agentStates;
-  };
-
-  Agent.prototype.getRoutingProfile = function () {
-    return this.getConfiguration().routingProfile;
-  };
-
-  Agent.prototype.getChannelConcurrency = function (channel) {
-    var channelConcurrencyMap = this.getRoutingProfile().channelConcurrencyMap;
-    if (!channelConcurrencyMap) {
-      channelConcurrencyMap = Object.keys(connect.ChannelType).reduce(function (acc, key) {
-        acc[connect.ChannelType[key]] = 1;
-        return acc;
-      }, {});
-    }
-    return channel
-      ? (channelConcurrencyMap[channel] || 0)
-      : channelConcurrencyMap;
-  };
-
-  Agent.prototype.getName = function () {
-    return this.getConfiguration().name;
-  };
-
-  Agent.prototype.getExtension = function () {
-    return this.getConfiguration().extension;
-  };
-
-  Agent.prototype.getDialableCountries = function () {
-    return this.getConfiguration().dialableCountries;
-  };
-
-  Agent.prototype.isSoftphoneEnabled = function () {
-    return this.getConfiguration().softphoneEnabled;
-  };
-
-  Agent.prototype.setConfiguration = function (configuration, callbacks) {
-    var client = connect.core.getClient();
-    client.call(connect.ClientMethods.UPDATE_AGENT_CONFIGURATION, {
-      configuration: connect.assertNotNull(configuration, 'configuration')
-    }, {
-        success: function (data) {
-          // We need to ask the shared worker to reload agent config
-          // once we change it so every tab has accurate config.
-          var conduit = connect.core.getUpstream();
-          conduit.sendUpstream(connect.EventType.RELOAD_AGENT_CONFIGURATION);
-
-          if (callbacks.success) {
-            callbacks.success(data);
-          }
-        },
-        failure: callbacks.failure
-      });
-  };
-
-  Agent.prototype.setState = function (state, callbacks) {
-    var client = connect.core.getClient();
-    client.call(connect.ClientMethods.PUT_AGENT_STATE, {
-      state: connect.assertNotNull(state, 'state')
-    }, callbacks);
-  };
-
-  Agent.prototype.setStatus = Agent.prototype.setState;
-
-  Agent.prototype.connect = function (endpointIn, params) {
-    var client = connect.core.getClient();
-    var endpoint = new connect.Endpoint(endpointIn);
-    // Have to remove the endpointId field or AWS JS SDK gets mad.
-    delete endpoint.endpointId;
-
-    client.call(connect.ClientMethods.CREATE_OUTBOUND_CONTACT, {
-      endpoint: connect.assertNotNull(endpoint, 'endpoint'),
-      queueARN: params.queueARN || params.queueId || this.getRoutingProfile().defaultOutboundQueue.queueARN
-    }, {
-        success: params.success,
-        failure: params.failure
-      });
-  };
-
-  Agent.prototype.getAllQueueARNs = function () {
-    return this.getConfiguration().routingProfile.queues.map(function (queue) {
-      return queue.queueARN;
-    });
-  };
-
-  Agent.prototype.getEndpoints = function (queueARNs, callbacks, pageInfoIn) {
-    var self = this;
-    var client = connect.core.getClient();
-    var pageInfo = pageInfoIn || { endpoints: [] };
-
-    pageInfo.maxResults = pageInfo.maxResults || connect.DEFAULT_BATCH_SIZE;
-
-    // Backwards compatibility allowing a single queueARN to be specified
-    // instead of an array.
-    if (!connect.isArray(queueARNs)) {
-      queueARNs = [queueARNs];
-    }
-
-    client.call(connect.ClientMethods.GET_ENDPOINTS, {
-      queueARNs: queueARNs,
-      nextToken: pageInfo.nextToken || null,
-      maxResults: pageInfo.maxResults
-    }, {
-        success: function (data) {
-          if (data.nextToken) {
-            self.getEndpoints(queueARNs, callbacks, {
-              nextToken: data.nextToken,
-              maxResults: pageInfo.maxResults,
-              endpoints: pageInfo.endpoints.concat(data.endpoints)
-            });
-          } else {
-            pageInfo.endpoints = pageInfo.endpoints.concat(data.endpoints);
-            var endpoints = pageInfo.endpoints.map(function (endpoint) {
-              return new connect.Endpoint(endpoint);
-            });
-
-            callbacks.success({
-              endpoints: endpoints,
-              addresses: endpoints
-            });
-          }
-        },
-        failure: callbacks.failure
-      });
-  };
-
-  Agent.prototype.getAddresses = Agent.prototype.getEndpoints;
-
-  Agent.prototype.toSnapshot = function () {
-    return new connect.AgentSnapshot(this._getData());
-  };
-
-  /*----------------------------------------------------------------
-   * class AgentSnapshot
-   */
-  var AgentSnapshot = function (agentData) {
-    connect.Agent.call(this);
-    this.agentData = agentData;
-  };
-  AgentSnapshot.prototype = Object.create(Agent.prototype);
-  AgentSnapshot.prototype.constructor = AgentSnapshot;
-
-  AgentSnapshot.prototype._getData = function () {
-    return this.agentData;
-  };
-
-  AgentSnapshot.prototype._createContactAPI = function (contactData) {
-    return new connect.ContactSnapshot(contactData);
-  };
-
-  /*----------------------------------------------------------------
-   * class Contact
-   */
-  var Contact = function (contactId) {
-    this.contactId = contactId;
-  };
-
-  Contact.prototype._getData = function () {
-    return connect.core.getAgentDataProvider().getContactData(this.getContactId());
-  };
-
-  Contact.prototype._createConnectionAPI = function (connectionData) {
-    if (this.getType() === connect.ContactType.CHAT) {
-      return new connect.ChatConnection(this.contactId, connectionData.connectionId);
-    } else {
-      return new connect.VoiceConnection(this.contactId, connectionData.connectionId);
-    }
-  };
-
-  Contact.prototype.getEventName = function (eventName) {
-    return connect.core.getContactEventName(eventName, this.getContactId());
-  };
-
-  Contact.prototype.onRefresh = function (f) {
-    var bus = connect.core.getEventBus();
-    bus.subscribe(this.getEventName(connect.ContactEvents.REFRESH), f);
-  };
-
-  Contact.prototype.onIncoming = function (f) {
-    var bus = connect.core.getEventBus();
-    bus.subscribe(this.getEventName(connect.ContactEvents.INCOMING), f);
-  };
-
-  Contact.prototype.onConnecting = function (f) {
-    var bus = connect.core.getEventBus();
-    bus.subscribe(this.getEventName(connect.ContactEvents.CONNECTING), f);
-  };
-
-  Contact.prototype.onPending = function (f) {
-    var bus = connect.core.getEventBus();
-    bus.subscribe(this.getEventName(connect.ContactEvents.PENDING), f);
-  };
-
-  Contact.prototype.onAccepted = function (f) {
-    var bus = connect.core.getEventBus();
-    bus.subscribe(this.getEventName(connect.ContactEvents.ACCEPTED), f);
-  };
-
-  Contact.prototype.onMissed = function (f) {
-    var bus = connect.core.getEventBus();
-    bus.subscribe(this.getEventName(connect.ContactEvents.MISSED), f);
-  };
-
-  Contact.prototype.onEnded = function (f) {
-    var bus = connect.core.getEventBus();
-    bus.subscribe(this.getEventName(connect.ContactEvents.ENDED), f);
-    bus.subscribe(this.getEventName(connect.ContactEvents.DESTROYED), f);
-  };
-
-  Contact.prototype.onDestroy = function (f) {
-    var bus = connect.core.getEventBus();
-    bus.subscribe(this.getEventName(connect.ContactEvents.DESTROYED), f);
-  };
-
-  Contact.prototype.onACW = function (f) {
-    var bus = connect.core.getEventBus();
-    bus.subscribe(this.getEventName(connect.ContactEvents.ACW), f);
-  };
-
-  Contact.prototype.onConnected = function (f) {
-    var bus = connect.core.getEventBus();
-    bus.subscribe(this.getEventName(connect.ContactEvents.CONNECTED), f);
-  };
-
-  Contact.prototype.getContactId = function () {
-    return this.contactId;
-  };
-
-  Contact.prototype.getOriginalContactId = function () {
-    return this._getData().initialContactId;
-  };
-  Contact.prototype.getInitialContactId = Contact.prototype.getOriginalContactId;
-
-  Contact.prototype.getType = function () {
-    return this._getData().type;
-  };
-
-  Contact.prototype.getStatus = function () {
-    return this._getData().state;
-  };
-
-  Contact.prototype.getStatusDuration = function () {
-    return connect.now() - this._getData().state.timestamp.getTime() + connect.core.getSkew();
-  };
-
-  Contact.prototype.getQueue = function () {
-    return this._getData().queue;
-  };
-
-  Contact.prototype.getQueueTimestamp = function () {
-    return this._getData().queueTimestamp;
-  };
-
-  Contact.prototype.getConnections = function () {
-    var self = this;
-    return this._getData().connections.map(function (connData) {
-      if (self.getType() === connect.ContactType.CHAT) {
-        return new connect.ChatConnection(self.contactId, connData.connectionId);
-      } else {
-        return new connect.VoiceConnection(self.contactId, connData.connectionId);
-      }
-    });
-  };
-
-  Contact.prototype.getInitialConnection = function () {
-    return connect.find(this.getConnections(), function (conn) {
-      return conn.isInitialConnection();
-    }) || null;
-  };
-
-  Contact.prototype.getActiveInitialConnection = function () {
-    var initialConn = this.getInitialConnection();
-    if (initialConn != null && initialConn.isActive()) {
-      return initialConn;
-    } else {
-      return null;
-    }
-  };
-
-  Contact.prototype.getThirdPartyConnections = function () {
-    return this.getConnections().filter(function (conn) {
-      return !conn.isInitialConnection() && conn.getType() !== connect.ConnectionType.AGENT;
-    });
-  };
-
-  Contact.prototype.getSingleActiveThirdPartyConnection = function () {
-    return this.getThirdPartyConnections().filter(function (conn) {
-      return conn.isActive();
-    })[0] || null;
-  };
-
-  Contact.prototype.getAgentConnection = function () {
-    return connect.find(this.getConnections(), function (conn) {
-      var connType = conn.getType();
-      return connType === connect.ConnectionType.AGENT || connType === connect.ConnectionType.MONITORING;
-    });
-  };
-
-  Contact.prototype.getAttributes = function () {
-    return this._getData().attributes;
-  };
-
-  Contact.prototype.isSoftphoneCall = function () {
-    return connect.find(this.getConnections(), function (conn) {
-      return conn.getSoftphoneMediaInfo() != null;
-    }) != null;
-  };
-
-  Contact.prototype.isInbound = function () {
-    var conn = this.getInitialConnection();
-    return conn ? conn.getType() === connect.ConnectionType.INBOUND : false;
-  };
-
-  Contact.prototype.isConnected = function () {
-    return this.getStatus().type === connect.ContactStateType.CONNECTED;
-  };
-
-  Contact.prototype.accept = function (callbacks) {
-    var client = connect.core.getClient();
-    var self = this;
-    client.call(connect.ClientMethods.ACCEPT_CONTACT, {
-      contactId: this.getContactId()
-    }, {
-        success: function (data) {
-          var conduit = connect.core.getUpstream();
-          conduit.sendUpstream(connect.EventType.BROADCAST, {
-            event: connect.ContactEvents.ACCEPTED
-          });
-          conduit.sendUpstream(connect.EventType.BROADCAST, {
-            event: connect.core.getContactEventName(connect.ContactEvents.ACCEPTED,
-              self.getContactId())
-          });
-
-          if (callbacks && callbacks.success) {
-            callbacks.success(data);
-          }
-        },
-        failure: callbacks ? callbacks.failure : null
-      });
-  };
-
-  Contact.prototype.destroy = function (callbacks) {
-    var client = connect.core.getClient();
-    client.call(connect.ClientMethods.DESTROY_CONTACT, {
-      contactId: this.getContactId()
-    }, callbacks);
-  };
-
-  Contact.prototype.complete = function (callbacks) {
-    var client = connect.core.getClient();
-    client.call(connect.ClientMethods.COMPLETE_CONTACT, {
-      contactId: this.getContactId()
-    }, callbacks);
-  };
-
-  Contact.prototype.notifyIssue = function (issueCode, description, callbacks) {
-    var client = connect.core.getClient();
-    client.call(connect.ClientMethods.NOTIFY_CONTACT_ISSUE, {
-      contactId: this.getContactId(),
-      issueCode: issueCode,
-      description: description
-    }, callbacks);
-  };
-
-  Contact.prototype.addConnection = function (endpointIn, callbacks) {
-    var client = connect.core.getClient();
-    var endpoint = new connect.Endpoint(endpointIn);
-    // Have to remove the endpointId field or AWS JS SDK gets mad.
-    delete endpoint.endpointId;
-
-    client.call(connect.ClientMethods.CREATE_ADDITIONAL_CONNECTION, {
-      contactId: this.getContactId(),
-      endpoint: endpoint
-    }, callbacks);
-  };
-
-  Contact.prototype.toggleActiveConnections = function (callbacks) {
-    var client = connect.core.getClient();
-    var connectionId = null;
-    var holdingConn = connect.find(this.getConnections(), function (conn) {
-      return conn.getStatus().type === connect.ConnectionStateType.HOLD;
-    });
-
-    if (holdingConn != null) {
-      connectionId = holdingConn.getConnectionId();
-
-    } else {
-      var activeConns = this.getConnections().filter(function (conn) {
-        return conn.isActive();
-      });
-      if (activeConns.length > 0) {
-        connectionId = activeConns[0].getConnectionId();
-      }
-    }
-
-    client.call(connect.ClientMethods.TOGGLE_ACTIVE_CONNECTIONS, {
-      contactId: this.getContactId(),
-      connectionId: connectionId
-    }, callbacks);
-  };
-
-  Contact.prototype.sendSoftphoneMetrics = function (softphoneStreamStatistics, callbacks) {
-    var client = connect.core.getClient();
-    client.call(connect.ClientMethods.SEND_SOFTPHONE_CALL_METRICS, {
-      contactId: this.getContactId(),
-      softphoneStreamStatistics: softphoneStreamStatistics
-    }, callbacks);
-  };
-
-  Contact.prototype.sendSoftphoneReport = function (report, callbacks) {
-    var client = connect.core.getClient();
-    client.call(connect.ClientMethods.SEND_SOFTPHONE_CALL_REPORT, {
-      contactId: this.getContactId(),
-      report: report
-    }, callbacks);
-  };
-
-  Contact.prototype.conferenceConnections = function (callbacks) {
-    var client = connect.core.getClient();
-    client.call(connect.ClientMethods.CONFERENCE_CONNECTIONS, {
-      contactId: this.getContactId()
-    }, callbacks);
-  };
-
-  Contact.prototype.toSnapshot = function () {
-    return new connect.ContactSnapshot(this._getData());
-  };
-
-  /*----------------------------------------------------------------
-   * class ContactSnapshot
-   */
-  var ContactSnapshot = function (contactData) {
-    connect.Contact.call(this, contactData.contactId);
-    this.contactData = contactData;
-  };
-  ContactSnapshot.prototype = Object.create(Contact.prototype);
-  ContactSnapshot.prototype.constructor = ContactSnapshot;
-
-  ContactSnapshot.prototype._getData = function () {
-    return this.contactData;
-  };
-
-  ContactSnapshot.prototype._createConnectionAPI = function (connectionData) {
-    return new connect.ConnectionSnapshot(connectionData);
-  };
-
-  /*----------------------------------------------------------------
-   * class Connection
-   */
-  var Connection = function (contactId, connectionId) {
-    this.contactId = contactId;
-    this.connectionId = connectionId;
-    this._initMediaController();
-  };
-
-  Connection.prototype._getData = function () {
-    return connect.core.getAgentDataProvider().getConnectionData(
-      this.getContactId(), this.getConnectionId());
-  };
-
-  Connection.prototype.getContactId = function () {
-    return this.contactId;
-  };
-
-  Connection.prototype.getConnectionId = function () {
-    return this.connectionId;
-  };
-
-  Connection.prototype.getEndpoint = function () {
-    return new connect.Endpoint(this._getData().endpoint);
-  };
-
-  Connection.prototype.getAddress = Connection.prototype.getEndpoint;
-
-  Connection.prototype.getStatus = function () {
-    return this._getData().state;
-  };
-
-  Connection.prototype.getStatusDuration = function () {
-    return connect.now() - this._getData().state.timestamp.getTime() + connect.core.getSkew();
-  };
-
-  Connection.prototype.getType = function () {
-    return this._getData().type;
-  };
-
-  Connection.prototype.isInitialConnection = function () {
-    return this._getData().initial;
-  };
-
-  Connection.prototype.isActive = function () {
-    return connect.contains(connect.CONNECTION_ACTIVE_STATES, this.getStatus().type);
-  };
-
-  Connection.prototype.isConnected = function () {
-    return this.getStatus().type === connect.ConnectionStateType.CONNECTED;
-  };
-
-  Connection.prototype.isConnecting = function () {
-    return this.getStatus().type === connect.ConnectionStateType.CONNECTING;
-  };
-
-  Connection.prototype.isOnHold = function () {
-    return this.getStatus().type === connect.ConnectionStateType.HOLD;
-  };
-
-  Connection.prototype.getSoftphoneMediaInfo = function () {
-    return this._getData().softphoneMediaInfo;
-  };
-
-  /**
-   * Gets the currently monitored contact info, Returns null if does not exists.
-   * @return {{agentName:string, customerName:string, joinTime:Date}}
-   */
-  Connection.prototype.getMonitorInfo = function () {
-    return this._getData().monitoringInfo;
-  };
-
-  Connection.prototype.destroy = function (callbacks) {
-    var client = connect.core.getClient();
-    client.call(connect.ClientMethods.DESTROY_CONNECTION, {
-      contactId: this.getContactId(),
-      connectionId: this.getConnectionId()
-    }, callbacks);
-  };
-
-  Connection.prototype.sendDigits = function (digits, callbacks) {
-    var client = connect.core.getClient();
-    client.call(connect.ClientMethods.SEND_DIGITS, {
-      contactId: this.getContactId(),
-      connectionId: this.getConnectionId(),
-      digits: digits
-    }, callbacks);
-  };
-
-  Connection.prototype.hold = function (callbacks) {
-    var client = connect.core.getClient();
-    client.call(connect.ClientMethods.HOLD_CONNECTION, {
-      contactId: this.getContactId(),
-      connectionId: this.getConnectionId()
-    }, callbacks);
-  };
-
-  Connection.prototype.resume = function (callbacks) {
-    var client = connect.core.getClient();
-    client.call(connect.ClientMethods.RESUME_CONNECTION, {
-      contactId: this.getContactId(),
-      connectionId: this.getConnectionId()
-    }, callbacks);
-  };
-
-  Connection.prototype.toSnapshot = function () {
-    return new connect.ConnectionSnapshot(this._getData());
-  };
-
-  Connection.prototype._initMediaController = function () {
-    if (this.getMediaInfo()) {
-      connect.core.mediaFactory.get(this).catch(function () { });
-    }
-  }
-
-  /**
-   * Utility method for checking whether this connection is an agent-side connection 
-   * (type AGENT or MONITORING)
-   * @return {boolean} True if this connection is an agent-side connection. False otherwise.
-   */
-  Connection.prototype._isAgentConnectionType = function () {
-    var connectionType = this.getType();
-    return connectionType === connect.ConnectionType.AGENT 
-      || connectionType === connect.ConnectionType.MONITORING;
-  }
-
-  /**
-   * @class VoiceConnection
-   * @param {number} contactId 
-   * @param {number} connectionId 
-   * @description - Provides voice media specific operations
-   */
-  var VoiceConnection = function (contactId, connectionId) {
-    Connection.call(this, contactId, connectionId);
-  };
-
-  VoiceConnection.prototype = Object.create(Connection.prototype);
-  VoiceConnection.prototype.constructor = VoiceConnection;
-
-  VoiceConnection.prototype.sendDigits = function (digits, callbacks) {
-    var client = connect.core.getClient();
-    client.call(connect.ClientMethods.SEND_DIGITS, {
-      contactId: this.getContactId(),
-      connectionId: this.getConnectionId(),
-      digits: digits
-    }, callbacks);
-  };
-
-  VoiceConnection.prototype.hold = function (callbacks) {
-    var client = connect.core.getClient();
-    client.call(connect.ClientMethods.HOLD_CONNECTION, {
-      contactId: this.getContactId(),
-      connectionId: this.getConnectionId()
-    }, callbacks);
-  };
-
-  VoiceConnection.prototype.resume = function (callbacks) {
-    var client = connect.core.getClient();
-    client.call(connect.ClientMethods.RESUME_CONNECTION, {
-      contactId: this.getContactId(),
-      connectionId: this.getConnectionId()
-    }, callbacks);
-  };
-
-  VoiceConnection.prototype.isOnHold = function () {
-    return this.getStatus().type === connect.ConnectionStateType.HOLD;
-  };
-
-  /**
-  * @deprecated
-  * Please use getMediaInfo 
-  */
-  VoiceConnection.prototype.getSoftphoneMediaInfo = function () {
-    return this._getData().softphoneMediaInfo;
-  };
-
-  VoiceConnection.prototype.getMediaInfo = function () {
-    return this._getData().softphoneMediaInfo;
-  };
-
-  VoiceConnection.prototype.getMediaType = function () {
-    return connect.MediaType.SOFTPHONE;
-  };
-
-  VoiceConnection.prototype.getMediaController = function () {
-    return connect.core.mediaFactory.get(this);
-  }
-
-
-  /**
-   * @class ChatConnection
-   * @param {*} contactId 
-   * @param {*} connectionId 
-   * @description adds the chat media specific functionality
-   */
-  var ChatConnection = function (contactId, connectionId) {
-    Connection.call(this, contactId, connectionId);
-  };
-
-  ChatConnection.prototype = Object.create(Connection.prototype);
-  ChatConnection.prototype.constructor = ChatConnection;
-
-  ChatConnection.prototype.getMediaInfo = function () {
-    var data = this._getData().chatMediaInfo;
-    if (!data) {
-      return null;
-    } else {
-      var contactData = connect.core.getAgentDataProvider().getContactData(this.contactId);
-      var mediaObject = {
-        contactId: this.contactId,
-        initialContactId: contactData.initialContactId || this.contactId,
-        participantId: this.connectionId,
-        getConnectionToken: connect.hitch(this, this.getConnectionToken)
-      };
-      if (data.connectionData) {
-        try {
-          mediaObject.participantToken = JSON.parse(data.connectionData).ConnectionAuthenticationToken;
-        } catch (e) {
-          connect.getLog().error(connect.LogComponent.CHAT, "Connection data is invalid").withObject(data).withException(e);
-          mediaObject.participantToken = null;
-        }
-      }
-      mediaObject.participantToken = mediaObject.participantToken || null;
-      /** Just to keep the data accessible */
-      mediaObject.originalInfo = this._getData().chatMediaInfo;
-      return mediaObject;
-    }
-  };
-
-  /**
-  * Provides the chat connectionToken through the create_transport API for a specific contact and participant Id. 
-  * @returns a promise which, upon success, returns the response from the createTransport API.
-  * Usage:
-  * connection.getConnectionToken()
-  *  .then(response => {})
-  *  .catch(error => {})
-  */
-  ChatConnection.prototype.getConnectionToken = function () {
-    client = connect.core.getClient();
-    var contactData = connect.core.getAgentDataProvider().getContactData(this.contactId);
-    var transportDetails = {
-      transportType: connect.TRANSPORT_TYPES.CHAT_TOKEN,
-      participantId: this.connectionId,
-      contactId: contactData.initialContactId || this.contactId
-    };
-    return new Promise(function (resolve, reject) {
-      client.call(connect.ClientMethods.CREATE_TRANSPORT, transportDetails, {
-        success: function (data) {
-          connect.getLog().info("getConnectionToken succeeded");
-          resolve(data);
-        },
-        failure: function (err, data) {
-          connect.getLog().error("getConnectionToken failed")
-            .withObject({
-              err: err,
-              data: data
-            });
-          reject(Error("getConnectionToken failed"));
-        }
-      });
-    });
-  };
-
-  ChatConnection.prototype.getMediaType = function () {
-    return connect.MediaType.CHAT;
-  };
-
-  ChatConnection.prototype.getMediaController = function () {
-    return connect.core.mediaFactory.get(this);
-  };
-
-  ChatConnection.prototype._initMediaController = function () {
-    // Note that a chat media controller only needs to be produced for agent type connections.
-    if (this._isAgentConnectionType()) {
-      connect.core.mediaFactory.get(this).catch(function () { });
-    }
-  }
-
-  /*----------------------------------------------------------------
-   * class ConnectionSnapshot
-   */
-  var ConnectionSnapshot = function (connectionData) {
-    connect.Connection.call(this, connectionData.contactId, connectionData.connectionId);
-    this.connectionData = connectionData;
-  };
-  ConnectionSnapshot.prototype = Object.create(Connection.prototype);
-  ConnectionSnapshot.prototype.constructor = ConnectionSnapshot;
-
-  ConnectionSnapshot.prototype._getData = function () {
-    return this.connectionData;
-  };
-
-  ConnectionSnapshot.prototype._initMediaController = function () { };
-
-  var Endpoint = function (paramsIn) {
-    var params = paramsIn || {};
-    this.endpointARN = params.endpointId || params.endpointARN || null;
-    this.endpointId = this.endpointARN;
-    this.type = params.type || null;
-    this.name = params.name || null;
-    this.phoneNumber = params.phoneNumber || null;
-    this.agentLogin = params.agentLogin || null;
-    this.queue = params.queue || null;
-  };
-
-  /**
-   * Strip the SIP endpoint components from the phoneNumber field.
-   */
-  Endpoint.prototype.stripPhoneNumber = function () {
-    return this.phoneNumber ? this.phoneNumber.replace(/sip:([^@]*)@.*/, "$1") : "";
-  };
-
-  /**
-   * Create an Endpoint object from the given phone number and name.
-   */
-  Endpoint.byPhoneNumber = function (number, name) {
-    return new Endpoint({
-      type: connect.EndpointType.PHONE_NUMBER,
-      phoneNumber: number,
-      name: name || null
-    });
-  };
-
-  /*----------------------------------------------------------------
-   * class SoftphoneError
-   */
-  var SoftphoneError = function (errorType, errorMessage, endPointUrl) {
-    this.errorType = errorType;
-    this.errorMessage = errorMessage;
-    this.endPointUrl = endPointUrl;
-  };
-  SoftphoneError.prototype.getErrorType = function () {
-    return this.errorType;
-  };
-  SoftphoneError.prototype.getErrorMessage = function () {
-    return this.errorMessage;
-  };
-  SoftphoneError.prototype.getEndPointUrl = function () {
-    return this.endPointUrl;
-  };
-
-  /*----------------------------------------------------------------
-   * Root Subscription APIs.
-   */
-  connect.agent = function (f) {
-    var bus = connect.core.getEventBus();
-    var sub = bus.subscribe(connect.AgentEvents.INIT, f);
-    if (connect.agent.initialized) {
-      f(new connect.Agent());
-    }
-    return sub;
-  };
-  connect.agent.initialized = false;
-
-  connect.contact = function (f) {
-    var bus = connect.core.getEventBus();
-    return bus.subscribe(connect.ContactEvents.INIT, f);
-  };
-
-  /**
-   * Execute the given function asynchronously only if the shared worker
-   * says we are the master for the given topic.  If there is no master for
-   * the given topic, we become the master and execute the function.
-   *
-   * @param topic The master topic we are concerned about.
-   * @param f_true The callback to be invoked if we are the master.
-   * @param f_else [optional] A callback to be invoked if we are not the master.
-   */
-  connect.ifMaster = function (topic, f_true, f_else) {
-    connect.assertNotNull(topic, "A topic must be provided.");
-    connect.assertNotNull(f_true, "A true callback must be provided.");
-
-    if (!connect.core.masterClient) {
-      // We can't be the master because there is no master client!
-      connect.getLog().warn("We can't be the master for topic '%s' because there is no master client!", topic);
-      if (f_else) {
-        f_else();
-      }
-      return;
-    }
-
-    var masterClient = connect.core.getMasterClient();
-    masterClient.call(connect.MasterMethods.CHECK_MASTER, {
-      topic: topic
-    }, {
-        success: function (data) {
-          if (data.isMaster) {
-            f_true();
-
-          } else if (f_else) {
-            f_else();
-          }
-        }
-      });
-  };
-
-  /**
-   * Notify the shared worker that we are now the master for the given topic.
-   */
-  connect.becomeMaster = function (topic) {
-    connect.assertNotNull(topic, "A topic must be provided.");
-    var masterClient = connect.core.getMasterClient();
-    masterClient.call(connect.MasterMethods.BECOME_MASTER, {
-      topic: topic
-    });
-  };
-
-  connect.Agent = Agent;
-  connect.AgentSnapshot = AgentSnapshot;
-  connect.Contact = Contact;
-  connect.ContactSnapshot = ContactSnapshot;
-  /** Default will get the Voice connection */
-  connect.Connection = VoiceConnection;
-  connect.BaseConnection = Connection;
-  connect.VoiceConnection = VoiceConnection;
-  connect.ChatConnection = ChatConnection;
-  connect.ConnectionSnapshot = ConnectionSnapshot;
-  connect.Endpoint = Endpoint;
-  connect.Address = Endpoint;
-  connect.SoftphoneError = SoftphoneError;
-
-})();
-
-!function(e){var n={};function t(r){if(n[r])return n[r].exports;var o=n[r]={i:r,l:!1,exports:{}};return e[r].call(o.exports,o,o.exports,t),o.l=!0,o.exports}t.m=e,t.c=n,t.d=function(e,n,r){t.o(e,n)||Object.defineProperty(e,n,{enumerable:!0,get:r})},t.r=function(e){"undefined"!=typeof Symbol&&Symbol.toStringTag&&Object.defineProperty(e,Symbol.toStringTag,{value:"Module"}),Object.defineProperty(e,"__esModule",{value:!0})},t.t=function(e,n){if(1&n&&(e=t(e)),8&n)return e;if(4&n&&"object"==typeof e&&e&&e.__esModule)return e;var r=Object.create(null);if(t.r(r),Object.defineProperty(r,"default",{enumerable:!0,value:e}),2&n&&"string"!=typeof e)for(var o in e)t.d(r,o,function(n){return e[n]}.bind(null,o));return r},t.n=function(e){var n=e&&e.__esModule?function(){return e.default}:function(){return e};return t.d(n,"a",n),n},t.o=function(e,n){return Object.prototype.hasOwnProperty.call(e,n)},t.p="",t(t.s=2)}([function(e,n,t){"use strict";var r=t(1);function o(e){return(o="function"==typeof Symbol&&"symbol"==typeof Symbol.iterator?function(e){return typeof e}:function(e){return e&&"function"==typeof Symbol&&e.constructor===Symbol&&e!==Symbol.prototype?"symbol":typeof e})(e)}var i={assertTrue:function(e,n){if(!e)throw new Error(n)},assertNotNull:function(e,n){return i.assertTrue(null!==e&&void 0!==o(e),Object(r.sprintf)("%s must be provided",n||"A value")),e},isString:function(e){return"string"==typeof e},assertIsNonEmptyString:function(e,n){if(!e||"string"!=typeof e)throw new Error(n+" is not a non-empty string!")},assertIsList:function(e,n){if(!Array.isArray(e))throw new Error(n+" is not an array")},assertIsEnum:function(e,n,t){var r;for(r=0;r<n.length;r++)if(n[r]===e)return;throw new Error(t+" passed is not valid. Allowed values are: "+n)},makeEnum:function(e){var n={};return e.forEach(function(e){var t=e.replace(/\.?([a-z]+)_?/g,function(e,n){return n.toUpperCase()+"_"}).replace(/_$/,"");n[t]=e}),n},isFunction:function(e){return!!(e&&e.constructor&&e.call&&e.apply)},isObject:function(e){return!("object"!==o(e)||null===e)}};i.isString=function(e){return"string"==typeof e},i.isNumber=function(e){return"number"==typeof e};var a=new RegExp("^(wss://)\\w*");i.validWSUrl=function(e){return a.test(e)},i.assertIsObject=function(e,n){if(!i.isObject(e))throw new Error(n+" is not an object!")};var c=i,s="NULL",u="CLIENT_LOGGER",l="DEBUG",f="aws/subscribe",p="aws/unsubscribe",g="aws/heartbeat";function d(e){return(d="function"==typeof Symbol&&"symbol"==typeof Symbol.iterator?function(e){return typeof e}:function(e){return e&&"function"==typeof Symbol&&e.constructor===Symbol&&e!==Symbol.prototype?"symbol":typeof e})(e)}function b(e,n){return!n||"object"!==d(n)&&"function"!=typeof n?function(e){if(void 0===e)throw new ReferenceError("this hasn't been initialised - super() hasn't been called");return e}(e):n}function y(e){return(y=Object.setPrototypeOf?Object.getPrototypeOf:function(e){return e.__proto__||Object.getPrototypeOf(e)})(e)}function m(e,n){return(m=Object.setPrototypeOf||function(e,n){return e.__proto__=n,e})(e,n)}function v(e,n){if(!(e instanceof n))throw new TypeError("Cannot call a class as a function")}function h(e,n){for(var t=0;t<n.length;t++){var r=n[t];r.enumerable=r.enumerable||!1,r.configurable=!0,"value"in r&&(r.writable=!0),Object.defineProperty(e,r.key,r)}}function S(e,n,t){return n&&h(e.prototype,n),t&&h(e,t),e}var w=function(){function e(){v(this,e)}return S(e,[{key:"debug",value:function(e){}},{key:"info",value:function(e){}},{key:"warn",value:function(e){}},{key:"error",value:function(e){}}]),e}(),k={DEBUG:10,INFO:20,WARN:30,ERROR:40},_=function(){function e(){v(this,e),this.updateLoggerConfig(),this.consoleLoggerWrapper=O()}return S(e,[{key:"writeToClientLogger",value:function(e,n){if(this.hasClientLogger())switch(e){case k.DEBUG:return this._clientLogger.debug(n);case k.INFO:return this._clientLogger.info(n);case k.WARN:return this._clientLogger.warn(n);case k.ERROR:return this._clientLogger.error(n)}}},{key:"isLevelEnabled",value:function(e){return e>=this._level}},{key:"hasClientLogger",value:function(){return null!==this._clientLogger}},{key:"getLogger",value:function(e){var n=e.prefix||"";return this._logsDestination===l?this.consoleLoggerWrapper:new C(n)}},{key:"updateLoggerConfig",value:function(e){var n=e||{};this._level=n.level||k.INFO,this._clientLogger=n.logger||null,this._logsDestination=s,n.debug&&(this._logsDestination=l),n.logger&&(this._logsDestination=u)}}]),e}(),T=function(){function e(){v(this,e)}return S(e,[{key:"debug",value:function(){}},{key:"info",value:function(){}},{key:"warn",value:function(){}},{key:"error",value:function(){}}]),e}(),C=function(e){function n(e){var t;return v(this,n),(t=b(this,y(n).call(this))).prefix=e||"",t}return function(e,n){if("function"!=typeof n&&null!==n)throw new TypeError("Super expression must either be null or a function");e.prototype=Object.create(n&&n.prototype,{constructor:{value:e,writable:!0,configurable:!0}}),n&&m(e,n)}(n,T),S(n,[{key:"debug",value:function(){for(var e=arguments.length,n=new Array(e),t=0;t<e;t++)n[t]=arguments[t];this._log(k.DEBUG,n)}},{key:"info",value:function(){for(var e=arguments.length,n=new Array(e),t=0;t<e;t++)n[t]=arguments[t];this._log(k.INFO,n)}},{key:"warn",value:function(){for(var e=arguments.length,n=new Array(e),t=0;t<e;t++)n[t]=arguments[t];this._log(k.WARN,n)}},{key:"error",value:function(){for(var e=arguments.length,n=new Array(e),t=0;t<e;t++)n[t]=arguments[t];this._log(k.ERROR,n)}},{key:"_shouldLog",value:function(e){return x.hasClientLogger()&&x.isLevelEnabled(e)}},{key:"_writeToClientLogger",value:function(e,n){x.writeToClientLogger(e,n)}},{key:"_log",value:function(e,n){if(this._shouldLog(e)){var t=this._convertToSingleStatement(n);this._writeToClientLogger(e,t)}}},{key:"_convertToSingleStatement",value:function(e){var n="";this.prefix&&(n+=this.prefix+" ");for(var t=0;t<e.length;t++){var r=e[t];n+=this._convertToString(r)+" "}return n}},{key:"_convertToString",value:function(e){try{if(!e)return"";if(c.isString(e))return e;if(c.isObject(e)&&c.isFunction(e.toString)){var n=e.toString();if("[object Object]"!==n)return n}return JSON.stringify(e)}catch(n){return console.error("Error while converting argument to string",e,n),""}}}]),n}(),O=function(){var e=new T;return e.debug=console.debug,e.info=console.info,e.warn=console.warn,e.error=console.error,e},x=new _;t.d(n,"a",function(){return L});var E=function(){var e=x.getLogger({}),n=null,t={reconnectWebSocket:!1,websocketInitFailed:!1,linearConnectAttempt:0,exponentialConnectAttempt:0,exponentialBackOffTime:1,exponentialTimeoutHandle:null,lifeTimeTimeoutHandle:null},r={pendingResponse:!1,intervalHandle:null},o={initFailure:new Set,getWebSocketTransport:null,subscriptionUpdate:new Set,subscriptionFailure:new Set,topic:new Map,allMessage:new Set,connectionGain:new Set,connectionLost:new Set},i={connConfig:null,promiseHandle:null,promiseCompleted:!1},a={subscribed:new Set,pending:new Set},s=new Set([f,p,g]),u=navigator.onLine,l=setInterval(function(){u!==navigator.onLine&&(u=navigator.onLine)&&(!n||n.readyState>1)&&(e.info("Network online, Connecting to websocket"),O())},250),d=function(e,n){e.forEach(function(e){e(n)})},b=function(){if(r.pendingResponse)return e.warn("Heartbeat response not received"),clearInterval(r.intervalHandle),r.pendingResponse=!1,void k();e.debug("Sending heartbeat"),n.send(T(g)),r.pendingResponse=!0},y=function(){t.linearConnectAttempt=0,t.exponentialConnectAttempt=0,t.exponentialBackOffTime=1,r.pendingResponse=!1,t.reconnectWebSocket=!1,clearTimeout(t.lifeTimeTimeoutHandle),clearInterval(r.intervalHandle),clearTimeout(t.exponentialTimeoutHandle)},m=function(){try{if(e.info("WebSocket connection established!"),d(o.connectionGain),y(),a.subscribed.size>0||a.pending.size>0){var c=Array.from(a.subscribed.values());c=c.concat(Array.from(a.pending.values())),a.subscribed.clear(),n.send(T(f,{topics:c}))}b(),r.intervalHandle=setInterval(b,1e4),t.lifeTimeTimeoutHandle=setTimeout(function(){e.debug("Starting scheduled WebSocket manager reconnect"),k()},1e3*i.connConfig.webSocketTransport.transportLifeTimeInSeconds)}catch(n){e.error("Error after establishing web socket connection, error: ",n)}},v=function(n){t.linearConnectAttempt<=1&&d(o.connectionLost),e.info("Socket connection is closed. event: ",n),t.reconnectWebSocket&&E()},h=function(n){e.error("WebSocketManager Error, error_event: ",n),k()},S=function(n){e.debug("Message received from webSocket server",n.data);var t=JSON.parse(n.data);switch(t.topic){case f:"success"===t.content.status?(t.content.topics.forEach(function(e){a.subscribed.add(e),a.pending.delete(e)}),d(o.subscriptionUpdate,t)):d(o.subscriptionFailure,t);break;case g:e.debug("Heartbeat response received"),r.pendingResponse=!1;break;default:if(t.topic){if(0===o.allMessage.size&&0===o.topic.size)return void e.warn("No registered callback listener for Topic: ",t);d(o.allMessage,t),o.topic.has(t.topic)&&d(o.topic.get(t.topic),t)}else t.message?e.warn("WebSocketManager Message Error, error: ",t):e.warn("Invalid incoming message, error: ",t)}},w=function(e){return!(!n||n.readyState===WebSocket.CLOSED)&&(n.close(1e3,e),!0)},k=function(){u?(clearTimeout(t.lifeTimeTimeoutHandle),clearInterval(r.intervalHandle),t.linearConnectAttempt<3?(t.linearConnectAttempt++,e.debug("Starting Consecutive WebSocket reconnect, Attempt : "+t.linearConnectAttempt),t.reconnectWebSocket=!0,O()):t.exponentialConnectAttempt<5?(t.exponentialConnectAttempt++,t.exponentialBackOffTime*=2,e.debug("Starting Exponential WebSocket reconnect, Attempt : "+t.exponentialConnectAttempt+" with delay "+t.exponentialBackOffTime+" sec."),i.promiseCompleted=!1,i.connConfig=null,t.exponentialTimeoutHandle=setTimeout(function(){t.reconnectWebSocket=!0,O()},1e3*t.exponentialBackOffTime)):i.promiseCompleted&&(e.error("Could not connect to WebSocket after several attempts"),_())):w("Network Offline, Closing WebSocket Manager")},_=function(){y(),w("Terminating WebSocket Manager"),e.error("WebSocket Initialization failed"),t.websocketInitFailed=!0,clearInterval(l),d(o.initFailure)},T=function(e,n){return JSON.stringify({topic:e,content:n})},C=function(n){return!!(c.isObject(n)&&c.isObject(n.webSocketTransport)&&c.isString(n.webSocketTransport.url)&&c.validWSUrl(n.webSocketTransport.url)&&c.isNumber(n.webSocketTransport.transportLifeTimeInSeconds)&&n.webSocketTransport.transportLifeTimeInSeconds>=3600)||(e.error("Invalid WebSocket Connection Configuration",n),!1)},O=function(){t.websocketInitFailed||(i.connConfig=null,i.promiseCompleted=!1,i.promiseHandle=o.getWebSocketTransport(),i.promiseHandle.then(function(n){i.promiseCompleted=!0,e.debug("Successfully fetched webSocket connection configuration"),C(n)?(i.connConfig=n,u&&(w("Restarting WebSocket Manager")||E())):_()},function(n){i.promiseCompleted=!0,e.error("Failed to fetch webSocket connection configuration",n),k()}))},E=function(){if(!t.websocketInitFailed){e.debug("Initializing Websocket Manager");try{C(i.connConfig)?((n=new WebSocket(i.connConfig.webSocketTransport.url)).addEventListener("open",m),n.addEventListener("message",S),n.addEventListener("error",h),n.addEventListener("close",v)):i.promiseCompleted&&_()}catch(n){e.error("Error Initializing web-socket-manager",n),_()}}};this.init=function(n){c.assertTrue(c.isFunction(n),"transportHandle must be a function"),null===o.getWebSocketTransport?(o.getWebSocketTransport=n,O()):e.warn("Web Socket Manager was already initialized")},this.onInitFailure=function(e){return c.assertTrue(c.isFunction(e),"cb must be a function"),o.initFailure.add(e),t.websocketInitFailed&&e(),function(){return o.initFailure.delete(e)}},this.onConnectionGain=function(e){return c.assertTrue(c.isFunction(e),"cb must be a function"),o.connectionGain.add(e),n&&n.readyState===WebSocket.OPEN&&e(),function(){return o.connectionGain.delete(e)}},this.onConnectionLost=function(e){return c.assertTrue(c.isFunction(e),"cb must be a function"),o.connectionLost.add(e),n&&n.readyState===WebSocket.CLOSED&&e(),function(){return o.connectionLost.delete(e)}},this.onSubscriptionUpdate=function(e){return c.assertTrue(c.isFunction(e),"cb must be a function"),o.subscriptionUpdate.add(e),function(){return o.subscriptionUpdate.delete(e)}},this.onSubscriptionFailure=function(e){return c.assertTrue(c.isFunction(e),"cb must be a function"),o.subscriptionFailure.add(e),function(){return o.subscriptionFailure.delete(e)}},this.onMessage=function(e,n){return c.assertNotNull(e,"topicName"),c.assertTrue(c.isFunction(n),"cb must be a function"),o.topic.has(e)?o.topic.get(e).add(n):o.topic.set(e,new Set([n])),function(){return o.topic.get(e).delete(n)}},this.onAllMessage=function(e){return c.assertTrue(c.isFunction(e),"cb must be a function"),o.allMessage.add(e),function(){return o.allMessage.delete(e)}},this.subscribeTopics=function(e){c.assertNotNull(e,"topics"),c.assertIsList(e),e.forEach(function(e){a.pending.add(e)}),n&&n.readyState===WebSocket.OPEN&&n.send(T(f,{topics:e}))},this.sendMessage=function(t){if(c.assertIsObject(t,"payload"),void 0===t.topic||s.has(t.topic))e.warn("Cannot send message, Invalid topic",t);else{try{t=JSON.stringify(t)}catch(n){return void e.warn("Error stringify message",t)}n&&n.readyState===WebSocket.OPEN?(e.debug("WebSocketManager sending message",t),n.send(t)):e.warn("Cannot send message, web socket connection is not open")}},this.closeWebSocket=function(){y(),clearInterval(l),w("User request to close WebSocket")}},L={create:function(){return new E},setGlobalConfig:function(e){var n=e.loggerConfig;x.updateLoggerConfig(n)},LogLevel:k,Logger:w}},function(e,n,t){var r;!function(){"use strict";var o={not_string:/[^s]/,not_bool:/[^t]/,not_type:/[^T]/,not_primitive:/[^v]/,number:/[diefg]/,numeric_arg:/[bcdiefguxX]/,json:/[j]/,not_json:/[^j]/,text:/^[^\x25]+/,modulo:/^\x25{2}/,placeholder:/^\x25(?:([1-9]\d*)\$|\(([^)]+)\))?(\+)?(0|'[^$])?(-)?(\d+)?(?:\.(\d+))?([b-gijostTuvxX])/,key:/^([a-z_][a-z_\d]*)/i,key_access:/^\.([a-z_][a-z_\d]*)/i,index_access:/^\[(\d+)\]/,sign:/^[+-]/};function i(e){return function(e,n){var t,r,a,c,s,u,l,f,p,g=1,d=e.length,b="";for(r=0;r<d;r++)if("string"==typeof e[r])b+=e[r];else if("object"==typeof e[r]){if((c=e[r]).keys)for(t=n[g],a=0;a<c.keys.length;a++){if(null==t)throw new Error(i('[sprintf] Cannot access property "%s" of undefined value "%s"',c.keys[a],c.keys[a-1]));t=t[c.keys[a]]}else t=c.param_no?n[c.param_no]:n[g++];if(o.not_type.test(c.type)&&o.not_primitive.test(c.type)&&t instanceof Function&&(t=t()),o.numeric_arg.test(c.type)&&"number"!=typeof t&&isNaN(t))throw new TypeError(i("[sprintf] expecting number but found %T",t));switch(o.number.test(c.type)&&(f=t>=0),c.type){case"b":t=parseInt(t,10).toString(2);break;case"c":t=String.fromCharCode(parseInt(t,10));break;case"d":case"i":t=parseInt(t,10);break;case"j":t=JSON.stringify(t,null,c.width?parseInt(c.width):0);break;case"e":t=c.precision?parseFloat(t).toExponential(c.precision):parseFloat(t).toExponential();break;case"f":t=c.precision?parseFloat(t).toFixed(c.precision):parseFloat(t);break;case"g":t=c.precision?String(Number(t.toPrecision(c.precision))):parseFloat(t);break;case"o":t=(parseInt(t,10)>>>0).toString(8);break;case"s":t=String(t),t=c.precision?t.substring(0,c.precision):t;break;case"t":t=String(!!t),t=c.precision?t.substring(0,c.precision):t;break;case"T":t=Object.prototype.toString.call(t).slice(8,-1).toLowerCase(),t=c.precision?t.substring(0,c.precision):t;break;case"u":t=parseInt(t,10)>>>0;break;case"v":t=t.valueOf(),t=c.precision?t.substring(0,c.precision):t;break;case"x":t=(parseInt(t,10)>>>0).toString(16);break;case"X":t=(parseInt(t,10)>>>0).toString(16).toUpperCase()}o.json.test(c.type)?b+=t:(!o.number.test(c.type)||f&&!c.sign?p="":(p=f?"+":"-",t=t.toString().replace(o.sign,"")),u=c.pad_char?"0"===c.pad_char?"0":c.pad_char.charAt(1):" ",l=c.width-(p+t).length,s=c.width&&l>0?u.repeat(l):"",b+=c.align?p+t+s:"0"===u?p+s+t:s+p+t)}return b}(function(e){if(c[e])return c[e];var n,t=e,r=[],i=0;for(;t;){if(null!==(n=o.text.exec(t)))r.push(n[0]);else if(null!==(n=o.modulo.exec(t)))r.push("%");else{if(null===(n=o.placeholder.exec(t)))throw new SyntaxError("[sprintf] unexpected placeholder");if(n[2]){i|=1;var a=[],s=n[2],u=[];if(null===(u=o.key.exec(s)))throw new SyntaxError("[sprintf] failed to parse named argument key");for(a.push(u[1]);""!==(s=s.substring(u[0].length));)if(null!==(u=o.key_access.exec(s)))a.push(u[1]);else{if(null===(u=o.index_access.exec(s)))throw new SyntaxError("[sprintf] failed to parse named argument key");a.push(u[1])}n[2]=a}else i|=2;if(3===i)throw new Error("[sprintf] mixing positional and named placeholders is not (yet) supported");r.push({placeholder:n[0],param_no:n[1],keys:n[2],sign:n[3],pad_char:n[4],align:n[5],width:n[6],precision:n[7],type:n[8]})}t=t.substring(n[0].length)}return c[e]=r}(e),arguments)}function a(e,n){return i.apply(null,[e].concat(n||[]))}var c=Object.create(null);n.sprintf=i,n.vsprintf=a,"undefined"!=typeof window&&(window.sprintf=i,window.vsprintf=a,void 0===(r=function(){return{sprintf:i,vsprintf:a}}.call(n,t,n,e))||(e.exports=r))}()},function(e,n,t){"use strict";t.r(n),function(e){t.d(n,"WebSocketManager",function(){return o});var r=t(0);e.connect=e.connect||{},connect.WebSocketManager=r.a;var o=r.a}.call(this,t(3))},function(e,n){var t;t=function(){return this}();try{t=t||new Function("return this")()}catch(e){"object"==typeof window&&(t=window)}e.exports=t}]);
-//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbIndlYnBhY2s6Ly8vd2VicGFjay9ib290c3RyYXAiLCJ3ZWJwYWNrOi8vLy4vc3JjL3V0aWxzLmpzIiwid2VicGFjazovLy8uL3NyYy9jb25zdGFudHMuanMiLCJ3ZWJwYWNrOi8vLy4vc3JjL2xvZy5qcyIsIndlYnBhY2s6Ly8vLi9zcmMvd2ViU29ja2V0TWFuYWdlci5qcyIsIndlYnBhY2s6Ly8vLi9ub2RlX21vZHVsZXMvc3ByaW50Zi1qcy9zcmMvc3ByaW50Zi5qcyIsIndlYnBhY2s6Ly8vLi9zcmMvaW5kZXguanMiLCJ3ZWJwYWNrOi8vLyh3ZWJwYWNrKS9idWlsZGluL2dsb2JhbC5qcyJdLCJuYW1lcyI6WyJpbnN0YWxsZWRNb2R1bGVzIiwiX193ZWJwYWNrX3JlcXVpcmVfXyIsIm1vZHVsZUlkIiwiZXhwb3J0cyIsIm1vZHVsZSIsImkiLCJsIiwibW9kdWxlcyIsImNhbGwiLCJtIiwiYyIsImQiLCJuYW1lIiwiZ2V0dGVyIiwibyIsIk9iamVjdCIsImRlZmluZVByb3BlcnR5IiwiZW51bWVyYWJsZSIsImdldCIsInIiLCJTeW1ib2wiLCJ0b1N0cmluZ1RhZyIsInZhbHVlIiwidCIsIm1vZGUiLCJfX2VzTW9kdWxlIiwibnMiLCJjcmVhdGUiLCJrZXkiLCJiaW5kIiwibiIsIm9iamVjdCIsInByb3BlcnR5IiwicHJvdG90eXBlIiwiaGFzT3duUHJvcGVydHkiLCJwIiwicyIsIlV0aWxzIiwicHJlbWlzZSIsIm1lc3NhZ2UiLCJFcnJvciIsImFzc2VydFRydWUiLCJ1bmRlZmluZWQiLCJzcHJpbnRmIiwiQXJyYXkiLCJpc0FycmF5IiwiYWxsb3dlZFZhbHVlcyIsImxlbmd0aCIsInZhbHVlcyIsImVudW1PYmoiLCJmb3JFYWNoIiwicmVwbGFjZSIsIngiLCJ5IiwidG9VcHBlckNhc2UiLCJvYmoiLCJjb25zdHJ1Y3RvciIsImFwcGx5IiwiaXNTdHJpbmciLCJpc051bWJlciIsIndzUmVnZXgiLCJSZWdFeHAiLCJ2YWxpZFdTVXJsIiwid3NVcmwiLCJ0ZXN0IiwiYXNzZXJ0SXNPYmplY3QiLCJpc09iamVjdCIsIkxPR1NfREVTVElOQVRJT04iLCJST1VURV9LRVkiLCJMb2dnZXIiLCJkYXRhIiwiTG9nTGV2ZWwiLCJERUJVRyIsIklORk8iLCJXQVJOIiwiRVJST1IiLCJMb2dNYW5hZ2VySW1wbCIsInRoaXMiLCJ1cGRhdGVMb2dnZXJDb25maWciLCJjb25zb2xlTG9nZ2VyV3JhcHBlciIsImNyZWF0ZUNvbnNvbGVMb2dnZXIiLCJsZXZlbCIsImxvZ1N0YXRlbWVudCIsImhhc0NsaWVudExvZ2dlciIsIl9jbGllbnRMb2dnZXIiLCJkZWJ1ZyIsImluZm8iLCJ3YXJuIiwiZXJyb3IiLCJfbGV2ZWwiLCJvcHRpb25zIiwicHJlZml4IiwiX2xvZ3NEZXN0aW5hdGlvbiIsIkxvZ2dlcldyYXBwZXJJbXBsIiwiaW5wdXRDb25maWciLCJjb25maWciLCJsb2dnZXIiLCJMb2dnZXJXcmFwcGVyIiwiYXJncyIsIl9sb2ciLCJMb2dNYW5hZ2VyIiwiaXNMZXZlbEVuYWJsZWQiLCJ3cml0ZVRvQ2xpZW50TG9nZ2VyIiwiX3Nob3VsZExvZyIsIl9jb252ZXJ0VG9TaW5nbGVTdGF0ZW1lbnQiLCJfd3JpdGVUb0NsaWVudExvZ2dlciIsImluZGV4IiwiYXJnIiwiX2NvbnZlcnRUb1N0cmluZyIsImlzRnVuY3Rpb24iLCJ0b1N0cmluZyIsInRvU3RyaW5nUmVzdWx0IiwiSlNPTiIsInN0cmluZ2lmeSIsImNvbnNvbGUiLCJXZWJTb2NrZXRNYW5hZ2VyIiwiZ2V0TG9nZ2VyIiwid2ViU29ja2V0IiwicmVjb25uZWN0Q29uZmlnIiwicmVjb25uZWN0V2ViU29ja2V0Iiwid2Vic29ja2V0SW5pdEZhaWxlZCIsImxpbmVhckNvbm5lY3RBdHRlbXB0IiwiZXhwb25lbnRpYWxDb25uZWN0QXR0ZW1wdCIsImV4cG9uZW50aWFsQmFja09mZlRpbWUiLCJleHBvbmVudGlhbFRpbWVvdXRIYW5kbGUiLCJsaWZlVGltZVRpbWVvdXRIYW5kbGUiLCJoZWFydGJlYXRDb25maWciLCJwZW5kaW5nUmVzcG9uc2UiLCJpbnRlcnZhbEhhbmRsZSIsImNhbGxiYWNrcyIsImluaXRGYWlsdXJlIiwiU2V0IiwiZ2V0V2ViU29ja2V0VHJhbnNwb3J0Iiwic3Vic2NyaXB0aW9uVXBkYXRlIiwic3Vic2NyaXB0aW9uRmFpbHVyZSIsInRvcGljIiwiTWFwIiwiYWxsTWVzc2FnZSIsImNvbm5lY3Rpb25HYWluIiwiY29ubmVjdGlvbkxvc3QiLCJ3ZWJTb2NrZXRDb25maWciLCJjb25uQ29uZmlnIiwicHJvbWlzZUhhbmRsZSIsInByb21pc2VDb21wbGV0ZWQiLCJ0b3BpY1N1YnNjcmlwdGlvbiIsInN1YnNjcmliZWQiLCJwZW5kaW5nIiwiaW52YWxpZFNlbmRNZXNzYWdlUm91dGVLZXlzIiwib25saW5lIiwibmF2aWdhdG9yIiwib25MaW5lIiwibmV0d29ya0Nvbm5lY3Rpdml0eUNoZWNrZXIiLCJzZXRJbnRlcnZhbCIsInJlYWR5U3RhdGUiLCJnZXRXZWJTb2NrZXRDb25uQ29uZmlnIiwiaW52b2tlQ2FsbGJhY2tzIiwicmVzcG9uc2UiLCJjYWxsYmFjayIsInNlbmRIZWFydEJlYXQiLCJjbGVhckludGVydmFsIiwicmVmcmVzaFdlYlNvY2tldENvbm5lY3Rpb24iLCJzZW5kIiwiY3JlYXRlV2ViU29ja2V0UGF5bG9hZCIsInJlc2V0U3RhdGUiLCJjbGVhclRpbWVvdXQiLCJ3ZWJTb2NrZXRPbk9wZW4iLCJzaXplIiwidG9waWNzIiwiZnJvbSIsImNvbmNhdCIsImNsZWFyIiwic2V0VGltZW91dCIsIndlYlNvY2tldFRyYW5zcG9ydCIsInRyYW5zcG9ydExpZmVUaW1lSW5TZWNvbmRzIiwid2ViU29ja2V0T25DbG9zZSIsImV2ZW50IiwiaW5pdFdlYlNvY2tldCIsIndlYlNvY2tldE9uRXJyb3IiLCJ3ZWJTb2NrZXRPbk1lc3NhZ2UiLCJwYXJzZSIsImNvbnRlbnQiLCJzdGF0dXMiLCJ0b3BpY05hbWUiLCJhZGQiLCJoYXMiLCJjbG9zZVdlYlNvY2tldCIsInJlYXNvbiIsIldlYlNvY2tldCIsIkNMT1NFRCIsImNsb3NlIiwidGVybWluYXRlV2ViU29ja2V0TWFuYWdlciIsInZhbGlkV2ViU29ja2V0Q29ubkNvbmZpZyIsInVybCIsInRoZW4iLCJhZGRFdmVudExpc3RlbmVyIiwiaW5pdCIsInRyYW5zcG9ydEhhbmRsZSIsIm9uSW5pdEZhaWx1cmUiLCJjYiIsIm9uQ29ubmVjdGlvbkdhaW4iLCJPUEVOIiwib25Db25uZWN0aW9uTG9zdCIsIm9uU3Vic2NyaXB0aW9uVXBkYXRlIiwib25TdWJzY3JpcHRpb25GYWlsdXJlIiwib25NZXNzYWdlIiwiYXNzZXJ0Tm90TnVsbCIsInNldCIsIm9uQWxsTWVzc2FnZSIsInN1YnNjcmliZVRvcGljcyIsImFzc2VydElzTGlzdCIsInNlbmRNZXNzYWdlIiwicGF5bG9hZCIsIldlYlNvY2tldE1hbmFnZXJPYmplY3QiLCJzZXRHbG9iYWxDb25maWciLCJsb2dnZXJDb25maWciLCJyZSIsIm5vdF9zdHJpbmciLCJub3RfYm9vbCIsIm5vdF90eXBlIiwibm90X3ByaW1pdGl2ZSIsIm51bWJlciIsIm51bWVyaWNfYXJnIiwianNvbiIsIm5vdF9qc29uIiwidGV4dCIsIm1vZHVsbyIsInBsYWNlaG9sZGVyIiwia2V5X2FjY2VzcyIsImluZGV4X2FjY2VzcyIsInNpZ24iLCJwYXJzZV90cmVlIiwiYXJndiIsImsiLCJwaCIsInBhZCIsInBhZF9jaGFyYWN0ZXIiLCJwYWRfbGVuZ3RoIiwiaXNfcG9zaXRpdmUiLCJjdXJzb3IiLCJ0cmVlX2xlbmd0aCIsIm91dHB1dCIsImtleXMiLCJwYXJhbV9ubyIsInR5cGUiLCJGdW5jdGlvbiIsImlzTmFOIiwiVHlwZUVycm9yIiwicGFyc2VJbnQiLCJTdHJpbmciLCJmcm9tQ2hhckNvZGUiLCJ3aWR0aCIsInByZWNpc2lvbiIsInBhcnNlRmxvYXQiLCJ0b0V4cG9uZW50aWFsIiwidG9GaXhlZCIsIk51bWJlciIsInRvUHJlY2lzaW9uIiwic3Vic3RyaW5nIiwic2xpY2UiLCJ0b0xvd2VyQ2FzZSIsInZhbHVlT2YiLCJwYWRfY2hhciIsImNoYXJBdCIsInJlcGVhdCIsImFsaWduIiwic3ByaW50Zl9mb3JtYXQiLCJmbXQiLCJzcHJpbnRmX2NhY2hlIiwibWF0Y2giLCJfZm10IiwiYXJnX25hbWVzIiwiZXhlYyIsInB1c2giLCJTeW50YXhFcnJvciIsImZpZWxkX2xpc3QiLCJyZXBsYWNlbWVudF9maWVsZCIsImZpZWxkX21hdGNoIiwic3ByaW50Zl9wYXJzZSIsImFyZ3VtZW50cyIsInZzcHJpbnRmIiwid2luZG93IiwiZ2xvYmFsIiwiY29ubmVjdCIsImciLCJlIl0sIm1hcHBpbmdzIjoiYUFDRSxJQUFJQSxFQUFtQixHQUd2QixTQUFTQyxFQUFvQkMsR0FHNUIsR0FBR0YsRUFBaUJFLEdBQ25CLE9BQU9GLEVBQWlCRSxHQUFVQyxRQUduQyxJQUFJQyxFQUFTSixFQUFpQkUsR0FBWSxDQUN6Q0csRUFBR0gsRUFDSEksR0FBRyxFQUNISCxRQUFTLElBVVYsT0FOQUksRUFBUUwsR0FBVU0sS0FBS0osRUFBT0QsUUFBU0MsRUFBUUEsRUFBT0QsUUFBU0YsR0FHL0RHLEVBQU9FLEdBQUksRUFHSkYsRUFBT0QsUUFLZkYsRUFBb0JRLEVBQUlGLEVBR3hCTixFQUFvQlMsRUFBSVYsRUFHeEJDLEVBQW9CVSxFQUFJLFNBQVNSLEVBQVNTLEVBQU1DLEdBQzNDWixFQUFvQmEsRUFBRVgsRUFBU1MsSUFDbENHLE9BQU9DLGVBQWViLEVBQVNTLEVBQU0sQ0FBRUssWUFBWSxFQUFNQyxJQUFLTCxLQUtoRVosRUFBb0JrQixFQUFJLFNBQVNoQixHQUNYLG9CQUFYaUIsUUFBMEJBLE9BQU9DLGFBQzFDTixPQUFPQyxlQUFlYixFQUFTaUIsT0FBT0MsWUFBYSxDQUFFQyxNQUFPLFdBRTdEUCxPQUFPQyxlQUFlYixFQUFTLGFBQWMsQ0FBRW1CLE9BQU8sS0FRdkRyQixFQUFvQnNCLEVBQUksU0FBU0QsRUFBT0UsR0FFdkMsR0FEVSxFQUFQQSxJQUFVRixFQUFRckIsRUFBb0JxQixJQUMvQixFQUFQRSxFQUFVLE9BQU9GLEVBQ3BCLEdBQVcsRUFBUEUsR0FBOEIsaUJBQVZGLEdBQXNCQSxHQUFTQSxFQUFNRyxXQUFZLE9BQU9ILEVBQ2hGLElBQUlJLEVBQUtYLE9BQU9ZLE9BQU8sTUFHdkIsR0FGQTFCLEVBQW9Ca0IsRUFBRU8sR0FDdEJYLE9BQU9DLGVBQWVVLEVBQUksVUFBVyxDQUFFVCxZQUFZLEVBQU1LLE1BQU9BLElBQ3RELEVBQVBFLEdBQTRCLGlCQUFURixFQUFtQixJQUFJLElBQUlNLEtBQU9OLEVBQU9yQixFQUFvQlUsRUFBRWUsRUFBSUUsRUFBSyxTQUFTQSxHQUFPLE9BQU9OLEVBQU1NLElBQVFDLEtBQUssS0FBTUQsSUFDOUksT0FBT0YsR0FJUnpCLEVBQW9CNkIsRUFBSSxTQUFTMUIsR0FDaEMsSUFBSVMsRUFBU1QsR0FBVUEsRUFBT3FCLFdBQzdCLFdBQXdCLE9BQU9yQixFQUFnQixTQUMvQyxXQUE4QixPQUFPQSxHQUV0QyxPQURBSCxFQUFvQlUsRUFBRUUsRUFBUSxJQUFLQSxHQUM1QkEsR0FJUlosRUFBb0JhLEVBQUksU0FBU2lCLEVBQVFDLEdBQVksT0FBT2pCLE9BQU9rQixVQUFVQyxlQUFlMUIsS0FBS3VCLEVBQVFDLElBR3pHL0IsRUFBb0JrQyxFQUFJLEdBSWpCbEMsRUFBb0JBLEVBQW9CbUMsRUFBSSxHLCtRQ2pGckQsSUFBTUMsRUFBUSxDQUtkQSxXQUFtQixTQUFTQyxFQUFTQyxHQUNuQyxJQUFLRCxFQUNILE1BQU0sSUFBSUUsTUFBTUQsSUFPcEJGLGNBQXNCLFNBQVNmLEVBQU9WLEdBS3BDLE9BSkF5QixFQUFNSSxXQUNNLE9BQVZuQixRQUFtQ29CLElBQWpCLEVBQU9wQixHQUN6QnFCLGtCQUFRLHNCQUF1Qi9CLEdBQVEsWUFFbENVLEdBR1RlLFNBQWlCLFNBQVNmLEdBQ3hCLE1BQXdCLGlCQUFWQSxHQUdoQmUsdUJBQStCLFNBQVNmLEVBQU9NLEdBQzdDLElBQUtOLEdBQTBCLGlCQUFWQSxFQUNuQixNQUFNLElBQUlrQixNQUFNWixFQUFNLGdDQUkxQlMsYUFBcUIsU0FBU2YsRUFBT00sR0FDbkMsSUFBS2dCLE1BQU1DLFFBQVF2QixHQUNqQixNQUFNLElBQUlrQixNQUFNWixFQUFNLHFCQUkxQlMsYUFBcUIsU0FBU2YsRUFBT3dCLEVBQWVsQixHQUNsRCxJQUFJdkIsRUFDSixJQUFLQSxFQUFJLEVBQUdBLEVBQUl5QyxFQUFjQyxPQUFRMUMsSUFDcEMsR0FBSXlDLEVBQWN6QyxLQUFPaUIsRUFDdkIsT0FHSixNQUFNLElBQUlrQixNQUNSWixFQUFNLDZDQUFvRGtCLElBVzlEVCxTQUFpQixTQUFTVyxHQUN4QixJQUFJQyxFQUFVLEdBWWQsT0FWQUQsRUFBT0UsUUFBUSxTQUFTNUIsR0FDdEIsSUFBSU0sRUFBTU4sRUFDUDZCLFFBQVEsaUJBQWtCLFNBQVNDLEVBQUdDLEdBQ3JDLE9BQU9BLEVBQUVDLGNBQWdCLE1BRTFCSCxRQUFRLEtBQU0sSUFFakJGLEVBQVFyQixHQUFPTixJQUdWMkIsR0FPVFosV0FBbUIsU0FBU2tCLEdBQzFCLFNBQVVBLEdBQU9BLEVBQUlDLGFBQWVELEVBQUkvQyxNQUFRK0MsRUFBSUUsUUFHdERwQixTQUFpQixTQUFTZixHQUN4QixRQUEwQixXQUFqQixFQUFPQSxJQUFnQyxPQUFWQSxLQUd4Q2UsRUFBTXFCLFNBQVcsU0FBU3BDLEdBQ3hCLE1BQXdCLGlCQUFWQSxHQUdoQmUsRUFBTXNCLFNBQVcsU0FBU3JDLEdBQ3hCLE1BQXdCLGlCQUFWQSxHQUdoQixJQUFNc0MsRUFBVSxJQUFJQyxPQUFPLGlCQUMzQnhCLEVBQU15QixXQUFhLFNBQVVDLEdBQzNCLE9BQU9ILEVBQVFJLEtBQUtELElBR3RCMUIsRUFBTTRCLGVBQWlCLFNBQVMzQyxFQUFPTSxHQUNyQyxJQUFLUyxFQUFNNkIsU0FBUzVDLEdBQ2xCLE1BQU0sSUFBSWtCLE1BQU1aLEVBQU0sdUJBSVhTLFFDeEdGOEIsRUFDTCxPQURLQSxFQUVJLGdCQUZKQSxFQUdKLFFBUUlDLEVBQ0EsZ0JBREFBLEVBRUUsa0JBRkZBLEVBR0EsZ0IsazhCQ1hQQyxFLDBFQUNFQyxNLDJCQUVEQSxNLDJCQUVBQSxNLDRCQUVDQSxRLEtBSUZDLEVBQVcsQ0FDZkMsTUFBTyxHQUNQQyxLQUFNLEdBQ05DLEtBQU0sR0FDTkMsTUFBTyxJQUdIQyxFLFdBQ0osYUFBYyxVQUNaQyxLQUFLQyxxQkFDTEQsS0FBS0UscUJBQXVCQyxJLHNEQUdWQyxFQUFPQyxHQUN6QixHQUFLTCxLQUFLTSxrQkFHVixPQUFRRixHQUNOLEtBQUtWLEVBQVNDLE1BQ1osT0FBT0ssS0FBS08sY0FBY0MsTUFBTUgsR0FDbEMsS0FBS1gsRUFBU0UsS0FDWixPQUFPSSxLQUFLTyxjQUFjRSxLQUFLSixHQUNqQyxLQUFLWCxFQUFTRyxLQUNaLE9BQU9HLEtBQUtPLGNBQWNHLEtBQUtMLEdBQ2pDLEtBQUtYLEVBQVNJLE1BQ1osT0FBT0UsS0FBS08sY0FBY0ksTUFBTU4sTSxxQ0FJdkJELEdBQ2IsT0FBT0EsR0FBU0osS0FBS1ksUyx3Q0FJckIsT0FBOEIsT0FBdkJaLEtBQUtPLGdCLGdDQUdKTSxHQUNSLElBQUlDLEVBQVNELEVBQVFDLFFBQVUsR0FDL0IsT0FBSWQsS0FBS2UsbUJBQXFCekIsRUFDckJVLEtBQUtFLHFCQUVQLElBQUljLEVBQWtCRixLLHlDQUdaRyxHQUNqQixJQUFJQyxFQUFTRCxHQUFlLEdBQzVCakIsS0FBS1ksT0FBU00sRUFBT2QsT0FBU1YsRUFBU0UsS0FDdkNJLEtBQUtPLGNBQWdCVyxFQUFPQyxRQUFVLEtBQ3RDbkIsS0FBS2UsaUJBQW1CekIsRUFDcEI0QixFQUFPVixRQUNUUixLQUFLZSxpQkFBbUJ6QixHQUV0QjRCLEVBQU9DLFNBQ1RuQixLQUFLZSxpQkFBbUJ6QixPLEtBS3hCOEIsRSx1TEFVQUosRSxZQUNKLFdBQVlGLEdBQVEsd0JBQ2xCLDJCQUNLQSxPQUFTQSxHQUFVLEdBRk4sRSw0T0FEVU0sRyxtQ0FNZiwyQkFBTkMsRUFBTSx5QkFBTkEsRUFBTSxnQkFDYnJCLEtBQUtzQixLQUFLNUIsRUFBU0MsTUFBTzBCLEssNkJBR2QsMkJBQU5BLEVBQU0seUJBQU5BLEVBQU0sZ0JBQ1pyQixLQUFLc0IsS0FBSzVCLEVBQVNFLEtBQU15QixLLDZCQUdiLDJCQUFOQSxFQUFNLHlCQUFOQSxFQUFNLGdCQUNackIsS0FBS3NCLEtBQUs1QixFQUFTRyxLQUFNd0IsSyw4QkFHWiwyQkFBTkEsRUFBTSx5QkFBTkEsRUFBTSxnQkFDYnJCLEtBQUtzQixLQUFLNUIsRUFBU0ksTUFBT3VCLEssaUNBR2pCakIsR0FDVCxPQUFPbUIsRUFBV2pCLG1CQUFxQmlCLEVBQVdDLGVBQWVwQixLLDJDQUc5Q0EsRUFBT0MsR0FDMUJrQixFQUFXRSxvQkFBb0JyQixFQUFPQyxLLDJCQUduQ0QsRUFBT2lCLEdBQ1YsR0FBSXJCLEtBQUswQixXQUFXdEIsR0FBUSxDQUMxQixJQUFJQyxFQUFlTCxLQUFLMkIsMEJBQTBCTixHQUNsRHJCLEtBQUs0QixxQkFBcUJ4QixFQUFPQyxNLGdEQUlYZ0IsR0FDeEIsSUFBSWhCLEVBQWUsR0FDZkwsS0FBS2MsU0FDUFQsR0FBZ0JMLEtBQUtjLE9BQVMsS0FFaEMsSUFBSyxJQUFJZSxFQUFRLEVBQUdBLEVBQVFSLEVBQUtuRCxPQUFRMkQsSUFBUyxDQUNoRCxJQUFJQyxFQUFNVCxFQUFLUSxHQUNmeEIsR0FBZ0JMLEtBQUsrQixpQkFBaUJELEdBQU8sSUFFL0MsT0FBT3pCLEksdUNBR1F5QixHQUNmLElBQ0UsSUFBS0EsRUFDSCxNQUFPLEdBRVQsR0FBSXRFLEVBQU1xQixTQUFTaUQsR0FDakIsT0FBT0EsRUFFVCxHQUFJdEUsRUFBTTZCLFNBQVN5QyxJQUFRdEUsRUFBTXdFLFdBQVdGLEVBQUlHLFVBQVcsQ0FDekQsSUFBSUMsRUFBaUJKLEVBQUlHLFdBQ3pCLEdBQXVCLG9CQUFuQkMsRUFDRixPQUFPQSxFQUdYLE9BQU9DLEtBQUtDLFVBQVVOLEdBQ3RCLE1BQU9uQixHQUVQLE9BREEwQixRQUFRMUIsTUFBTSw0Q0FBNkNtQixFQUFLbkIsR0FDekQsUSxLQUtUUixFQUFzQixXQUN4QixJQUFJZ0IsRUFBUyxJQUFJQyxFQUtqQixPQUpBRCxFQUFPWCxNQUFRNkIsUUFBUTdCLE1BQ3ZCVyxFQUFPVixLQUFPNEIsUUFBUTVCLEtBQ3RCVSxFQUFPVCxLQUFPMkIsUUFBUTNCLEtBQ3RCUyxFQUFPUixNQUFRMEIsUUFBUTFCLE1BQ2hCUSxHQUdISSxFQUFhLElBQUl4QixFQ3BLdkIsZ0NBV0EsSUFBTXVDLEVBQW1CLFdBRXJCLElBQU1uQixFQUFTSSxFQUFXZ0IsVUFBVSxJQUVoQ0MsRUFBWSxLQUVaQyxFQUFrQixDQUNsQkMsb0JBQW9CLEVBQ3BCQyxxQkFBcUIsRUFDckJDLHFCQUFzQixFQUN0QkMsMEJBQTJCLEVBQzNCQyx1QkFBd0IsRUFDeEJDLHlCQUEwQixLQUMxQkMsc0JBQXVCLE1BR3ZCQyxFQUFrQixDQUNsQkMsaUJBQWlCLEVBQ2pCQyxlQUFnQixNQUdoQkMsRUFBWSxDQUNaQyxZQUFhLElBQUlDLElBQ2pCQyxzQkFBdUIsS0FDdkJDLG1CQUFvQixJQUFJRixJQUN4Qkcsb0JBQXFCLElBQUlILElBQ3pCSSxNQUFPLElBQUlDLElBQ1hDLFdBQVksSUFBSU4sSUFDaEJPLGVBQWdCLElBQUlQLElBQ3BCUSxlQUFnQixJQUFJUixLQUdwQlMsRUFBa0IsQ0FDbEJDLFdBQVksS0FDWkMsY0FBZSxLQUNmQyxrQkFBa0IsR0FHbEJDLEVBQW9CLENBQ3BCQyxXQUFZLElBQUlkLElBQ2hCZSxRQUFTLElBQUlmLEtBR1hnQixFQUE4QixJQUFJaEIsSUFBSSxDQUFDL0QsRUFBcUJBLEVBQXVCQSxJQUVyRmdGLEVBQVNDLFVBQVVDLE9BQ2pCQyxFQUE2QkMsWUFBWSxXQUN2Q0osSUFBV0MsVUFBVUMsU0FDckJGLEVBQVNDLFVBQVVDLFdBQ0hqQyxHQUFhQSxFQUFVb0MsV0FBYSxLQUNoRHpELEVBQU9WLEtBQUssMkNBQ1pvRSxNQUdULEtBRUdDLEVBQWtCLFNBQVMxQixFQUFXMkIsR0FDeEMzQixFQUFVL0UsUUFBUSxTQUFVMkcsR0FDeEJBLEVBQVNELE1BSVhFLEVBQWdCLFdBQ2xCLEdBQUloQyxFQUFnQkMsZ0JBS2hCLE9BSkEvQixFQUFPVCxLQUFLLG1DQUNad0UsY0FBY2pDLEVBQWdCRSxnQkFDOUJGLEVBQWdCQyxpQkFBa0IsT0FDbENpQyxJQUdKaEUsRUFBT1gsTUFBTSxxQkFDYmdDLEVBQVU0QyxLQUFLQyxFQUF1QjlGLElBQ3RDMEQsRUFBZ0JDLGlCQUFrQixHQUdoQ29DLEVBQWEsV0FDZjdDLEVBQWdCRyxxQkFBdUIsRUFDdkNILEVBQWdCSSwwQkFBNEIsRUFDNUNKLEVBQWdCSyx1QkFBeUIsRUFDekNHLEVBQWdCQyxpQkFBa0IsRUFDbENULEVBQWdCQyxvQkFBcUIsRUFFckM2QyxhQUFhOUMsRUFBZ0JPLHVCQUM3QmtDLGNBQWNqQyxFQUFnQkUsZ0JBQzlCb0MsYUFBYTlDLEVBQWdCTSwyQkFHM0J5QyxFQUFrQixXQUNwQixJQU1JLEdBTEFyRSxFQUFPVixLQUFLLHFDQUNacUUsRUFBZ0IxQixFQUFVUyxnQkFFMUJ5QixJQUVJbkIsRUFBa0JDLFdBQVdxQixLQUFPLEdBQUt0QixFQUFrQkUsUUFBUW9CLEtBQU8sRUFBRyxDQUM3RSxJQUFJQyxFQUFTM0gsTUFBTTRILEtBQUt4QixFQUFrQkMsV0FBV2pHLFVBQ3JEdUgsRUFBU0EsRUFBT0UsT0FBTzdILE1BQU00SCxLQUFLeEIsRUFBa0JFLFFBQVFsRyxXQUM1RGdHLEVBQWtCQyxXQUFXeUIsUUFDN0JyRCxFQUFVNEMsS0FBS0MsRUFBdUI5RixFQUFxQixDQUFDLE9BQVVtRyxLQUcxRVQsSUFDQWhDLEVBQWdCRSxlQUFpQndCLFlBQVlNLEVBQWUsS0FFNUR4QyxFQUFnQk8sc0JBQXdCOEMsV0FBVyxXQUMvQzNFLEVBQU9YLE1BQU0sa0RBQ2IyRSxLQUNELElBQU9wQixFQUFnQkMsV0FBVytCLG1CQUFtQkMsNEJBQzFELE1BQU9yRixHQUNMUSxFQUFPUixNQUFNLDBEQUEyREEsS0FJMUVzRixFQUFtQixTQUFTQyxHQUMxQnpELEVBQWdCRyxzQkFBd0IsR0FDeENrQyxFQUFnQjFCLEVBQVVVLGdCQUU5QjNDLEVBQU9WLEtBQUssdUNBQXdDeUYsR0FDaER6RCxFQUFnQkMsb0JBQ2hCeUQsS0FJRkMsRUFBbUIsU0FBU0YsR0FDOUIvRSxFQUFPUixNQUFNLHdDQUF5Q3VGLEdBQ3REZixLQUdFa0IsRUFBcUIsU0FBU0gsR0FDaEMvRSxFQUFPWCxNQUFNLHlDQUEwQzBGLEVBQU16RyxNQUM3RCxJQUFNc0YsRUFBVzVDLEtBQUttRSxNQUFNSixFQUFNekcsTUFDbEMsT0FBUXNGLEVBQVNyQixPQUNiLEtBQUtuRSxFQUMrQixZQUE1QndGLEVBQVN3QixRQUFRQyxRQUNqQnpCLEVBQVN3QixRQUFRYixPQUFPckgsUUFBUyxTQUFVb0ksR0FDdkN0QyxFQUFrQkMsV0FBV3NDLElBQUlELEdBQ2pDdEMsRUFBa0JFLFFBQWxCLE9BQWlDb0MsS0FFckMzQixFQUFnQjFCLEVBQVVJLG1CQUFvQnVCLElBRTlDRCxFQUFnQjFCLEVBQVVLLG9CQUFxQnNCLEdBRW5ELE1BQ0osS0FBS3hGLEVBQ0Q0QixFQUFPWCxNQUFNLCtCQUNieUMsRUFBZ0JDLGlCQUFrQixFQUNsQyxNQUNKLFFBQ0ksR0FBSTZCLEVBQVNyQixNQUFPLENBQ2hCLEdBQWtDLElBQTlCTixFQUFVUSxXQUFXNkIsTUFBdUMsSUFBekJyQyxFQUFVTSxNQUFNK0IsS0FFbkQsWUFEQXRFLEVBQU9ULEtBQUssOENBQStDcUUsR0FHL0RELEVBQWdCMUIsRUFBVVEsV0FBWW1CLEdBQ2xDM0IsRUFBVU0sTUFBTWlELElBQUk1QixFQUFTckIsUUFDN0JvQixFQUFnQjFCLEVBQVVNLE1BQU1ySCxJQUFJMEksRUFBU3JCLE9BQVFxQixRQUVsREEsRUFBU3JILFFBQ2hCeUQsRUFBT1QsS0FBSywwQ0FBMkNxRSxHQUV2RDVELEVBQU9ULEtBQUssb0NBQXFDcUUsS0FLM0Q2QixFQUFpQixTQUFTQyxHQUM1QixTQUFJckUsR0FBYUEsRUFBVW9DLGFBQWVrQyxVQUFVQyxVQUNoRHZFLEVBQVV3RSxNQUFNLElBQU1ILElBQ2YsSUFLVDFCLEVBQTZCLFdBQzFCWixHQUlMZ0IsYUFBYTlDLEVBQWdCTyx1QkFDN0JrQyxjQUFjakMsRUFBZ0JFLGdCQUUxQlYsRUFBZ0JHLHFCRnhMZSxHRXlML0JILEVBQWdCRyx1QkFDaEJ6QixFQUFPWCxNQUFNLHVEQUF5RGlDLEVBQWdCRyxzQkFDdEZILEVBQWdCQyxvQkFBcUIsRUFDckNtQyxLQUNPcEMsRUFBZ0JJLDBCRjVMYSxHRTZMcENKLEVBQWdCSSw0QkFDaEJKLEVBQWdCSyx3QkFBMEIsRUFDMUMzQixFQUFPWCxNQUFNLHVEQUNQaUMsRUFBZ0JJLDBCQUE0QixlQUM1Q0osRUFBZ0JLLHVCQUF5QixTQUcvQ2lCLEVBQWdCRyxrQkFBbUIsRUFDbkNILEVBQWdCQyxXQUFhLEtBRTdCdkIsRUFBZ0JNLHlCQUEyQitDLFdBQVcsV0FDbERyRCxFQUFnQkMsb0JBQXFCLEVBQ3JDbUMsS0FDRCxJQUFPcEMsRUFBZ0JLLHlCQUNuQmlCLEVBQWdCRyxtQkFDdkIvQyxFQUFPUixNQUFNLHlEQUNic0csTUE1QkFMLEVBQWUsK0NBZ0NqQkssRUFBNEIsV0FDOUIzQixJQUNBc0IsRUFBZSxpQ0FDZnpGLEVBQU9SLE1BQU0sbUNBQ2I4QixFQUFnQkUscUJBQXNCLEVBQ3RDdUMsY0FBY1IsR0FDZEksRUFBZ0IxQixFQUFVQyxjQUd4QmdDLEVBQXlCLFNBQVV0SSxFQUFLd0osR0FDMUMsT0FBT3BFLEtBQUtDLFVBQVUsQ0FDbEIsTUFBU3JGLEVBQ1QsUUFBV3dKLEtBcUNiVyxFQUEyQixTQUFVbEQsR0FDdkMsU0FBSXhHLEVBQU02QixTQUFTMkUsSUFBZXhHLEVBQU02QixTQUFTMkUsRUFBVytCLHFCQUNyRHZJLEVBQU1xQixTQUFTbUYsRUFBVytCLG1CQUFtQm9CLE1BQzdDM0osRUFBTXlCLFdBQVcrRSxFQUFXK0IsbUJBQW1Cb0IsTUFDL0MzSixFQUFNc0IsU0FBU2tGLEVBQVcrQixtQkFBbUJDLDZCQUNoRGhDLEVBQVcrQixtQkFBbUJDLDRCRnpRSixRRTRROUI3RSxFQUFPUixNQUFNLDZDQUE4Q3FELElBQ3BELElBR0xhLEVBQXlCLFdBQ3ZCcEMsRUFBZ0JFLHNCQUdwQm9CLEVBQWdCQyxXQUFhLEtBQzdCRCxFQUFnQkcsa0JBQW1CLEVBQ25DSCxFQUFnQkUsY0FBZ0JiLEVBQVVHLHdCQUMxQ1EsRUFBZ0JFLGNBQ1htRCxLQUFLLFNBQVNyQyxHQUNQaEIsRUFBZ0JHLGtCQUFtQixFQUNuQy9DLEVBQU9YLE1BQU0sMkRBQ1IwRyxFQUF5Qm5DLElBSTlCaEIsRUFBZ0JDLFdBQWFlLEVBQ3hCUixJQUdEcUMsRUFBZSxpQ0FHbkJULE1BVkljLEtBWVIsU0FBU0osR0FDTDlDLEVBQWdCRyxrQkFBbUIsRUFDbkMvQyxFQUFPUixNQUFNLHFEQUFzRGtHLEdBQ25FMUIsUUFJVmdCLEVBQWdCLFdBQ2xCLElBQUkxRCxFQUFnQkUsb0JBQXBCLENBR0F4QixFQUFPWCxNQUFNLGtDQUNiLElBQ1EwRyxFQUF5Qm5ELEVBQWdCQyxjQUV6Q3hCLEVBQVksSUFBSXNFLFVBQVUvQyxFQUFnQkMsV0FBVytCLG1CQUFtQm9CLE1BQzlERSxpQkFBaUIsT0FBUTdCLEdBQ25DaEQsRUFBVTZFLGlCQUFpQixVQUFXaEIsR0FDdEM3RCxFQUFVNkUsaUJBQWlCLFFBQVNqQixHQUNwQzVELEVBQVU2RSxpQkFBaUIsUUFBU3BCLElBRWhDbEMsRUFBZ0JHLGtCQUNoQitDLElBR1YsTUFBT3RHLEdBQ0xRLEVBQU9SLE1BQU0sd0NBQXlDQSxHQUN0RHNHLE9BdUVSakgsS0FBS3NILEtBeENRLFNBQVNDLEdBQ2xCL0osRUFBTUksV0FBV0osRUFBTXdFLFdBQVd1RixHQUFrQixzQ0FDWixPQUFwQ25FLEVBQVVHLHVCQUlkSCxFQUFVRyxzQkFBd0JnRSxFQUVsQzFDLEtBTEkxRCxFQUFPVCxLQUFLLCtDQXNDcEJWLEtBQUt3SCxjQWxEaUIsU0FBU0MsR0FNM0IsT0FMQWpLLEVBQU1JLFdBQVdKLEVBQU13RSxXQUFXeUYsR0FBSyx5QkFDdkNyRSxFQUFVQyxZQUFZcUQsSUFBSWUsR0FDdEJoRixFQUFnQkUscUJBQ2hCOEUsSUFFRyxrQkFBTXJFLEVBQVVDLFlBQVYsT0FBNkJvRSxLQTZDOUN6SCxLQUFLMEgsaUJBckVvQixTQUFTRCxHQU05QixPQUxBakssRUFBTUksV0FBV0osRUFBTXdFLFdBQVd5RixHQUFLLHlCQUN2Q3JFLEVBQVVTLGVBQWU2QyxJQUFJZSxHQUN6QmpGLEdBQWFBLEVBQVVvQyxhQUFla0MsVUFBVWEsTUFDaERGLElBRUcsa0JBQU1yRSxFQUFVUyxlQUFWLE9BQWdDNEQsS0FnRWpEekgsS0FBSzRILGlCQTdEb0IsU0FBU0gsR0FNOUIsT0FMQWpLLEVBQU1JLFdBQVdKLEVBQU13RSxXQUFXeUYsR0FBSyx5QkFDdkNyRSxFQUFVVSxlQUFlNEMsSUFBSWUsR0FDekJqRixHQUFhQSxFQUFVb0MsYUFBZWtDLFVBQVVDLFFBQ2hEVSxJQUVHLGtCQUFNckUsRUFBVVUsZUFBVixPQUFnQzJELEtBd0RqRHpILEtBQUs2SCxxQkFqQ3dCLFNBQVNKLEdBR2xDLE9BRkFqSyxFQUFNSSxXQUFXSixFQUFNd0UsV0FBV3lGLEdBQUsseUJBQ3ZDckUsRUFBVUksbUJBQW1Ca0QsSUFBSWUsR0FDMUIsa0JBQU1yRSxFQUFVSSxtQkFBVixPQUFvQ2lFLEtBK0JyRHpILEtBQUs4SCxzQkE1QnlCLFNBQVNMLEdBR25DLE9BRkFqSyxFQUFNSSxXQUFXSixFQUFNd0UsV0FBV3lGLEdBQUsseUJBQ3ZDckUsRUFBVUssb0JBQW9CaUQsSUFBSWUsR0FDM0Isa0JBQU1yRSxFQUFVSyxvQkFBVixPQUFxQ2dFLEtBMEJ0RHpILEtBQUsrSCxVQXZCYSxTQUFTdEIsRUFBV2dCLEdBUWxDLE9BUEFqSyxFQUFNd0ssY0FBY3ZCLEVBQVcsYUFDL0JqSixFQUFNSSxXQUFXSixFQUFNd0UsV0FBV3lGLEdBQUsseUJBQ25DckUsRUFBVU0sTUFBTWlELElBQUlGLEdBQ3BCckQsRUFBVU0sTUFBTXJILElBQUlvSyxHQUFXQyxJQUFJZSxHQUVuQ3JFLEVBQVVNLE1BQU11RSxJQUFJeEIsRUFBVyxJQUFJbkQsSUFBSSxDQUFDbUUsS0FFckMsa0JBQU1yRSxFQUFVTSxNQUFNckgsSUFBSW9LLEdBQXBCLE9BQXNDZ0IsS0FnQnZEekgsS0FBS2tJLGFBYmdCLFNBQVVULEdBRzNCLE9BRkFqSyxFQUFNSSxXQUFXSixFQUFNd0UsV0FBV3lGLEdBQUsseUJBQ3ZDckUsRUFBVVEsV0FBVzhDLElBQUllLEdBQ2xCLGtCQUFNckUsRUFBVVEsV0FBVixPQUE0QjZELEtBVzdDekgsS0FBS21JLGdCQTNKbUIsU0FBU3pDLEdBQzdCbEksRUFBTXdLLGNBQWN0QyxFQUFRLFVBQzVCbEksRUFBTTRLLGFBQWExQyxHQUVuQkEsRUFBT3JILFFBQVEsU0FBVXFGLEdBQ3JCUyxFQUFrQkUsUUFBUXFDLElBQUloRCxLQUc5QmxCLEdBQWFBLEVBQVVvQyxhQUFla0MsVUFBVWEsTUFDaERuRixFQUFVNEMsS0FBS0MsRUFBdUI5RixFQUFxQixDQUFDLE9BQVVtRyxNQW1KOUUxRixLQUFLcUksWUFoTGUsU0FBU0MsR0FFekIsR0FEQTlLLEVBQU00QixlQUFla0osRUFBUyxnQkFDUnpLLElBQWxCeUssRUFBUTVFLE9BQXVCWSxFQUE0QnFDLElBQUkyQixFQUFRNUUsT0FDdkV2QyxFQUFPVCxLQUFLLHFDQUFzQzRILE9BRHRELENBSUEsSUFDSUEsRUFBVW5HLEtBQUtDLFVBQVVrRyxHQUMzQixNQUFPM0gsR0FFTCxZQURBUSxFQUFPVCxLQUFLLDBCQUEyQjRILEdBR3ZDOUYsR0FBYUEsRUFBVW9DLGFBQWVrQyxVQUFVYSxNQUNoRHhHLEVBQU9YLE1BQU0sbUNBQW9DOEgsR0FDakQ5RixFQUFVNEMsS0FBS2tELElBRWZuSCxFQUFPVCxLQUFLLDREQWtLcEJWLEtBQUs0RyxlQUFpQixXQUNsQnRCLElBQ0FKLGNBQWNSLEdBQ2RrQyxFQUFlLHFDQWFqQjJCLEVBQXlCLENBQzNCekwsT0FWZ0MsV0FDaEMsT0FBTyxJQUFJd0YsR0FVWGtHLGdCQVBvQixTQUFBdEgsR0FDcEIsSUFBTXVILEVBQWV2SCxFQUFPdUgsYUFDNUJsSCxFQUFXdEIsbUJBQW1Cd0ksSUFNOUIvSSxTQUFVQSxFQUNWRixPQUFRQSxJLGdCQ2hiWixPQUVDLFdBQ0csYUFFQSxJQUFJa0osRUFBSyxDQUNMQyxXQUFZLE9BQ1pDLFNBQVUsT0FDVkMsU0FBVSxPQUNWQyxjQUFlLE9BQ2ZDLE9BQVEsVUFDUkMsWUFBYSxlQUNiQyxLQUFNLE1BQ05DLFNBQVUsT0FDVkMsS0FBTSxZQUNOQyxPQUFRLFdBQ1JDLFlBQWEsMkZBQ2J0TSxJQUFLLHNCQUNMdU0sV0FBWSx3QkFDWkMsYUFBYyxhQUNkQyxLQUFNLFNBR1YsU0FBUzFMLEVBQVFmLEdBRWIsT0FPSixTQUF3QjBNLEVBQVlDLEdBQ2hDLElBQWlENUgsRUFBa0J0RyxFQUFHbU8sRUFBR0MsRUFBSUMsRUFBS0MsRUFBZUMsRUFBWUMsRUFBYVIsRUFBdEhTLEVBQVMsRUFBR0MsRUFBY1QsRUFBV3ZMLE9BQWFpTSxFQUFTLEdBQy9ELElBQUszTyxFQUFJLEVBQUdBLEVBQUkwTyxFQUFhMU8sSUFDekIsR0FBNkIsaUJBQWxCaU8sRUFBV2pPLEdBQ2xCMk8sR0FBVVYsRUFBV2pPLFFBRXBCLEdBQTZCLGlCQUFsQmlPLEVBQVdqTyxHQUFpQixDQUV4QyxJQURBb08sRUFBS0gsRUFBV2pPLElBQ1Q0TyxLQUVILElBREF0SSxFQUFNNEgsRUFBS08sR0FDTk4sRUFBSSxFQUFHQSxFQUFJQyxFQUFHUSxLQUFLbE0sT0FBUXlMLElBQUssQ0FDakMsR0FBVzlMLE1BQVBpRSxFQUNBLE1BQU0sSUFBSW5FLE1BQU1HLEVBQVEsZ0VBQWlFOEwsRUFBR1EsS0FBS1QsR0FBSUMsRUFBR1EsS0FBS1QsRUFBRSxLQUVuSDdILEVBQU1BLEVBQUk4SCxFQUFHUSxLQUFLVCxTQUl0QjdILEVBREs4SCxFQUFHUyxTQUNGWCxFQUFLRSxFQUFHUyxVQUdSWCxFQUFLTyxLQU9mLEdBSkl2QixFQUFHRyxTQUFTMUosS0FBS3lLLEVBQUdVLE9BQVM1QixFQUFHSSxjQUFjM0osS0FBS3lLLEVBQUdVLE9BQVN4SSxhQUFleUksV0FDOUV6SSxFQUFNQSxLQUdONEcsRUFBR00sWUFBWTdKLEtBQUt5SyxFQUFHVSxPQUF5QixpQkFBUnhJLEdBQW9CMEksTUFBTTFJLEdBQ2xFLE1BQU0sSUFBSTJJLFVBQVUzTSxFQUFRLDBDQUEyQ2dFLElBTzNFLE9BSkk0RyxFQUFHSyxPQUFPNUosS0FBS3lLLEVBQUdVLFFBQ2xCTixFQUFjbEksR0FBTyxHQUdqQjhILEVBQUdVLE1BQ1AsSUFBSyxJQUNEeEksRUFBTTRJLFNBQVM1SSxFQUFLLElBQUlHLFNBQVMsR0FDakMsTUFDSixJQUFLLElBQ0RILEVBQU02SSxPQUFPQyxhQUFhRixTQUFTNUksRUFBSyxLQUN4QyxNQUNKLElBQUssSUFDTCxJQUFLLElBQ0RBLEVBQU00SSxTQUFTNUksRUFBSyxJQUNwQixNQUNKLElBQUssSUFDREEsRUFBTUssS0FBS0MsVUFBVU4sRUFBSyxLQUFNOEgsRUFBR2lCLE1BQVFILFNBQVNkLEVBQUdpQixPQUFTLEdBQ2hFLE1BQ0osSUFBSyxJQUNEL0ksRUFBTThILEVBQUdrQixVQUFZQyxXQUFXakosR0FBS2tKLGNBQWNwQixFQUFHa0IsV0FBYUMsV0FBV2pKLEdBQUtrSixnQkFDbkYsTUFDSixJQUFLLElBQ0RsSixFQUFNOEgsRUFBR2tCLFVBQVlDLFdBQVdqSixHQUFLbUosUUFBUXJCLEVBQUdrQixXQUFhQyxXQUFXakosR0FDeEUsTUFDSixJQUFLLElBQ0RBLEVBQU04SCxFQUFHa0IsVUFBWUgsT0FBT08sT0FBT3BKLEVBQUlxSixZQUFZdkIsRUFBR2tCLGFBQWVDLFdBQVdqSixHQUNoRixNQUNKLElBQUssSUFDREEsR0FBTzRJLFNBQVM1SSxFQUFLLE1BQVEsR0FBR0csU0FBUyxHQUN6QyxNQUNKLElBQUssSUFDREgsRUFBTTZJLE9BQU83SSxHQUNiQSxFQUFPOEgsRUFBR2tCLFVBQVloSixFQUFJc0osVUFBVSxFQUFHeEIsRUFBR2tCLFdBQWFoSixFQUN2RCxNQUNKLElBQUssSUFDREEsRUFBTTZJLFNBQVM3SSxHQUNmQSxFQUFPOEgsRUFBR2tCLFVBQVloSixFQUFJc0osVUFBVSxFQUFHeEIsRUFBR2tCLFdBQWFoSixFQUN2RCxNQUNKLElBQUssSUFDREEsRUFBTTVGLE9BQU9rQixVQUFVNkUsU0FBU3RHLEtBQUttRyxHQUFLdUosTUFBTSxHQUFJLEdBQUdDLGNBQ3ZEeEosRUFBTzhILEVBQUdrQixVQUFZaEosRUFBSXNKLFVBQVUsRUFBR3hCLEVBQUdrQixXQUFhaEosRUFDdkQsTUFDSixJQUFLLElBQ0RBLEVBQU00SSxTQUFTNUksRUFBSyxNQUFRLEVBQzVCLE1BQ0osSUFBSyxJQUNEQSxFQUFNQSxFQUFJeUosVUFDVnpKLEVBQU84SCxFQUFHa0IsVUFBWWhKLEVBQUlzSixVQUFVLEVBQUd4QixFQUFHa0IsV0FBYWhKLEVBQ3ZELE1BQ0osSUFBSyxJQUNEQSxHQUFPNEksU0FBUzVJLEVBQUssTUFBUSxHQUFHRyxTQUFTLElBQ3pDLE1BQ0osSUFBSyxJQUNESCxHQUFPNEksU0FBUzVJLEVBQUssTUFBUSxHQUFHRyxTQUFTLElBQUl4RCxjQUdqRGlLLEVBQUdPLEtBQUs5SixLQUFLeUssRUFBR1UsTUFDaEJILEdBQVVySSxJQUdONEcsRUFBR0ssT0FBTzVKLEtBQUt5SyxFQUFHVSxPQUFXTixJQUFlSixFQUFHSixLQUsvQ0EsRUFBTyxJQUpQQSxFQUFPUSxFQUFjLElBQU0sSUFDM0JsSSxFQUFNQSxFQUFJRyxXQUFXM0QsUUFBUW9LLEVBQUdjLEtBQU0sS0FLMUNNLEVBQWdCRixFQUFHNEIsU0FBMkIsTUFBaEI1QixFQUFHNEIsU0FBbUIsSUFBTTVCLEVBQUc0QixTQUFTQyxPQUFPLEdBQUssSUFDbEYxQixFQUFhSCxFQUFHaUIsT0FBU3JCLEVBQU8xSCxHQUFLNUQsT0FDckMyTCxFQUFNRCxFQUFHaUIsT0FBU2QsRUFBYSxFQUFJRCxFQUFjNEIsT0FBTzNCLEdBQW9CLEdBQzVFSSxHQUFVUCxFQUFHK0IsTUFBUW5DLEVBQU8xSCxFQUFNK0gsRUFBeUIsTUFBbEJDLEVBQXdCTixFQUFPSyxFQUFNL0gsRUFBTStILEVBQU1MLEVBQU8xSCxHQUk3RyxPQUFPcUksRUFqSEF5QixDQXNIWCxTQUF1QkMsR0FDbkIsR0FBSUMsRUFBY0QsR0FDZCxPQUFPQyxFQUFjRCxHQUd6QixJQUFnQkUsRUFBWkMsRUFBT0gsRUFBWXBDLEVBQWEsR0FBSXdDLEVBQVksRUFDcEQsS0FBT0QsR0FBTSxDQUNULEdBQXFDLFFBQWhDRCxFQUFRckQsRUFBR1MsS0FBSytDLEtBQUtGLElBQ3RCdkMsRUFBVzBDLEtBQUtKLEVBQU0sU0FFckIsR0FBdUMsUUFBbENBLEVBQVFyRCxFQUFHVSxPQUFPOEMsS0FBS0YsSUFDN0J2QyxFQUFXMEMsS0FBSyxTQUVmLElBQTRDLFFBQXZDSixFQUFRckQsRUFBR1csWUFBWTZDLEtBQUtGLElBNkNsQyxNQUFNLElBQUlJLFlBQVksb0NBNUN0QixHQUFJTCxFQUFNLEdBQUksQ0FDVkUsR0FBYSxFQUNiLElBQUlJLEVBQWEsR0FBSUMsRUFBb0JQLEVBQU0sR0FBSVEsRUFBYyxHQUNqRSxHQUF1RCxRQUFsREEsRUFBYzdELEVBQUczTCxJQUFJbVAsS0FBS0ksSUFlM0IsTUFBTSxJQUFJRixZQUFZLGdEQWJ0QixJQURBQyxFQUFXRixLQUFLSSxFQUFZLElBQ3dELE1BQTVFRCxFQUFvQkEsRUFBa0JsQixVQUFVbUIsRUFBWSxHQUFHck8sVUFDbkUsR0FBOEQsUUFBekRxTyxFQUFjN0QsRUFBR1ksV0FBVzRDLEtBQUtJLElBQ2xDRCxFQUFXRixLQUFLSSxFQUFZLFFBRTNCLElBQWdFLFFBQTNEQSxFQUFjN0QsRUFBR2EsYUFBYTJDLEtBQUtJLElBSXpDLE1BQU0sSUFBSUYsWUFBWSxnREFIdEJDLEVBQVdGLEtBQUtJLEVBQVksSUFVeENSLEVBQU0sR0FBS00sT0FHWEosR0FBYSxFQUVqQixHQUFrQixJQUFkQSxFQUNBLE1BQU0sSUFBSXRPLE1BQU0sNkVBR3BCOEwsRUFBVzBDLEtBQ1AsQ0FDSTlDLFlBQWEwQyxFQUFNLEdBQ25CMUIsU0FBYTBCLEVBQU0sR0FDbkIzQixLQUFhMkIsRUFBTSxHQUNuQnZDLEtBQWF1QyxFQUFNLEdBQ25CUCxTQUFhTyxFQUFNLEdBQ25CSixNQUFhSSxFQUFNLEdBQ25CbEIsTUFBYWtCLEVBQU0sR0FDbkJqQixVQUFhaUIsRUFBTSxHQUNuQnpCLEtBQWF5QixFQUFNLEtBTy9CQyxFQUFPQSxFQUFLWixVQUFVVyxFQUFNLEdBQUc3TixRQUVuQyxPQUFPNE4sRUFBY0QsR0FBT3BDLEVBcExOK0MsQ0FBY3pQLEdBQU0wUCxXQUc5QyxTQUFTQyxFQUFTYixFQUFLbkMsR0FDbkIsT0FBTzVMLEVBQVFjLE1BQU0sS0FBTSxDQUFDaU4sR0FBS2pHLE9BQU84RCxHQUFRLEtBZ0hwRCxJQUFJb0MsRUFBZ0I1UCxPQUFPWSxPQUFPLE1Bd0U5QnhCLEVBQWlCLFFBQUl3QyxFQUNyQnhDLEVBQWtCLFNBQUlvUixFQUVKLG9CQUFYQyxTQUNQQSxPQUFnQixRQUFJN08sRUFDcEI2TyxPQUFpQixTQUFJRCxPQVFoQixLQUxELGFBQ0ksTUFBTyxDQUNILFFBQVc1TyxFQUNYLFNBQVk0TyxJQUVuQiwrQkFoT1osSSw2QkNGRCw2RUFHQUUsRUFBT0MsUUFBVUQsRUFBT0MsU0FBVyxHQUNuQ0EsUUFBUXZLLGlCQUFtQmlHLElBRXBCLElBQU1qRyxFQUFtQmlHLEssK0JDTmhDLElBQUl1RSxFQUdKQSxFQUFJLFdBQ0gsT0FBTzlNLEtBREosR0FJSixJQUVDOE0sRUFBSUEsR0FBSyxJQUFJdkMsU0FBUyxjQUFiLEdBQ1IsTUFBT3dDLEdBRWMsaUJBQVhKLFNBQXFCRyxFQUFJSCxRQU9yQ3BSLEVBQU9ELFFBQVV3UiIsImZpbGUiOiJhbWF6b24tY29ubmVjdC13ZWJzb2NrZXQtbWFuYWdlci5qcyIsInNvdXJjZXNDb250ZW50IjpbIiBcdC8vIFRoZSBtb2R1bGUgY2FjaGVcbiBcdHZhciBpbnN0YWxsZWRNb2R1bGVzID0ge307XG5cbiBcdC8vIFRoZSByZXF1aXJlIGZ1bmN0aW9uXG4gXHRmdW5jdGlvbiBfX3dlYnBhY2tfcmVxdWlyZV9fKG1vZHVsZUlkKSB7XG5cbiBcdFx0Ly8gQ2hlY2sgaWYgbW9kdWxlIGlzIGluIGNhY2hlXG4gXHRcdGlmKGluc3RhbGxlZE1vZHVsZXNbbW9kdWxlSWRdKSB7XG4gXHRcdFx0cmV0dXJuIGluc3RhbGxlZE1vZHVsZXNbbW9kdWxlSWRdLmV4cG9ydHM7XG4gXHRcdH1cbiBcdFx0Ly8gQ3JlYXRlIGEgbmV3IG1vZHVsZSAoYW5kIHB1dCBpdCBpbnRvIHRoZSBjYWNoZSlcbiBcdFx0dmFyIG1vZHVsZSA9IGluc3RhbGxlZE1vZHVsZXNbbW9kdWxlSWRdID0ge1xuIFx0XHRcdGk6IG1vZHVsZUlkLFxuIFx0XHRcdGw6IGZhbHNlLFxuIFx0XHRcdGV4cG9ydHM6IHt9XG4gXHRcdH07XG5cbiBcdFx0Ly8gRXhlY3V0ZSB0aGUgbW9kdWxlIGZ1bmN0aW9uXG4gXHRcdG1vZHVsZXNbbW9kdWxlSWRdLmNhbGwobW9kdWxlLmV4cG9ydHMsIG1vZHVsZSwgbW9kdWxlLmV4cG9ydHMsIF9fd2VicGFja19yZXF1aXJlX18pO1xuXG4gXHRcdC8vIEZsYWcgdGhlIG1vZHVsZSBhcyBsb2FkZWRcbiBcdFx0bW9kdWxlLmwgPSB0cnVlO1xuXG4gXHRcdC8vIFJldHVybiB0aGUgZXhwb3J0cyBvZiB0aGUgbW9kdWxlXG4gXHRcdHJldHVybiBtb2R1bGUuZXhwb3J0cztcbiBcdH1cblxuXG4gXHQvLyBleHBvc2UgdGhlIG1vZHVsZXMgb2JqZWN0IChfX3dlYnBhY2tfbW9kdWxlc19fKVxuIFx0X193ZWJwYWNrX3JlcXVpcmVfXy5tID0gbW9kdWxlcztcblxuIFx0Ly8gZXhwb3NlIHRoZSBtb2R1bGUgY2FjaGVcbiBcdF9fd2VicGFja19yZXF1aXJlX18uYyA9IGluc3RhbGxlZE1vZHVsZXM7XG5cbiBcdC8vIGRlZmluZSBnZXR0ZXIgZnVuY3Rpb24gZm9yIGhhcm1vbnkgZXhwb3J0c1xuIFx0X193ZWJwYWNrX3JlcXVpcmVfXy5kID0gZnVuY3Rpb24oZXhwb3J0cywgbmFtZSwgZ2V0dGVyKSB7XG4gXHRcdGlmKCFfX3dlYnBhY2tfcmVxdWlyZV9fLm8oZXhwb3J0cywgbmFtZSkpIHtcbiBcdFx0XHRPYmplY3QuZGVmaW5lUHJvcGVydHkoZXhwb3J0cywgbmFtZSwgeyBlbnVtZXJhYmxlOiB0cnVlLCBnZXQ6IGdldHRlciB9KTtcbiBcdFx0fVxuIFx0fTtcblxuIFx0Ly8gZGVmaW5lIF9fZXNNb2R1bGUgb24gZXhwb3J0c1xuIFx0X193ZWJwYWNrX3JlcXVpcmVfXy5yID0gZnVuY3Rpb24oZXhwb3J0cykge1xuIFx0XHRpZih0eXBlb2YgU3ltYm9sICE9PSAndW5kZWZpbmVkJyAmJiBTeW1ib2wudG9TdHJpbmdUYWcpIHtcbiBcdFx0XHRPYmplY3QuZGVmaW5lUHJvcGVydHkoZXhwb3J0cywgU3ltYm9sLnRvU3RyaW5nVGFnLCB7IHZhbHVlOiAnTW9kdWxlJyB9KTtcbiBcdFx0fVxuIFx0XHRPYmplY3QuZGVmaW5lUHJvcGVydHkoZXhwb3J0cywgJ19fZXNNb2R1bGUnLCB7IHZhbHVlOiB0cnVlIH0pO1xuIFx0fTtcblxuIFx0Ly8gY3JlYXRlIGEgZmFrZSBuYW1lc3BhY2Ugb2JqZWN0XG4gXHQvLyBtb2RlICYgMTogdmFsdWUgaXMgYSBtb2R1bGUgaWQsIHJlcXVpcmUgaXRcbiBcdC8vIG1vZGUgJiAyOiBtZXJnZSBhbGwgcHJvcGVydGllcyBvZiB2YWx1ZSBpbnRvIHRoZSBuc1xuIFx0Ly8gbW9kZSAmIDQ6IHJldHVybiB2YWx1ZSB3aGVuIGFscmVhZHkgbnMgb2JqZWN0XG4gXHQvLyBtb2RlICYgOHwxOiBiZWhhdmUgbGlrZSByZXF1aXJlXG4gXHRfX3dlYnBhY2tfcmVxdWlyZV9fLnQgPSBmdW5jdGlvbih2YWx1ZSwgbW9kZSkge1xuIFx0XHRpZihtb2RlICYgMSkgdmFsdWUgPSBfX3dlYnBhY2tfcmVxdWlyZV9fKHZhbHVlKTtcbiBcdFx0aWYobW9kZSAmIDgpIHJldHVybiB2YWx1ZTtcbiBcdFx0aWYoKG1vZGUgJiA0KSAmJiB0eXBlb2YgdmFsdWUgPT09ICdvYmplY3QnICYmIHZhbHVlICYmIHZhbHVlLl9fZXNNb2R1bGUpIHJldHVybiB2YWx1ZTtcbiBcdFx0dmFyIG5zID0gT2JqZWN0LmNyZWF0ZShudWxsKTtcbiBcdFx0X193ZWJwYWNrX3JlcXVpcmVfXy5yKG5zKTtcbiBcdFx0T2JqZWN0LmRlZmluZVByb3BlcnR5KG5zLCAnZGVmYXVsdCcsIHsgZW51bWVyYWJsZTogdHJ1ZSwgdmFsdWU6IHZhbHVlIH0pO1xuIFx0XHRpZihtb2RlICYgMiAmJiB0eXBlb2YgdmFsdWUgIT0gJ3N0cmluZycpIGZvcih2YXIga2V5IGluIHZhbHVlKSBfX3dlYnBhY2tfcmVxdWlyZV9fLmQobnMsIGtleSwgZnVuY3Rpb24oa2V5KSB7IHJldHVybiB2YWx1ZVtrZXldOyB9LmJpbmQobnVsbCwga2V5KSk7XG4gXHRcdHJldHVybiBucztcbiBcdH07XG5cbiBcdC8vIGdldERlZmF1bHRFeHBvcnQgZnVuY3Rpb24gZm9yIGNvbXBhdGliaWxpdHkgd2l0aCBub24taGFybW9ueSBtb2R1bGVzXG4gXHRfX3dlYnBhY2tfcmVxdWlyZV9fLm4gPSBmdW5jdGlvbihtb2R1bGUpIHtcbiBcdFx0dmFyIGdldHRlciA9IG1vZHVsZSAmJiBtb2R1bGUuX19lc01vZHVsZSA/XG4gXHRcdFx0ZnVuY3Rpb24gZ2V0RGVmYXVsdCgpIHsgcmV0dXJuIG1vZHVsZVsnZGVmYXVsdCddOyB9IDpcbiBcdFx0XHRmdW5jdGlvbiBnZXRNb2R1bGVFeHBvcnRzKCkgeyByZXR1cm4gbW9kdWxlOyB9O1xuIFx0XHRfX3dlYnBhY2tfcmVxdWlyZV9fLmQoZ2V0dGVyLCAnYScsIGdldHRlcik7XG4gXHRcdHJldHVybiBnZXR0ZXI7XG4gXHR9O1xuXG4gXHQvLyBPYmplY3QucHJvdG90eXBlLmhhc093blByb3BlcnR5LmNhbGxcbiBcdF9fd2VicGFja19yZXF1aXJlX18ubyA9IGZ1bmN0aW9uKG9iamVjdCwgcHJvcGVydHkpIHsgcmV0dXJuIE9iamVjdC5wcm90b3R5cGUuaGFzT3duUHJvcGVydHkuY2FsbChvYmplY3QsIHByb3BlcnR5KTsgfTtcblxuIFx0Ly8gX193ZWJwYWNrX3B1YmxpY19wYXRoX19cbiBcdF9fd2VicGFja19yZXF1aXJlX18ucCA9IFwiXCI7XG5cblxuIFx0Ly8gTG9hZCBlbnRyeSBtb2R1bGUgYW5kIHJldHVybiBleHBvcnRzXG4gXHRyZXR1cm4gX193ZWJwYWNrX3JlcXVpcmVfXyhfX3dlYnBhY2tfcmVxdWlyZV9fLnMgPSAyKTtcbiIsImltcG9ydCB7IHNwcmludGYgfSBmcm9tIFwic3ByaW50Zi1qc1wiO1xuY29uc3QgVXRpbHMgPSB7fTtcblxuLyoqXG4gKiBBc3NlcnRzIHRoYXQgYSBwcmVtaXNlIGlzIHRydWUuXG4gKi9cblV0aWxzLmFzc2VydFRydWUgPSBmdW5jdGlvbihwcmVtaXNlLCBtZXNzYWdlKSB7XG4gIGlmICghcHJlbWlzZSkge1xuICAgIHRocm93IG5ldyBFcnJvcihtZXNzYWdlKTtcbiAgfVxufTtcblxuLyoqXG4gKiBBc3NlcnRzIHRoYXQgYSB2YWx1ZSBpcyBub3QgbnVsbCBvciB1bmRlZmluZWQuXG4gKi9cblV0aWxzLmFzc2VydE5vdE51bGwgPSBmdW5jdGlvbih2YWx1ZSwgbmFtZSkge1xuICBVdGlscy5hc3NlcnRUcnVlKFxuICAgIHZhbHVlICE9PSBudWxsICYmIHR5cGVvZiB2YWx1ZSAhPT0gdW5kZWZpbmVkLFxuICAgIHNwcmludGYoXCIlcyBtdXN0IGJlIHByb3ZpZGVkXCIsIG5hbWUgfHwgXCJBIHZhbHVlXCIpXG4gICk7XG4gIHJldHVybiB2YWx1ZTtcbn07XG5cblV0aWxzLmlzU3RyaW5nID0gZnVuY3Rpb24odmFsdWUpIHtcbiAgcmV0dXJuIHR5cGVvZiB2YWx1ZSA9PT0gXCJzdHJpbmdcIjtcbn07XG5cblV0aWxzLmFzc2VydElzTm9uRW1wdHlTdHJpbmcgPSBmdW5jdGlvbih2YWx1ZSwga2V5KSB7XG4gIGlmICghdmFsdWUgfHwgdHlwZW9mIHZhbHVlICE9PSBcInN0cmluZ1wiKSB7XG4gICAgdGhyb3cgbmV3IEVycm9yKGtleSArIFwiIGlzIG5vdCBhIG5vbi1lbXB0eSBzdHJpbmchXCIpO1xuICB9XG59O1xuXG5VdGlscy5hc3NlcnRJc0xpc3QgPSBmdW5jdGlvbih2YWx1ZSwga2V5KSB7XG4gIGlmICghQXJyYXkuaXNBcnJheSh2YWx1ZSkpIHtcbiAgICB0aHJvdyBuZXcgRXJyb3Ioa2V5ICsgXCIgaXMgbm90IGFuIGFycmF5XCIpO1xuICB9XG59O1xuXG5VdGlscy5hc3NlcnRJc0VudW0gPSBmdW5jdGlvbih2YWx1ZSwgYWxsb3dlZFZhbHVlcywga2V5KSB7XG4gIHZhciBpO1xuICBmb3IgKGkgPSAwOyBpIDwgYWxsb3dlZFZhbHVlcy5sZW5ndGg7IGkrKykge1xuICAgIGlmIChhbGxvd2VkVmFsdWVzW2ldID09PSB2YWx1ZSkge1xuICAgICAgcmV0dXJuO1xuICAgIH1cbiAgfVxuICB0aHJvdyBuZXcgRXJyb3IoXG4gICAga2V5ICsgXCIgcGFzc2VkIGlzIG5vdCB2YWxpZC4gXCIgKyBcIkFsbG93ZWQgdmFsdWVzIGFyZTogXCIgKyBhbGxvd2VkVmFsdWVzXG4gICk7XG59O1xuXG4vKipcbiAqIEdlbmVyYXRlIGFuIGVudW0gZnJvbSB0aGUgZ2l2ZW4gbGlzdCBvZiBsb3dlci1jYXNlIGVudW0gdmFsdWVzLFxuICogd2hlcmUgdGhlIGVudW0ga2V5cyB3aWxsIGJlIHVwcGVyIGNhc2UuXG4gKlxuICogQ29udmVyc2lvbiBmcm9tIHBhc2NhbCBjYXNlIGJhc2VkIG9uIGNvZGUgZnJvbSBoZXJlOlxuICogaHR0cDovL3N0YWNrb3ZlcmZsb3cuY29tL3F1ZXN0aW9ucy8zMDUyMTIyNFxuICovXG5VdGlscy5tYWtlRW51bSA9IGZ1bmN0aW9uKHZhbHVlcykge1xuICB2YXIgZW51bU9iaiA9IHt9O1xuXG4gIHZhbHVlcy5mb3JFYWNoKGZ1bmN0aW9uKHZhbHVlKSB7XG4gICAgdmFyIGtleSA9IHZhbHVlXG4gICAgICAucmVwbGFjZSgvXFwuPyhbYS16XSspXz8vZywgZnVuY3Rpb24oeCwgeSkge1xuICAgICAgICByZXR1cm4geS50b1VwcGVyQ2FzZSgpICsgXCJfXCI7XG4gICAgICB9KVxuICAgICAgLnJlcGxhY2UoL18kLywgXCJcIik7XG5cbiAgICBlbnVtT2JqW2tleV0gPSB2YWx1ZTtcbiAgfSk7XG5cbiAgcmV0dXJuIGVudW1PYmo7XG59O1xuXG4vKipcbiAqIERldGVybWluZSBpZiB0aGUgZ2l2ZW4gdmFsdWUgaXMgYSBjYWxsYWJsZSBmdW5jdGlvbiB0eXBlLlxuICogQm9ycm93ZWQgZnJvbSBVbmRlcnNjb3JlLmpzLlxuICovXG5VdGlscy5pc0Z1bmN0aW9uID0gZnVuY3Rpb24ob2JqKSB7XG4gIHJldHVybiAhIShvYmogJiYgb2JqLmNvbnN0cnVjdG9yICYmIG9iai5jYWxsICYmIG9iai5hcHBseSk7XG59O1xuXG5VdGlscy5pc09iamVjdCA9IGZ1bmN0aW9uKHZhbHVlKSB7XG4gIHJldHVybiAhKHR5cGVvZiB2YWx1ZSAhPT0gXCJvYmplY3RcIiB8fCB2YWx1ZSA9PT0gbnVsbCk7XG59O1xuXG5VdGlscy5pc1N0cmluZyA9IGZ1bmN0aW9uKHZhbHVlKSB7XG4gIHJldHVybiB0eXBlb2YgdmFsdWUgPT09IFwic3RyaW5nXCI7XG59O1xuXG5VdGlscy5pc051bWJlciA9IGZ1bmN0aW9uKHZhbHVlKSB7XG4gIHJldHVybiB0eXBlb2YgdmFsdWUgPT09IFwibnVtYmVyXCI7XG59O1xuXG5jb25zdCB3c1JlZ2V4ID0gbmV3IFJlZ0V4cChcIl4od3NzOi8vKVxcXFx3KlwiKTtcblV0aWxzLnZhbGlkV1NVcmwgPSBmdW5jdGlvbiAod3NVcmwpIHtcbiAgcmV0dXJuIHdzUmVnZXgudGVzdCh3c1VybCk7XG59O1xuXG5VdGlscy5hc3NlcnRJc09iamVjdCA9IGZ1bmN0aW9uKHZhbHVlLCBrZXkpIHtcbiAgaWYgKCFVdGlscy5pc09iamVjdCh2YWx1ZSkpIHtcbiAgICB0aHJvdyBuZXcgRXJyb3Ioa2V5ICsgXCIgaXMgbm90IGFuIG9iamVjdCFcIik7XG4gIH1cbn07XG5cbmV4cG9ydCBkZWZhdWx0IFV0aWxzO1xuXG4iLCJcbmV4cG9ydCBjb25zdCBMT0dTX0RFU1RJTkFUSU9OID0ge1xuICBOVUxMOiBcIk5VTExcIixcbiAgQ0xJRU5UX0xPR0dFUjogXCJDTElFTlRfTE9HR0VSXCIsXG4gIERFQlVHOiBcIkRFQlVHXCJcbn07XG5cbmV4cG9ydCBjb25zdCBNSU5fV0VCU09DS0VUX0xJRkVUSU1FID0gMzYwMDtcbmV4cG9ydCBjb25zdCBNQVhfTElORUFSX0NPTk5FQ1RfQVRURU1QVFMgPSAzO1xuZXhwb3J0IGNvbnN0IE1BWF9FWFBPTkVOVElBTF9DT05ORUNUX0FUVEVNUFRTID0gNTtcbmV4cG9ydCBjb25zdCBIRUFSVEJFQVRfSU5URVJWQUwgPSAxMDsgLy9zZWNvbmRzXG5cbmV4cG9ydCBjb25zdCBST1VURV9LRVkgPSB7XG4gIFNVQlNDUklCRTogXCJhd3Mvc3Vic2NyaWJlXCIsXG4gIFVOU1VCU0NSSUJFOiBcImF3cy91bnN1YnNjcmliZVwiLFxuICBIRUFSVEJFQVQ6IFwiYXdzL2hlYXJ0YmVhdFwiXG59O1xuIiwiaW1wb3J0IFV0aWxzIGZyb20gXCIuL3V0aWxzXCI7XG5pbXBvcnQgeyBMT0dTX0RFU1RJTkFUSU9OIH0gZnJvbSBcIi4vY29uc3RhbnRzXCI7XG5cbi8qZXNsaW50LWRpc2FibGUgbm8tdW51c2VkLXZhcnMqL1xuY2xhc3MgTG9nZ2VyIHtcbiAgZGVidWcoZGF0YSkge31cblxuICBpbmZvKGRhdGEpIHt9XG5cbiAgd2FybihkYXRhKSB7fVxuXG4gIGVycm9yKGRhdGEpIHt9XG59XG4vKmVzbGludC1lbmFibGUgbm8tdW51c2VkLXZhcnMqL1xuXG5jb25zdCBMb2dMZXZlbCA9IHtcbiAgREVCVUc6IDEwLFxuICBJTkZPOiAyMCxcbiAgV0FSTjogMzAsXG4gIEVSUk9SOiA0MFxufTtcblxuY2xhc3MgTG9nTWFuYWdlckltcGwge1xuICBjb25zdHJ1Y3RvcigpIHtcbiAgICB0aGlzLnVwZGF0ZUxvZ2dlckNvbmZpZygpO1xuICAgIHRoaXMuY29uc29sZUxvZ2dlcldyYXBwZXIgPSBjcmVhdGVDb25zb2xlTG9nZ2VyKCk7XG4gIH1cblxuICB3cml0ZVRvQ2xpZW50TG9nZ2VyKGxldmVsLCBsb2dTdGF0ZW1lbnQpIHtcbiAgICBpZiAoIXRoaXMuaGFzQ2xpZW50TG9nZ2VyKCkpIHtcbiAgICAgIHJldHVybjtcbiAgICB9XG4gICAgc3dpdGNoIChsZXZlbCkge1xuICAgICAgY2FzZSBMb2dMZXZlbC5ERUJVRzpcbiAgICAgICAgcmV0dXJuIHRoaXMuX2NsaWVudExvZ2dlci5kZWJ1Zyhsb2dTdGF0ZW1lbnQpO1xuICAgICAgY2FzZSBMb2dMZXZlbC5JTkZPOlxuICAgICAgICByZXR1cm4gdGhpcy5fY2xpZW50TG9nZ2VyLmluZm8obG9nU3RhdGVtZW50KTtcbiAgICAgIGNhc2UgTG9nTGV2ZWwuV0FSTjpcbiAgICAgICAgcmV0dXJuIHRoaXMuX2NsaWVudExvZ2dlci53YXJuKGxvZ1N0YXRlbWVudCk7XG4gICAgICBjYXNlIExvZ0xldmVsLkVSUk9SOlxuICAgICAgICByZXR1cm4gdGhpcy5fY2xpZW50TG9nZ2VyLmVycm9yKGxvZ1N0YXRlbWVudCk7XG4gICAgfVxuICB9XG5cbiAgaXNMZXZlbEVuYWJsZWQobGV2ZWwpIHtcbiAgICByZXR1cm4gbGV2ZWwgPj0gdGhpcy5fbGV2ZWw7XG4gIH1cblxuICBoYXNDbGllbnRMb2dnZXIoKSB7XG4gICAgcmV0dXJuIHRoaXMuX2NsaWVudExvZ2dlciAhPT0gbnVsbDtcbiAgfVxuXG4gIGdldExvZ2dlcihvcHRpb25zKSB7XG4gICAgdmFyIHByZWZpeCA9IG9wdGlvbnMucHJlZml4IHx8IFwiXCI7XG4gICAgaWYgKHRoaXMuX2xvZ3NEZXN0aW5hdGlvbiA9PT0gTE9HU19ERVNUSU5BVElPTi5ERUJVRykge1xuICAgICAgcmV0dXJuIHRoaXMuY29uc29sZUxvZ2dlcldyYXBwZXI7XG4gICAgfVxuICAgIHJldHVybiBuZXcgTG9nZ2VyV3JhcHBlckltcGwocHJlZml4KTtcbiAgfVxuXG4gIHVwZGF0ZUxvZ2dlckNvbmZpZyhpbnB1dENvbmZpZykge1xuICAgIHZhciBjb25maWcgPSBpbnB1dENvbmZpZyB8fCB7fTtcbiAgICB0aGlzLl9sZXZlbCA9IGNvbmZpZy5sZXZlbCB8fCBMb2dMZXZlbC5JTkZPO1xuICAgIHRoaXMuX2NsaWVudExvZ2dlciA9IGNvbmZpZy5sb2dnZXIgfHwgbnVsbDtcbiAgICB0aGlzLl9sb2dzRGVzdGluYXRpb24gPSBMT0dTX0RFU1RJTkFUSU9OLk5VTEw7XG4gICAgaWYgKGNvbmZpZy5kZWJ1Zykge1xuICAgICAgdGhpcy5fbG9nc0Rlc3RpbmF0aW9uID0gTE9HU19ERVNUSU5BVElPTi5ERUJVRztcbiAgICB9XG4gICAgaWYgKGNvbmZpZy5sb2dnZXIpIHtcbiAgICAgIHRoaXMuX2xvZ3NEZXN0aW5hdGlvbiA9IExPR1NfREVTVElOQVRJT04uQ0xJRU5UX0xPR0dFUjtcbiAgICB9XG4gIH1cbn1cblxuY2xhc3MgTG9nZ2VyV3JhcHBlciB7XG4gIGRlYnVnKCkge31cblxuICBpbmZvKCkge31cblxuICB3YXJuKCkge31cblxuICBlcnJvcigpIHt9XG59XG5cbmNsYXNzIExvZ2dlcldyYXBwZXJJbXBsIGV4dGVuZHMgTG9nZ2VyV3JhcHBlciB7XG4gIGNvbnN0cnVjdG9yKHByZWZpeCkge1xuICAgIHN1cGVyKCk7XG4gICAgdGhpcy5wcmVmaXggPSBwcmVmaXggfHwgXCJcIjtcbiAgfVxuXG4gIGRlYnVnKC4uLmFyZ3MpIHtcbiAgICB0aGlzLl9sb2coTG9nTGV2ZWwuREVCVUcsIGFyZ3MpO1xuICB9XG5cbiAgaW5mbyguLi5hcmdzKSB7XG4gICAgdGhpcy5fbG9nKExvZ0xldmVsLklORk8sIGFyZ3MpO1xuICB9XG5cbiAgd2FybiguLi5hcmdzKSB7XG4gICAgdGhpcy5fbG9nKExvZ0xldmVsLldBUk4sIGFyZ3MpO1xuICB9XG5cbiAgZXJyb3IoLi4uYXJncykge1xuICAgIHRoaXMuX2xvZyhMb2dMZXZlbC5FUlJPUiwgYXJncyk7XG4gIH1cblxuICBfc2hvdWxkTG9nKGxldmVsKSB7XG4gICAgcmV0dXJuIExvZ01hbmFnZXIuaGFzQ2xpZW50TG9nZ2VyKCkgJiYgTG9nTWFuYWdlci5pc0xldmVsRW5hYmxlZChsZXZlbCk7XG4gIH1cblxuICBfd3JpdGVUb0NsaWVudExvZ2dlcihsZXZlbCwgbG9nU3RhdGVtZW50KSB7XG4gICAgTG9nTWFuYWdlci53cml0ZVRvQ2xpZW50TG9nZ2VyKGxldmVsLCBsb2dTdGF0ZW1lbnQpO1xuICB9XG5cbiAgX2xvZyhsZXZlbCwgYXJncykge1xuICAgIGlmICh0aGlzLl9zaG91bGRMb2cobGV2ZWwpKSB7XG4gICAgICB2YXIgbG9nU3RhdGVtZW50ID0gdGhpcy5fY29udmVydFRvU2luZ2xlU3RhdGVtZW50KGFyZ3MpO1xuICAgICAgdGhpcy5fd3JpdGVUb0NsaWVudExvZ2dlcihsZXZlbCwgbG9nU3RhdGVtZW50KTtcbiAgICB9XG4gIH1cblxuICBfY29udmVydFRvU2luZ2xlU3RhdGVtZW50KGFyZ3MpIHtcbiAgICB2YXIgbG9nU3RhdGVtZW50ID0gXCJcIjtcbiAgICBpZiAodGhpcy5wcmVmaXgpIHtcbiAgICAgIGxvZ1N0YXRlbWVudCArPSB0aGlzLnByZWZpeCArIFwiIFwiO1xuICAgIH1cbiAgICBmb3IgKHZhciBpbmRleCA9IDA7IGluZGV4IDwgYXJncy5sZW5ndGg7IGluZGV4KyspIHtcbiAgICAgIHZhciBhcmcgPSBhcmdzW2luZGV4XTtcbiAgICAgIGxvZ1N0YXRlbWVudCArPSB0aGlzLl9jb252ZXJ0VG9TdHJpbmcoYXJnKSArIFwiIFwiO1xuICAgIH1cbiAgICByZXR1cm4gbG9nU3RhdGVtZW50O1xuICB9XG5cbiAgX2NvbnZlcnRUb1N0cmluZyhhcmcpIHtcbiAgICB0cnkge1xuICAgICAgaWYgKCFhcmcpIHtcbiAgICAgICAgcmV0dXJuIFwiXCI7XG4gICAgICB9XG4gICAgICBpZiAoVXRpbHMuaXNTdHJpbmcoYXJnKSkge1xuICAgICAgICByZXR1cm4gYXJnO1xuICAgICAgfVxuICAgICAgaWYgKFV0aWxzLmlzT2JqZWN0KGFyZykgJiYgVXRpbHMuaXNGdW5jdGlvbihhcmcudG9TdHJpbmcpKSB7XG4gICAgICAgIHZhciB0b1N0cmluZ1Jlc3VsdCA9IGFyZy50b1N0cmluZygpO1xuICAgICAgICBpZiAodG9TdHJpbmdSZXN1bHQgIT09IFwiW29iamVjdCBPYmplY3RdXCIpIHtcbiAgICAgICAgICByZXR1cm4gdG9TdHJpbmdSZXN1bHQ7XG4gICAgICAgIH1cbiAgICAgIH1cbiAgICAgIHJldHVybiBKU09OLnN0cmluZ2lmeShhcmcpO1xuICAgIH0gY2F0Y2ggKGVycm9yKSB7XG4gICAgICBjb25zb2xlLmVycm9yKFwiRXJyb3Igd2hpbGUgY29udmVydGluZyBhcmd1bWVudCB0byBzdHJpbmdcIiwgYXJnLCBlcnJvcik7XG4gICAgICByZXR1cm4gXCJcIjtcbiAgICB9XG4gIH1cbn1cblxudmFyIGNyZWF0ZUNvbnNvbGVMb2dnZXIgPSAoKSA9PiB7XG4gIHZhciBsb2dnZXIgPSBuZXcgTG9nZ2VyV3JhcHBlcigpO1xuICBsb2dnZXIuZGVidWcgPSBjb25zb2xlLmRlYnVnO1xuICBsb2dnZXIuaW5mbyA9IGNvbnNvbGUuaW5mbztcbiAgbG9nZ2VyLndhcm4gPSBjb25zb2xlLndhcm47XG4gIGxvZ2dlci5lcnJvciA9IGNvbnNvbGUuZXJyb3I7XG4gIHJldHVybiBsb2dnZXI7XG59O1xuXG5jb25zdCBMb2dNYW5hZ2VyID0gbmV3IExvZ01hbmFnZXJJbXBsKCk7XG5cbmV4cG9ydCB7IExvZ01hbmFnZXIsIExvZ2dlciwgTG9nTGV2ZWwgfTtcbiIsImltcG9ydCBVdGlscyBmcm9tIFwiLi91dGlsc1wiO1xuaW1wb3J0IHsgTG9nTWFuYWdlciwgTG9nTGV2ZWwsIExvZ2dlciB9IGZyb20gXCIuL2xvZ1wiO1xuaW1wb3J0IHtcbiAgICBNSU5fV0VCU09DS0VUX0xJRkVUSU1FLFxuICAgIE1BWF9MSU5FQVJfQ09OTkVDVF9BVFRFTVBUUyxcbiAgICBNQVhfRVhQT05FTlRJQUxfQ09OTkVDVF9BVFRFTVBUUyxcbiAgICBIRUFSVEJFQVRfSU5URVJWQUwsXG4gICAgUk9VVEVfS0VZXG59IGZyb20gXCIuL2NvbnN0YW50c1wiO1xuXG5cbmNvbnN0IFdlYlNvY2tldE1hbmFnZXIgPSBmdW5jdGlvbigpIHtcblxuICAgIGNvbnN0IGxvZ2dlciA9IExvZ01hbmFnZXIuZ2V0TG9nZ2VyKHt9KTtcblxuICAgIGxldCB3ZWJTb2NrZXQgPSBudWxsO1xuXG4gICAgbGV0IHJlY29ubmVjdENvbmZpZyA9IHtcbiAgICAgICAgcmVjb25uZWN0V2ViU29ja2V0OiBmYWxzZSxcbiAgICAgICAgd2Vic29ja2V0SW5pdEZhaWxlZDogZmFsc2UsXG4gICAgICAgIGxpbmVhckNvbm5lY3RBdHRlbXB0OiAwLFxuICAgICAgICBleHBvbmVudGlhbENvbm5lY3RBdHRlbXB0OiAwLFxuICAgICAgICBleHBvbmVudGlhbEJhY2tPZmZUaW1lOiAxLFxuICAgICAgICBleHBvbmVudGlhbFRpbWVvdXRIYW5kbGU6IG51bGwsXG4gICAgICAgIGxpZmVUaW1lVGltZW91dEhhbmRsZTogbnVsbFxuICAgIH07XG5cbiAgICBsZXQgaGVhcnRiZWF0Q29uZmlnID0ge1xuICAgICAgICBwZW5kaW5nUmVzcG9uc2U6IGZhbHNlLFxuICAgICAgICBpbnRlcnZhbEhhbmRsZTogbnVsbFxuICAgIH07XG5cbiAgICBsZXQgY2FsbGJhY2tzID0ge1xuICAgICAgICBpbml0RmFpbHVyZTogbmV3IFNldCgpLFxuICAgICAgICBnZXRXZWJTb2NrZXRUcmFuc3BvcnQ6IG51bGwsXG4gICAgICAgIHN1YnNjcmlwdGlvblVwZGF0ZTogbmV3IFNldCgpLFxuICAgICAgICBzdWJzY3JpcHRpb25GYWlsdXJlOiBuZXcgU2V0KCksXG4gICAgICAgIHRvcGljOiBuZXcgTWFwKCksXG4gICAgICAgIGFsbE1lc3NhZ2U6IG5ldyBTZXQoKSxcbiAgICAgICAgY29ubmVjdGlvbkdhaW46IG5ldyBTZXQoKSxcbiAgICAgICAgY29ubmVjdGlvbkxvc3Q6IG5ldyBTZXQoKVxuICAgIH07XG5cbiAgICBsZXQgd2ViU29ja2V0Q29uZmlnID0ge1xuICAgICAgICBjb25uQ29uZmlnOiBudWxsLFxuICAgICAgICBwcm9taXNlSGFuZGxlOiBudWxsLFxuICAgICAgICBwcm9taXNlQ29tcGxldGVkOiBmYWxzZVxuICAgIH07XG5cbiAgICBsZXQgdG9waWNTdWJzY3JpcHRpb24gPSB7XG4gICAgICAgIHN1YnNjcmliZWQ6IG5ldyBTZXQoKSxcbiAgICAgICAgcGVuZGluZzogbmV3IFNldCgpXG4gICAgfTtcblxuICAgIGNvbnN0IGludmFsaWRTZW5kTWVzc2FnZVJvdXRlS2V5cyA9IG5ldyBTZXQoW1JPVVRFX0tFWS5TVUJTQ1JJQkUsIFJPVVRFX0tFWS5VTlNVQlNDUklCRSwgUk9VVEVfS0VZLkhFQVJUQkVBVF0pO1xuXG4gICAgbGV0IG9ubGluZSA9IG5hdmlnYXRvci5vbkxpbmU7XG4gICAgY29uc3QgbmV0d29ya0Nvbm5lY3Rpdml0eUNoZWNrZXIgPSBzZXRJbnRlcnZhbChmdW5jdGlvbiAoKSB7XG4gICAgICAgIGlmIChvbmxpbmUgIT09IG5hdmlnYXRvci5vbkxpbmUpIHtcbiAgICAgICAgICAgIG9ubGluZSA9IG5hdmlnYXRvci5vbkxpbmU7XG4gICAgICAgICAgICBpZiAob25saW5lICYmICghd2ViU29ja2V0IHx8IHdlYlNvY2tldC5yZWFkeVN0YXRlID4gMSkpIHtcbiAgICAgICAgICAgICAgICBsb2dnZXIuaW5mbyhcIk5ldHdvcmsgb25saW5lLCBDb25uZWN0aW5nIHRvIHdlYnNvY2tldFwiKTtcbiAgICAgICAgICAgICAgICBnZXRXZWJTb2NrZXRDb25uQ29uZmlnKCk7XG4gICAgICAgICAgICB9XG4gICAgICAgIH1cbiAgICB9LCAyNTApO1xuXG4gICAgY29uc3QgaW52b2tlQ2FsbGJhY2tzID0gZnVuY3Rpb24oY2FsbGJhY2tzLCByZXNwb25zZSkge1xuICAgICAgICBjYWxsYmFja3MuZm9yRWFjaChmdW5jdGlvbiAoY2FsbGJhY2spIHtcbiAgICAgICAgICAgIGNhbGxiYWNrKHJlc3BvbnNlKTtcbiAgICAgICAgfSk7XG4gICAgfTtcblxuICAgIGNvbnN0IHNlbmRIZWFydEJlYXQgPSBmdW5jdGlvbigpIHtcbiAgICAgICAgaWYgKGhlYXJ0YmVhdENvbmZpZy5wZW5kaW5nUmVzcG9uc2UpIHtcbiAgICAgICAgICAgIGxvZ2dlci53YXJuKFwiSGVhcnRiZWF0IHJlc3BvbnNlIG5vdCByZWNlaXZlZFwiKTtcbiAgICAgICAgICAgIGNsZWFySW50ZXJ2YWwoaGVhcnRiZWF0Q29uZmlnLmludGVydmFsSGFuZGxlKTtcbiAgICAgICAgICAgIGhlYXJ0YmVhdENvbmZpZy5wZW5kaW5nUmVzcG9uc2UgPSBmYWxzZTtcbiAgICAgICAgICAgIHJlZnJlc2hXZWJTb2NrZXRDb25uZWN0aW9uKCk7XG4gICAgICAgICAgICByZXR1cm47XG4gICAgICAgIH1cbiAgICAgICAgbG9nZ2VyLmRlYnVnKFwiU2VuZGluZyBoZWFydGJlYXRcIik7XG4gICAgICAgIHdlYlNvY2tldC5zZW5kKGNyZWF0ZVdlYlNvY2tldFBheWxvYWQoUk9VVEVfS0VZLkhFQVJUQkVBVCkpO1xuICAgICAgICBoZWFydGJlYXRDb25maWcucGVuZGluZ1Jlc3BvbnNlID0gdHJ1ZTtcbiAgICB9O1xuXG4gICAgY29uc3QgcmVzZXRTdGF0ZSA9IGZ1bmN0aW9uKCkge1xuICAgICAgICByZWNvbm5lY3RDb25maWcubGluZWFyQ29ubmVjdEF0dGVtcHQgPSAwO1xuICAgICAgICByZWNvbm5lY3RDb25maWcuZXhwb25lbnRpYWxDb25uZWN0QXR0ZW1wdCA9IDA7XG4gICAgICAgIHJlY29ubmVjdENvbmZpZy5leHBvbmVudGlhbEJhY2tPZmZUaW1lID0gMTtcbiAgICAgICAgaGVhcnRiZWF0Q29uZmlnLnBlbmRpbmdSZXNwb25zZSA9IGZhbHNlO1xuICAgICAgICByZWNvbm5lY3RDb25maWcucmVjb25uZWN0V2ViU29ja2V0ID0gZmFsc2U7XG5cbiAgICAgICAgY2xlYXJUaW1lb3V0KHJlY29ubmVjdENvbmZpZy5saWZlVGltZVRpbWVvdXRIYW5kbGUpO1xuICAgICAgICBjbGVhckludGVydmFsKGhlYXJ0YmVhdENvbmZpZy5pbnRlcnZhbEhhbmRsZSk7XG4gICAgICAgIGNsZWFyVGltZW91dChyZWNvbm5lY3RDb25maWcuZXhwb25lbnRpYWxUaW1lb3V0SGFuZGxlKTtcbiAgICB9O1xuXG4gICAgY29uc3Qgd2ViU29ja2V0T25PcGVuID0gZnVuY3Rpb24oKSB7XG4gICAgICAgIHRyeSB7XG4gICAgICAgICAgICBsb2dnZXIuaW5mbyhcIldlYlNvY2tldCBjb25uZWN0aW9uIGVzdGFibGlzaGVkIVwiKTtcbiAgICAgICAgICAgIGludm9rZUNhbGxiYWNrcyhjYWxsYmFja3MuY29ubmVjdGlvbkdhaW4pO1xuXG4gICAgICAgICAgICByZXNldFN0YXRlKCk7XG5cbiAgICAgICAgICAgIGlmICh0b3BpY1N1YnNjcmlwdGlvbi5zdWJzY3JpYmVkLnNpemUgPiAwIHx8IHRvcGljU3Vic2NyaXB0aW9uLnBlbmRpbmcuc2l6ZSA+IDApIHtcbiAgICAgICAgICAgICAgICBsZXQgdG9waWNzID0gQXJyYXkuZnJvbSh0b3BpY1N1YnNjcmlwdGlvbi5zdWJzY3JpYmVkLnZhbHVlcygpKTtcbiAgICAgICAgICAgICAgICB0b3BpY3MgPSB0b3BpY3MuY29uY2F0KEFycmF5LmZyb20odG9waWNTdWJzY3JpcHRpb24ucGVuZGluZy52YWx1ZXMoKSkpO1xuICAgICAgICAgICAgICAgIHRvcGljU3Vic2NyaXB0aW9uLnN1YnNjcmliZWQuY2xlYXIoKTtcbiAgICAgICAgICAgICAgICB3ZWJTb2NrZXQuc2VuZChjcmVhdGVXZWJTb2NrZXRQYXlsb2FkKFJPVVRFX0tFWS5TVUJTQ1JJQkUsIHtcInRvcGljc1wiOiB0b3BpY3N9KSk7XG4gICAgICAgICAgICB9XG5cbiAgICAgICAgICAgIHNlbmRIZWFydEJlYXQoKTtcbiAgICAgICAgICAgIGhlYXJ0YmVhdENvbmZpZy5pbnRlcnZhbEhhbmRsZSA9IHNldEludGVydmFsKHNlbmRIZWFydEJlYXQsIDEwMDAgKiBIRUFSVEJFQVRfSU5URVJWQUwpO1xuXG4gICAgICAgICAgICByZWNvbm5lY3RDb25maWcubGlmZVRpbWVUaW1lb3V0SGFuZGxlID0gc2V0VGltZW91dChmdW5jdGlvbigpIHtcbiAgICAgICAgICAgICAgICBsb2dnZXIuZGVidWcoXCJTdGFydGluZyBzY2hlZHVsZWQgV2ViU29ja2V0IG1hbmFnZXIgcmVjb25uZWN0XCIpO1xuICAgICAgICAgICAgICAgIHJlZnJlc2hXZWJTb2NrZXRDb25uZWN0aW9uKCk7XG4gICAgICAgICAgICB9LCAxMDAwICogd2ViU29ja2V0Q29uZmlnLmNvbm5Db25maWcud2ViU29ja2V0VHJhbnNwb3J0LnRyYW5zcG9ydExpZmVUaW1lSW5TZWNvbmRzKTtcbiAgICAgICAgfSBjYXRjaCAoZXJyb3IpIHtcbiAgICAgICAgICAgIGxvZ2dlci5lcnJvcihcIkVycm9yIGFmdGVyIGVzdGFibGlzaGluZyB3ZWIgc29ja2V0IGNvbm5lY3Rpb24sIGVycm9yOiBcIiwgZXJyb3IpO1xuICAgICAgICB9XG4gICAgfTtcblxuICAgIGNvbnN0IHdlYlNvY2tldE9uQ2xvc2UgPSBmdW5jdGlvbihldmVudCkge1xuICAgICAgICBpZiAocmVjb25uZWN0Q29uZmlnLmxpbmVhckNvbm5lY3RBdHRlbXB0IDw9IDEpIHtcbiAgICAgICAgICAgIGludm9rZUNhbGxiYWNrcyhjYWxsYmFja3MuY29ubmVjdGlvbkxvc3QpO1xuICAgICAgICB9XG4gICAgICAgIGxvZ2dlci5pbmZvKFwiU29ja2V0IGNvbm5lY3Rpb24gaXMgY2xvc2VkLiBldmVudDogXCIsIGV2ZW50KTtcbiAgICAgICAgaWYgKHJlY29ubmVjdENvbmZpZy5yZWNvbm5lY3RXZWJTb2NrZXQpIHtcbiAgICAgICAgICAgIGluaXRXZWJTb2NrZXQoKTtcbiAgICAgICAgfVxuICAgIH07XG5cbiAgICBjb25zdCB3ZWJTb2NrZXRPbkVycm9yID0gZnVuY3Rpb24oZXZlbnQpIHtcbiAgICAgICAgbG9nZ2VyLmVycm9yKFwiV2ViU29ja2V0TWFuYWdlciBFcnJvciwgZXJyb3JfZXZlbnQ6IFwiLCBldmVudCk7XG4gICAgICAgIHJlZnJlc2hXZWJTb2NrZXRDb25uZWN0aW9uKCk7XG4gICAgfTtcblxuICAgIGNvbnN0IHdlYlNvY2tldE9uTWVzc2FnZSA9IGZ1bmN0aW9uKGV2ZW50KSB7XG4gICAgICAgIGxvZ2dlci5kZWJ1ZyhcIk1lc3NhZ2UgcmVjZWl2ZWQgZnJvbSB3ZWJTb2NrZXQgc2VydmVyXCIsIGV2ZW50LmRhdGEpO1xuICAgICAgICBjb25zdCByZXNwb25zZSA9IEpTT04ucGFyc2UoZXZlbnQuZGF0YSk7XG4gICAgICAgIHN3aXRjaCAocmVzcG9uc2UudG9waWMpIHtcbiAgICAgICAgICAgIGNhc2UgUk9VVEVfS0VZLlNVQlNDUklCRTpcbiAgICAgICAgICAgICAgICBpZiAocmVzcG9uc2UuY29udGVudC5zdGF0dXMgPT09IFwic3VjY2Vzc1wiKSB7XG4gICAgICAgICAgICAgICAgICAgIHJlc3BvbnNlLmNvbnRlbnQudG9waWNzLmZvckVhY2goKGZ1bmN0aW9uICh0b3BpY05hbWUpIHtcbiAgICAgICAgICAgICAgICAgICAgICAgIHRvcGljU3Vic2NyaXB0aW9uLnN1YnNjcmliZWQuYWRkKHRvcGljTmFtZSk7XG4gICAgICAgICAgICAgICAgICAgICAgICB0b3BpY1N1YnNjcmlwdGlvbi5wZW5kaW5nLmRlbGV0ZSh0b3BpY05hbWUpO1xuICAgICAgICAgICAgICAgICAgICB9KSk7XG4gICAgICAgICAgICAgICAgICAgIGludm9rZUNhbGxiYWNrcyhjYWxsYmFja3Muc3Vic2NyaXB0aW9uVXBkYXRlLCByZXNwb25zZSk7XG4gICAgICAgICAgICAgICAgfSBlbHNlIHtcbiAgICAgICAgICAgICAgICAgICAgaW52b2tlQ2FsbGJhY2tzKGNhbGxiYWNrcy5zdWJzY3JpcHRpb25GYWlsdXJlLCByZXNwb25zZSk7XG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgIGJyZWFrO1xuICAgICAgICAgICAgY2FzZSBST1VURV9LRVkuSEVBUlRCRUFUOlxuICAgICAgICAgICAgICAgIGxvZ2dlci5kZWJ1ZyhcIkhlYXJ0YmVhdCByZXNwb25zZSByZWNlaXZlZFwiKTtcbiAgICAgICAgICAgICAgICBoZWFydGJlYXRDb25maWcucGVuZGluZ1Jlc3BvbnNlID0gZmFsc2U7XG4gICAgICAgICAgICAgICAgYnJlYWs7XG4gICAgICAgICAgICBkZWZhdWx0OlxuICAgICAgICAgICAgICAgIGlmIChyZXNwb25zZS50b3BpYykge1xuICAgICAgICAgICAgICAgICAgICBpZiAoY2FsbGJhY2tzLmFsbE1lc3NhZ2Uuc2l6ZSA9PT0gMCAmJiBjYWxsYmFja3MudG9waWMuc2l6ZSA9PT0gMCkge1xuICAgICAgICAgICAgICAgICAgICAgICAgbG9nZ2VyLndhcm4oJ05vIHJlZ2lzdGVyZWQgY2FsbGJhY2sgbGlzdGVuZXIgZm9yIFRvcGljOiAnLCByZXNwb25zZSk7XG4gICAgICAgICAgICAgICAgICAgICAgICByZXR1cm47XG4gICAgICAgICAgICAgICAgICAgIH1cbiAgICAgICAgICAgICAgICAgICAgaW52b2tlQ2FsbGJhY2tzKGNhbGxiYWNrcy5hbGxNZXNzYWdlLCByZXNwb25zZSk7XG4gICAgICAgICAgICAgICAgICAgIGlmIChjYWxsYmFja3MudG9waWMuaGFzKHJlc3BvbnNlLnRvcGljKSkge1xuICAgICAgICAgICAgICAgICAgICAgICAgaW52b2tlQ2FsbGJhY2tzKGNhbGxiYWNrcy50b3BpYy5nZXQocmVzcG9uc2UudG9waWMpLCByZXNwb25zZSk7XG4gICAgICAgICAgICAgICAgICAgIH1cbiAgICAgICAgICAgICAgICB9IGVsc2UgaWYgKHJlc3BvbnNlLm1lc3NhZ2UpIHtcbiAgICAgICAgICAgICAgICAgICAgbG9nZ2VyLndhcm4oXCJXZWJTb2NrZXRNYW5hZ2VyIE1lc3NhZ2UgRXJyb3IsIGVycm9yOiBcIiwgcmVzcG9uc2UpO1xuICAgICAgICAgICAgICAgIH0gZWxzZSB7XG4gICAgICAgICAgICAgICAgICAgIGxvZ2dlci53YXJuKFwiSW52YWxpZCBpbmNvbWluZyBtZXNzYWdlLCBlcnJvcjogXCIsIHJlc3BvbnNlKTtcbiAgICAgICAgICAgICAgICB9XG4gICAgICAgIH1cbiAgICB9O1xuXG4gICAgY29uc3QgY2xvc2VXZWJTb2NrZXQgPSBmdW5jdGlvbihyZWFzb24pIHtcbiAgICAgICAgaWYgKHdlYlNvY2tldCAmJiB3ZWJTb2NrZXQucmVhZHlTdGF0ZSAhPT0gV2ViU29ja2V0LkNMT1NFRCkge1xuICAgICAgICAgICAgd2ViU29ja2V0LmNsb3NlKDEwMDAsIHJlYXNvbik7XG4gICAgICAgICAgICByZXR1cm4gdHJ1ZTtcbiAgICAgICAgfVxuICAgICAgICByZXR1cm4gZmFsc2U7XG4gICAgfTtcblxuICAgIGNvbnN0IHJlZnJlc2hXZWJTb2NrZXRDb25uZWN0aW9uID0gZnVuY3Rpb24gKCkge1xuICAgICAgICBpZiAoIW9ubGluZSkge1xuICAgICAgICAgICAgY2xvc2VXZWJTb2NrZXQoXCJOZXR3b3JrIE9mZmxpbmUsIENsb3NpbmcgV2ViU29ja2V0IE1hbmFnZXJcIik7XG4gICAgICAgICAgICByZXR1cm47XG4gICAgICAgIH1cbiAgICAgICAgY2xlYXJUaW1lb3V0KHJlY29ubmVjdENvbmZpZy5saWZlVGltZVRpbWVvdXRIYW5kbGUpO1xuICAgICAgICBjbGVhckludGVydmFsKGhlYXJ0YmVhdENvbmZpZy5pbnRlcnZhbEhhbmRsZSk7XG5cbiAgICAgICAgaWYgKHJlY29ubmVjdENvbmZpZy5saW5lYXJDb25uZWN0QXR0ZW1wdCA8IE1BWF9MSU5FQVJfQ09OTkVDVF9BVFRFTVBUUykge1xuICAgICAgICAgICAgcmVjb25uZWN0Q29uZmlnLmxpbmVhckNvbm5lY3RBdHRlbXB0Kys7XG4gICAgICAgICAgICBsb2dnZXIuZGVidWcoXCJTdGFydGluZyBDb25zZWN1dGl2ZSBXZWJTb2NrZXQgcmVjb25uZWN0LCBBdHRlbXB0IDogXCIgKyByZWNvbm5lY3RDb25maWcubGluZWFyQ29ubmVjdEF0dGVtcHQpO1xuICAgICAgICAgICAgcmVjb25uZWN0Q29uZmlnLnJlY29ubmVjdFdlYlNvY2tldCA9IHRydWU7XG4gICAgICAgICAgICBnZXRXZWJTb2NrZXRDb25uQ29uZmlnKCk7XG4gICAgICAgIH0gZWxzZSBpZiAocmVjb25uZWN0Q29uZmlnLmV4cG9uZW50aWFsQ29ubmVjdEF0dGVtcHQgPCBNQVhfRVhQT05FTlRJQUxfQ09OTkVDVF9BVFRFTVBUUykge1xuICAgICAgICAgICAgcmVjb25uZWN0Q29uZmlnLmV4cG9uZW50aWFsQ29ubmVjdEF0dGVtcHQrKztcbiAgICAgICAgICAgIHJlY29ubmVjdENvbmZpZy5leHBvbmVudGlhbEJhY2tPZmZUaW1lICo9IDI7XG4gICAgICAgICAgICBsb2dnZXIuZGVidWcoXCJTdGFydGluZyBFeHBvbmVudGlhbCBXZWJTb2NrZXQgcmVjb25uZWN0LCBBdHRlbXB0IDogXCJcbiAgICAgICAgICAgICAgICArIHJlY29ubmVjdENvbmZpZy5leHBvbmVudGlhbENvbm5lY3RBdHRlbXB0ICsgXCIgd2l0aCBkZWxheSBcIlxuICAgICAgICAgICAgICAgICsgcmVjb25uZWN0Q29uZmlnLmV4cG9uZW50aWFsQmFja09mZlRpbWUgKyBcIiBzZWMuXCIpO1xuXG4gICAgICAgICAgICAvLyByZXF1aXJlZCBmb3Igc2NlbmFyaW9zIHdoZW4gZXJyb3IgYW5kIGNsb3NlIGV2ZW50cyBhcmUgZmlyZWQgYmFjayB0byBiYWNrXG4gICAgICAgICAgICB3ZWJTb2NrZXRDb25maWcucHJvbWlzZUNvbXBsZXRlZCA9IGZhbHNlO1xuICAgICAgICAgICAgd2ViU29ja2V0Q29uZmlnLmNvbm5Db25maWcgPSBudWxsO1xuXG4gICAgICAgICAgICByZWNvbm5lY3RDb25maWcuZXhwb25lbnRpYWxUaW1lb3V0SGFuZGxlID0gc2V0VGltZW91dChmdW5jdGlvbigpIHtcbiAgICAgICAgICAgICAgICByZWNvbm5lY3RDb25maWcucmVjb25uZWN0V2ViU29ja2V0ID0gdHJ1ZTtcbiAgICAgICAgICAgICAgICBnZXRXZWJTb2NrZXRDb25uQ29uZmlnKCk7XG4gICAgICAgICAgICB9LCAxMDAwICogcmVjb25uZWN0Q29uZmlnLmV4cG9uZW50aWFsQmFja09mZlRpbWUpO1xuICAgICAgICB9IGVsc2UgaWYgKHdlYlNvY2tldENvbmZpZy5wcm9taXNlQ29tcGxldGVkKSB7XG4gICAgICAgICAgICBsb2dnZXIuZXJyb3IoXCJDb3VsZCBub3QgY29ubmVjdCB0byBXZWJTb2NrZXQgYWZ0ZXIgc2V2ZXJhbCBhdHRlbXB0c1wiKTtcbiAgICAgICAgICAgIHRlcm1pbmF0ZVdlYlNvY2tldE1hbmFnZXIoKTtcbiAgICAgICAgfVxuICAgIH07XG5cbiAgICBjb25zdCB0ZXJtaW5hdGVXZWJTb2NrZXRNYW5hZ2VyID0gZnVuY3Rpb24gKCkge1xuICAgICAgICByZXNldFN0YXRlKCk7XG4gICAgICAgIGNsb3NlV2ViU29ja2V0KFwiVGVybWluYXRpbmcgV2ViU29ja2V0IE1hbmFnZXJcIik7XG4gICAgICAgIGxvZ2dlci5lcnJvcihcIldlYlNvY2tldCBJbml0aWFsaXphdGlvbiBmYWlsZWRcIik7XG4gICAgICAgIHJlY29ubmVjdENvbmZpZy53ZWJzb2NrZXRJbml0RmFpbGVkID0gdHJ1ZTtcbiAgICAgICAgY2xlYXJJbnRlcnZhbChuZXR3b3JrQ29ubmVjdGl2aXR5Q2hlY2tlcik7XG4gICAgICAgIGludm9rZUNhbGxiYWNrcyhjYWxsYmFja3MuaW5pdEZhaWx1cmUpO1xuICAgIH07XG5cbiAgICBjb25zdCBjcmVhdGVXZWJTb2NrZXRQYXlsb2FkID0gZnVuY3Rpb24gKGtleSwgY29udGVudCkge1xuICAgICAgICByZXR1cm4gSlNPTi5zdHJpbmdpZnkoe1xuICAgICAgICAgICAgXCJ0b3BpY1wiOiBrZXksXG4gICAgICAgICAgICBcImNvbnRlbnRcIjogY29udGVudFxuICAgICAgICB9KTtcbiAgICB9O1xuXG4gICAgY29uc3Qgc2VuZE1lc3NhZ2UgPSBmdW5jdGlvbihwYXlsb2FkKSB7XG4gICAgICAgIFV0aWxzLmFzc2VydElzT2JqZWN0KHBheWxvYWQsIFwicGF5bG9hZFwiKTtcbiAgICAgICAgaWYgKHBheWxvYWQudG9waWMgPT09IHVuZGVmaW5lZCB8fCBpbnZhbGlkU2VuZE1lc3NhZ2VSb3V0ZUtleXMuaGFzKHBheWxvYWQudG9waWMpKSB7XG4gICAgICAgICAgICBsb2dnZXIud2FybihcIkNhbm5vdCBzZW5kIG1lc3NhZ2UsIEludmFsaWQgdG9waWNcIiwgcGF5bG9hZCk7XG4gICAgICAgICAgICByZXR1cm47XG4gICAgICAgIH1cbiAgICAgICAgdHJ5IHtcbiAgICAgICAgICAgIHBheWxvYWQgPSBKU09OLnN0cmluZ2lmeShwYXlsb2FkKTtcbiAgICAgICAgfSBjYXRjaCAoZXJyb3IpIHtcbiAgICAgICAgICAgIGxvZ2dlci53YXJuKFwiRXJyb3Igc3RyaW5naWZ5IG1lc3NhZ2VcIiwgcGF5bG9hZCk7XG4gICAgICAgICAgICByZXR1cm47XG4gICAgICAgIH1cbiAgICAgICAgaWYgKHdlYlNvY2tldCAmJiB3ZWJTb2NrZXQucmVhZHlTdGF0ZSA9PT0gV2ViU29ja2V0Lk9QRU4pIHtcbiAgICAgICAgICAgIGxvZ2dlci5kZWJ1ZygnV2ViU29ja2V0TWFuYWdlciBzZW5kaW5nIG1lc3NhZ2UnLCBwYXlsb2FkKTtcbiAgICAgICAgICAgIHdlYlNvY2tldC5zZW5kKHBheWxvYWQpO1xuICAgICAgICB9IGVsc2Uge1xuICAgICAgICAgICAgbG9nZ2VyLndhcm4oXCJDYW5ub3Qgc2VuZCBtZXNzYWdlLCB3ZWIgc29ja2V0IGNvbm5lY3Rpb24gaXMgbm90IG9wZW5cIik7XG4gICAgICAgIH1cbiAgICB9O1xuXG4gICAgY29uc3Qgc3Vic2NyaWJlVG9waWNzID0gZnVuY3Rpb24odG9waWNzKSB7XG4gICAgICAgIFV0aWxzLmFzc2VydE5vdE51bGwodG9waWNzLCAndG9waWNzJyk7XG4gICAgICAgIFV0aWxzLmFzc2VydElzTGlzdCh0b3BpY3MpO1xuXG4gICAgICAgIHRvcGljcy5mb3JFYWNoKGZ1bmN0aW9uICh0b3BpYykge1xuICAgICAgICAgICAgdG9waWNTdWJzY3JpcHRpb24ucGVuZGluZy5hZGQodG9waWMpO1xuICAgICAgICB9KTtcblxuICAgICAgICBpZiAod2ViU29ja2V0ICYmIHdlYlNvY2tldC5yZWFkeVN0YXRlID09PSBXZWJTb2NrZXQuT1BFTikge1xuICAgICAgICAgICAgd2ViU29ja2V0LnNlbmQoY3JlYXRlV2ViU29ja2V0UGF5bG9hZChST1VURV9LRVkuU1VCU0NSSUJFLCB7XCJ0b3BpY3NcIjogdG9waWNzfSkpO1xuICAgICAgICB9XG4gICAgfTtcblxuICAgIGNvbnN0IHZhbGlkV2ViU29ja2V0Q29ubkNvbmZpZyA9IGZ1bmN0aW9uIChjb25uQ29uZmlnKSB7XG4gICAgICAgIGlmIChVdGlscy5pc09iamVjdChjb25uQ29uZmlnKSAmJiBVdGlscy5pc09iamVjdChjb25uQ29uZmlnLndlYlNvY2tldFRyYW5zcG9ydClcbiAgICAgICAgICAgICYmIFV0aWxzLmlzU3RyaW5nKGNvbm5Db25maWcud2ViU29ja2V0VHJhbnNwb3J0LnVybClcbiAgICAgICAgICAgICYmIFV0aWxzLnZhbGlkV1NVcmwoY29ubkNvbmZpZy53ZWJTb2NrZXRUcmFuc3BvcnQudXJsKVxuICAgICAgICAgICAgJiYgVXRpbHMuaXNOdW1iZXIoY29ubkNvbmZpZy53ZWJTb2NrZXRUcmFuc3BvcnQudHJhbnNwb3J0TGlmZVRpbWVJblNlY29uZHMpICYmXG4gICAgICAgICAgICBjb25uQ29uZmlnLndlYlNvY2tldFRyYW5zcG9ydC50cmFuc3BvcnRMaWZlVGltZUluU2Vjb25kcyA+PSBNSU5fV0VCU09DS0VUX0xJRkVUSU1FKSB7XG4gICAgICAgICAgICByZXR1cm4gdHJ1ZTtcbiAgICAgICAgfVxuICAgICAgICBsb2dnZXIuZXJyb3IoXCJJbnZhbGlkIFdlYlNvY2tldCBDb25uZWN0aW9uIENvbmZpZ3VyYXRpb25cIiwgY29ubkNvbmZpZyk7XG4gICAgICAgIHJldHVybiBmYWxzZTtcbiAgICB9O1xuXG4gICAgY29uc3QgZ2V0V2ViU29ja2V0Q29ubkNvbmZpZyA9IGZ1bmN0aW9uICgpIHtcbiAgICAgICAgaWYgKHJlY29ubmVjdENvbmZpZy53ZWJzb2NrZXRJbml0RmFpbGVkKSB7XG4gICAgICAgICAgICByZXR1cm47XG4gICAgICAgIH1cbiAgICAgICAgd2ViU29ja2V0Q29uZmlnLmNvbm5Db25maWcgPSBudWxsO1xuICAgICAgICB3ZWJTb2NrZXRDb25maWcucHJvbWlzZUNvbXBsZXRlZCA9IGZhbHNlO1xuICAgICAgICB3ZWJTb2NrZXRDb25maWcucHJvbWlzZUhhbmRsZSA9IGNhbGxiYWNrcy5nZXRXZWJTb2NrZXRUcmFuc3BvcnQoKTtcbiAgICAgICAgd2ViU29ja2V0Q29uZmlnLnByb21pc2VIYW5kbGVcbiAgICAgICAgICAgIC50aGVuKGZ1bmN0aW9uKHJlc3BvbnNlKSB7XG4gICAgICAgICAgICAgICAgICAgIHdlYlNvY2tldENvbmZpZy5wcm9taXNlQ29tcGxldGVkID0gdHJ1ZTtcbiAgICAgICAgICAgICAgICAgICAgbG9nZ2VyLmRlYnVnKFwiU3VjY2Vzc2Z1bGx5IGZldGNoZWQgd2ViU29ja2V0IGNvbm5lY3Rpb24gY29uZmlndXJhdGlvblwiKTtcbiAgICAgICAgICAgICAgICAgICAgaWYgKCF2YWxpZFdlYlNvY2tldENvbm5Db25maWcocmVzcG9uc2UpKSB7XG4gICAgICAgICAgICAgICAgICAgICAgICB0ZXJtaW5hdGVXZWJTb2NrZXRNYW5hZ2VyKCk7XG4gICAgICAgICAgICAgICAgICAgICAgICByZXR1cm47XG4gICAgICAgICAgICAgICAgICAgIH1cbiAgICAgICAgICAgICAgICAgICAgd2ViU29ja2V0Q29uZmlnLmNvbm5Db25maWcgPSByZXNwb25zZTtcbiAgICAgICAgICAgICAgICAgICAgaWYgKCFvbmxpbmUpIHtcbiAgICAgICAgICAgICAgICAgICAgICAgIHJldHVybjtcbiAgICAgICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgICAgICBpZiAoY2xvc2VXZWJTb2NrZXQoXCJSZXN0YXJ0aW5nIFdlYlNvY2tldCBNYW5hZ2VyXCIpKSB7XG4gICAgICAgICAgICAgICAgICAgICAgICByZXR1cm47XG4gICAgICAgICAgICAgICAgICAgIH1cbiAgICAgICAgICAgICAgICAgICAgaW5pdFdlYlNvY2tldCgpO1xuICAgICAgICAgICAgICAgIH0sXG4gICAgICAgICAgICAgICAgZnVuY3Rpb24ocmVhc29uKSB7XG4gICAgICAgICAgICAgICAgICAgIHdlYlNvY2tldENvbmZpZy5wcm9taXNlQ29tcGxldGVkID0gdHJ1ZTtcbiAgICAgICAgICAgICAgICAgICAgbG9nZ2VyLmVycm9yKFwiRmFpbGVkIHRvIGZldGNoIHdlYlNvY2tldCBjb25uZWN0aW9uIGNvbmZpZ3VyYXRpb25cIiwgcmVhc29uKTtcbiAgICAgICAgICAgICAgICAgICAgcmVmcmVzaFdlYlNvY2tldENvbm5lY3Rpb24oKTtcbiAgICAgICAgICAgICAgICB9KTtcbiAgICB9O1xuXG4gICAgY29uc3QgaW5pdFdlYlNvY2tldCA9IGZ1bmN0aW9uKCkge1xuICAgICAgICBpZiAocmVjb25uZWN0Q29uZmlnLndlYnNvY2tldEluaXRGYWlsZWQpIHtcbiAgICAgICAgICAgIHJldHVybjtcbiAgICAgICAgfVxuICAgICAgICBsb2dnZXIuZGVidWcoXCJJbml0aWFsaXppbmcgV2Vic29ja2V0IE1hbmFnZXJcIik7XG4gICAgICAgIHRyeSB7XG4gICAgICAgICAgICBpZiAodmFsaWRXZWJTb2NrZXRDb25uQ29uZmlnKHdlYlNvY2tldENvbmZpZy5jb25uQ29uZmlnKSkge1xuXG4gICAgICAgICAgICAgICAgd2ViU29ja2V0ID0gbmV3IFdlYlNvY2tldCh3ZWJTb2NrZXRDb25maWcuY29ubkNvbmZpZy53ZWJTb2NrZXRUcmFuc3BvcnQudXJsKTtcbiAgICAgICAgICAgICAgICB3ZWJTb2NrZXQuYWRkRXZlbnRMaXN0ZW5lcihcIm9wZW5cIiwgd2ViU29ja2V0T25PcGVuKTtcbiAgICAgICAgICAgICAgICB3ZWJTb2NrZXQuYWRkRXZlbnRMaXN0ZW5lcihcIm1lc3NhZ2VcIiwgd2ViU29ja2V0T25NZXNzYWdlKTtcbiAgICAgICAgICAgICAgICB3ZWJTb2NrZXQuYWRkRXZlbnRMaXN0ZW5lcihcImVycm9yXCIsIHdlYlNvY2tldE9uRXJyb3IpO1xuICAgICAgICAgICAgICAgIHdlYlNvY2tldC5hZGRFdmVudExpc3RlbmVyKFwiY2xvc2VcIiwgd2ViU29ja2V0T25DbG9zZSk7XG4gICAgICAgICAgICB9IGVsc2Uge1xuICAgICAgICAgICAgICAgIGlmICh3ZWJTb2NrZXRDb25maWcucHJvbWlzZUNvbXBsZXRlZCkge1xuICAgICAgICAgICAgICAgICAgICB0ZXJtaW5hdGVXZWJTb2NrZXRNYW5hZ2VyKCk7XG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgfVxuICAgICAgICB9IGNhdGNoIChlcnJvcikge1xuICAgICAgICAgICAgbG9nZ2VyLmVycm9yKFwiRXJyb3IgSW5pdGlhbGl6aW5nIHdlYi1zb2NrZXQtbWFuYWdlclwiLCBlcnJvcik7XG4gICAgICAgICAgICB0ZXJtaW5hdGVXZWJTb2NrZXRNYW5hZ2VyKCk7XG4gICAgICAgIH1cbiAgICB9O1xuXG4gICAgY29uc3Qgb25Db25uZWN0aW9uR2FpbiA9IGZ1bmN0aW9uKGNiKSB7XG4gICAgICAgIFV0aWxzLmFzc2VydFRydWUoVXRpbHMuaXNGdW5jdGlvbihjYiksICdjYiBtdXN0IGJlIGEgZnVuY3Rpb24nKTtcbiAgICAgICAgY2FsbGJhY2tzLmNvbm5lY3Rpb25HYWluLmFkZChjYik7XG4gICAgICAgIGlmICh3ZWJTb2NrZXQgJiYgd2ViU29ja2V0LnJlYWR5U3RhdGUgPT09IFdlYlNvY2tldC5PUEVOKSB7XG4gICAgICAgICAgICBjYigpO1xuICAgICAgICB9XG4gICAgICAgIHJldHVybiAoKSA9PiBjYWxsYmFja3MuY29ubmVjdGlvbkdhaW4uZGVsZXRlKGNiKTtcbiAgICB9O1xuXG4gICAgY29uc3Qgb25Db25uZWN0aW9uTG9zdCA9IGZ1bmN0aW9uKGNiKSB7XG4gICAgICAgIFV0aWxzLmFzc2VydFRydWUoVXRpbHMuaXNGdW5jdGlvbihjYiksICdjYiBtdXN0IGJlIGEgZnVuY3Rpb24nKTtcbiAgICAgICAgY2FsbGJhY2tzLmNvbm5lY3Rpb25Mb3N0LmFkZChjYik7XG4gICAgICAgIGlmICh3ZWJTb2NrZXQgJiYgd2ViU29ja2V0LnJlYWR5U3RhdGUgPT09IFdlYlNvY2tldC5DTE9TRUQpIHtcbiAgICAgICAgICAgIGNiKCk7XG4gICAgICAgIH1cbiAgICAgICAgcmV0dXJuICgpID0+IGNhbGxiYWNrcy5jb25uZWN0aW9uTG9zdC5kZWxldGUoY2IpO1xuICAgIH07XG5cbiAgICBjb25zdCBvbkluaXRGYWlsdXJlID0gZnVuY3Rpb24oY2IpIHtcbiAgICAgICAgVXRpbHMuYXNzZXJ0VHJ1ZShVdGlscy5pc0Z1bmN0aW9uKGNiKSwgJ2NiIG11c3QgYmUgYSBmdW5jdGlvbicpO1xuICAgICAgICBjYWxsYmFja3MuaW5pdEZhaWx1cmUuYWRkKGNiKTtcbiAgICAgICAgaWYgKHJlY29ubmVjdENvbmZpZy53ZWJzb2NrZXRJbml0RmFpbGVkKSB7XG4gICAgICAgICAgICBjYigpO1xuICAgICAgICB9XG4gICAgICAgIHJldHVybiAoKSA9PiBjYWxsYmFja3MuaW5pdEZhaWx1cmUuZGVsZXRlKGNiKTtcbiAgICB9O1xuXG4gICAgY29uc3QgaW5pdCA9IGZ1bmN0aW9uKHRyYW5zcG9ydEhhbmRsZSkge1xuICAgICAgICBVdGlscy5hc3NlcnRUcnVlKFV0aWxzLmlzRnVuY3Rpb24odHJhbnNwb3J0SGFuZGxlKSwgJ3RyYW5zcG9ydEhhbmRsZSBtdXN0IGJlIGEgZnVuY3Rpb24nKTtcbiAgICAgICAgaWYgKGNhbGxiYWNrcy5nZXRXZWJTb2NrZXRUcmFuc3BvcnQgIT09IG51bGwpIHtcbiAgICAgICAgICAgIGxvZ2dlci53YXJuKFwiV2ViIFNvY2tldCBNYW5hZ2VyIHdhcyBhbHJlYWR5IGluaXRpYWxpemVkXCIpO1xuICAgICAgICAgICAgcmV0dXJuO1xuICAgICAgICB9XG4gICAgICAgIGNhbGxiYWNrcy5nZXRXZWJTb2NrZXRUcmFuc3BvcnQgPSB0cmFuc3BvcnRIYW5kbGU7XG5cbiAgICAgICAgZ2V0V2ViU29ja2V0Q29ubkNvbmZpZygpO1xuICAgIH07XG5cbiAgICBjb25zdCBvblN1YnNjcmlwdGlvblVwZGF0ZSA9IGZ1bmN0aW9uKGNiKSB7XG4gICAgICAgIFV0aWxzLmFzc2VydFRydWUoVXRpbHMuaXNGdW5jdGlvbihjYiksICdjYiBtdXN0IGJlIGEgZnVuY3Rpb24nKTtcbiAgICAgICAgY2FsbGJhY2tzLnN1YnNjcmlwdGlvblVwZGF0ZS5hZGQoY2IpO1xuICAgICAgICByZXR1cm4gKCkgPT4gY2FsbGJhY2tzLnN1YnNjcmlwdGlvblVwZGF0ZS5kZWxldGUoY2IpO1xuICAgIH07XG5cbiAgICBjb25zdCBvblN1YnNjcmlwdGlvbkZhaWx1cmUgPSBmdW5jdGlvbihjYikge1xuICAgICAgICBVdGlscy5hc3NlcnRUcnVlKFV0aWxzLmlzRnVuY3Rpb24oY2IpLCAnY2IgbXVzdCBiZSBhIGZ1bmN0aW9uJyk7XG4gICAgICAgIGNhbGxiYWNrcy5zdWJzY3JpcHRpb25GYWlsdXJlLmFkZChjYik7XG4gICAgICAgIHJldHVybiAoKSA9PiBjYWxsYmFja3Muc3Vic2NyaXB0aW9uRmFpbHVyZS5kZWxldGUoY2IpO1xuICAgIH07XG5cbiAgICBjb25zdCBvbk1lc3NhZ2UgPSBmdW5jdGlvbih0b3BpY05hbWUsIGNiKSB7XG4gICAgICAgIFV0aWxzLmFzc2VydE5vdE51bGwodG9waWNOYW1lLCAndG9waWNOYW1lJyk7XG4gICAgICAgIFV0aWxzLmFzc2VydFRydWUoVXRpbHMuaXNGdW5jdGlvbihjYiksICdjYiBtdXN0IGJlIGEgZnVuY3Rpb24nKTtcbiAgICAgICAgaWYgKGNhbGxiYWNrcy50b3BpYy5oYXModG9waWNOYW1lKSkge1xuICAgICAgICAgICAgY2FsbGJhY2tzLnRvcGljLmdldCh0b3BpY05hbWUpLmFkZChjYik7XG4gICAgICAgIH0gZWxzZSB7XG4gICAgICAgICAgICBjYWxsYmFja3MudG9waWMuc2V0KHRvcGljTmFtZSwgbmV3IFNldChbY2JdKSk7XG4gICAgICAgIH1cbiAgICAgICAgcmV0dXJuICgpID0+IGNhbGxiYWNrcy50b3BpYy5nZXQodG9waWNOYW1lKS5kZWxldGUoY2IpO1xuICAgIH07XG5cbiAgICBjb25zdCBvbkFsbE1lc3NhZ2UgPSBmdW5jdGlvbiAoY2IpIHtcbiAgICAgICAgVXRpbHMuYXNzZXJ0VHJ1ZShVdGlscy5pc0Z1bmN0aW9uKGNiKSwgJ2NiIG11c3QgYmUgYSBmdW5jdGlvbicpO1xuICAgICAgICBjYWxsYmFja3MuYWxsTWVzc2FnZS5hZGQoY2IpO1xuICAgICAgICByZXR1cm4gKCkgPT4gY2FsbGJhY2tzLmFsbE1lc3NhZ2UuZGVsZXRlKGNiKTtcbiAgICB9O1xuXG4gICAgdGhpcy5pbml0ID0gaW5pdDtcbiAgICB0aGlzLm9uSW5pdEZhaWx1cmUgPSBvbkluaXRGYWlsdXJlO1xuICAgIHRoaXMub25Db25uZWN0aW9uR2FpbiA9IG9uQ29ubmVjdGlvbkdhaW47XG4gICAgdGhpcy5vbkNvbm5lY3Rpb25Mb3N0ID0gb25Db25uZWN0aW9uTG9zdDtcbiAgICB0aGlzLm9uU3Vic2NyaXB0aW9uVXBkYXRlID0gb25TdWJzY3JpcHRpb25VcGRhdGU7XG4gICAgdGhpcy5vblN1YnNjcmlwdGlvbkZhaWx1cmUgPSBvblN1YnNjcmlwdGlvbkZhaWx1cmU7XG4gICAgdGhpcy5vbk1lc3NhZ2UgPSBvbk1lc3NhZ2U7XG4gICAgdGhpcy5vbkFsbE1lc3NhZ2UgPSBvbkFsbE1lc3NhZ2U7XG4gICAgdGhpcy5zdWJzY3JpYmVUb3BpY3MgPSBzdWJzY3JpYmVUb3BpY3M7XG4gICAgdGhpcy5zZW5kTWVzc2FnZSA9IHNlbmRNZXNzYWdlO1xuXG4gICAgdGhpcy5jbG9zZVdlYlNvY2tldCA9IGZ1bmN0aW9uKCkge1xuICAgICAgICByZXNldFN0YXRlKCk7XG4gICAgICAgIGNsZWFySW50ZXJ2YWwobmV0d29ya0Nvbm5lY3Rpdml0eUNoZWNrZXIpO1xuICAgICAgICBjbG9zZVdlYlNvY2tldChcIlVzZXIgcmVxdWVzdCB0byBjbG9zZSBXZWJTb2NrZXRcIik7XG4gICAgfTtcbn07XG5cbmNvbnN0IFdlYlNvY2tldE1hbmFnZXJDb25zdHJ1Y3RvciA9ICgpID0+IHtcbiAgICByZXR1cm4gbmV3IFdlYlNvY2tldE1hbmFnZXIoKTtcbn07XG5cbmNvbnN0IHNldEdsb2JhbENvbmZpZyA9IGNvbmZpZyA9PiB7XG4gICAgY29uc3QgbG9nZ2VyQ29uZmlnID0gY29uZmlnLmxvZ2dlckNvbmZpZztcbiAgICBMb2dNYW5hZ2VyLnVwZGF0ZUxvZ2dlckNvbmZpZyhsb2dnZXJDb25maWcpO1xufTtcblxuY29uc3QgV2ViU29ja2V0TWFuYWdlck9iamVjdCA9IHtcbiAgICBjcmVhdGU6IFdlYlNvY2tldE1hbmFnZXJDb25zdHJ1Y3RvcixcbiAgICBzZXRHbG9iYWxDb25maWc6IHNldEdsb2JhbENvbmZpZyxcbiAgICBMb2dMZXZlbDogTG9nTGV2ZWwsXG4gICAgTG9nZ2VyOiBMb2dnZXJcbn07XG5cbmV4cG9ydCB7IFdlYlNvY2tldE1hbmFnZXJPYmplY3QgfTsiLCIvKiBnbG9iYWwgd2luZG93LCBleHBvcnRzLCBkZWZpbmUgKi9cblxuIWZ1bmN0aW9uKCkge1xuICAgICd1c2Ugc3RyaWN0J1xuXG4gICAgdmFyIHJlID0ge1xuICAgICAgICBub3Rfc3RyaW5nOiAvW15zXS8sXG4gICAgICAgIG5vdF9ib29sOiAvW150XS8sXG4gICAgICAgIG5vdF90eXBlOiAvW15UXS8sXG4gICAgICAgIG5vdF9wcmltaXRpdmU6IC9bXnZdLyxcbiAgICAgICAgbnVtYmVyOiAvW2RpZWZnXS8sXG4gICAgICAgIG51bWVyaWNfYXJnOiAvW2JjZGllZmd1eFhdLyxcbiAgICAgICAganNvbjogL1tqXS8sXG4gICAgICAgIG5vdF9qc29uOiAvW15qXS8sXG4gICAgICAgIHRleHQ6IC9eW15cXHgyNV0rLyxcbiAgICAgICAgbW9kdWxvOiAvXlxceDI1ezJ9LyxcbiAgICAgICAgcGxhY2Vob2xkZXI6IC9eXFx4MjUoPzooWzEtOV1cXGQqKVxcJHxcXCgoW14pXSspXFwpKT8oXFwrKT8oMHwnW14kXSk/KC0pPyhcXGQrKT8oPzpcXC4oXFxkKykpPyhbYi1naWpvc3RUdXZ4WF0pLyxcbiAgICAgICAga2V5OiAvXihbYS16X11bYS16X1xcZF0qKS9pLFxuICAgICAgICBrZXlfYWNjZXNzOiAvXlxcLihbYS16X11bYS16X1xcZF0qKS9pLFxuICAgICAgICBpbmRleF9hY2Nlc3M6IC9eXFxbKFxcZCspXFxdLyxcbiAgICAgICAgc2lnbjogL15bKy1dL1xuICAgIH1cblxuICAgIGZ1bmN0aW9uIHNwcmludGYoa2V5KSB7XG4gICAgICAgIC8vIGBhcmd1bWVudHNgIGlzIG5vdCBhbiBhcnJheSwgYnV0IHNob3VsZCBiZSBmaW5lIGZvciB0aGlzIGNhbGxcbiAgICAgICAgcmV0dXJuIHNwcmludGZfZm9ybWF0KHNwcmludGZfcGFyc2Uoa2V5KSwgYXJndW1lbnRzKVxuICAgIH1cblxuICAgIGZ1bmN0aW9uIHZzcHJpbnRmKGZtdCwgYXJndikge1xuICAgICAgICByZXR1cm4gc3ByaW50Zi5hcHBseShudWxsLCBbZm10XS5jb25jYXQoYXJndiB8fCBbXSkpXG4gICAgfVxuXG4gICAgZnVuY3Rpb24gc3ByaW50Zl9mb3JtYXQocGFyc2VfdHJlZSwgYXJndikge1xuICAgICAgICB2YXIgY3Vyc29yID0gMSwgdHJlZV9sZW5ndGggPSBwYXJzZV90cmVlLmxlbmd0aCwgYXJnLCBvdXRwdXQgPSAnJywgaSwgaywgcGgsIHBhZCwgcGFkX2NoYXJhY3RlciwgcGFkX2xlbmd0aCwgaXNfcG9zaXRpdmUsIHNpZ25cbiAgICAgICAgZm9yIChpID0gMDsgaSA8IHRyZWVfbGVuZ3RoOyBpKyspIHtcbiAgICAgICAgICAgIGlmICh0eXBlb2YgcGFyc2VfdHJlZVtpXSA9PT0gJ3N0cmluZycpIHtcbiAgICAgICAgICAgICAgICBvdXRwdXQgKz0gcGFyc2VfdHJlZVtpXVxuICAgICAgICAgICAgfVxuICAgICAgICAgICAgZWxzZSBpZiAodHlwZW9mIHBhcnNlX3RyZWVbaV0gPT09ICdvYmplY3QnKSB7XG4gICAgICAgICAgICAgICAgcGggPSBwYXJzZV90cmVlW2ldIC8vIGNvbnZlbmllbmNlIHB1cnBvc2VzIG9ubHlcbiAgICAgICAgICAgICAgICBpZiAocGgua2V5cykgeyAvLyBrZXl3b3JkIGFyZ3VtZW50XG4gICAgICAgICAgICAgICAgICAgIGFyZyA9IGFyZ3ZbY3Vyc29yXVxuICAgICAgICAgICAgICAgICAgICBmb3IgKGsgPSAwOyBrIDwgcGgua2V5cy5sZW5ndGg7IGsrKykge1xuICAgICAgICAgICAgICAgICAgICAgICAgaWYgKGFyZyA9PSB1bmRlZmluZWQpIHtcbiAgICAgICAgICAgICAgICAgICAgICAgICAgICB0aHJvdyBuZXcgRXJyb3Ioc3ByaW50ZignW3NwcmludGZdIENhbm5vdCBhY2Nlc3MgcHJvcGVydHkgXCIlc1wiIG9mIHVuZGVmaW5lZCB2YWx1ZSBcIiVzXCInLCBwaC5rZXlzW2tdLCBwaC5rZXlzW2stMV0pKVxuICAgICAgICAgICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgICAgICAgICAgYXJnID0gYXJnW3BoLmtleXNba11dXG4gICAgICAgICAgICAgICAgICAgIH1cbiAgICAgICAgICAgICAgICB9XG4gICAgICAgICAgICAgICAgZWxzZSBpZiAocGgucGFyYW1fbm8pIHsgLy8gcG9zaXRpb25hbCBhcmd1bWVudCAoZXhwbGljaXQpXG4gICAgICAgICAgICAgICAgICAgIGFyZyA9IGFyZ3ZbcGgucGFyYW1fbm9dXG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgIGVsc2UgeyAvLyBwb3NpdGlvbmFsIGFyZ3VtZW50IChpbXBsaWNpdClcbiAgICAgICAgICAgICAgICAgICAgYXJnID0gYXJndltjdXJzb3IrK11cbiAgICAgICAgICAgICAgICB9XG5cbiAgICAgICAgICAgICAgICBpZiAocmUubm90X3R5cGUudGVzdChwaC50eXBlKSAmJiByZS5ub3RfcHJpbWl0aXZlLnRlc3QocGgudHlwZSkgJiYgYXJnIGluc3RhbmNlb2YgRnVuY3Rpb24pIHtcbiAgICAgICAgICAgICAgICAgICAgYXJnID0gYXJnKClcbiAgICAgICAgICAgICAgICB9XG5cbiAgICAgICAgICAgICAgICBpZiAocmUubnVtZXJpY19hcmcudGVzdChwaC50eXBlKSAmJiAodHlwZW9mIGFyZyAhPT0gJ251bWJlcicgJiYgaXNOYU4oYXJnKSkpIHtcbiAgICAgICAgICAgICAgICAgICAgdGhyb3cgbmV3IFR5cGVFcnJvcihzcHJpbnRmKCdbc3ByaW50Zl0gZXhwZWN0aW5nIG51bWJlciBidXQgZm91bmQgJVQnLCBhcmcpKVxuICAgICAgICAgICAgICAgIH1cblxuICAgICAgICAgICAgICAgIGlmIChyZS5udW1iZXIudGVzdChwaC50eXBlKSkge1xuICAgICAgICAgICAgICAgICAgICBpc19wb3NpdGl2ZSA9IGFyZyA+PSAwXG4gICAgICAgICAgICAgICAgfVxuXG4gICAgICAgICAgICAgICAgc3dpdGNoIChwaC50eXBlKSB7XG4gICAgICAgICAgICAgICAgICAgIGNhc2UgJ2InOlxuICAgICAgICAgICAgICAgICAgICAgICAgYXJnID0gcGFyc2VJbnQoYXJnLCAxMCkudG9TdHJpbmcoMilcbiAgICAgICAgICAgICAgICAgICAgICAgIGJyZWFrXG4gICAgICAgICAgICAgICAgICAgIGNhc2UgJ2MnOlxuICAgICAgICAgICAgICAgICAgICAgICAgYXJnID0gU3RyaW5nLmZyb21DaGFyQ29kZShwYXJzZUludChhcmcsIDEwKSlcbiAgICAgICAgICAgICAgICAgICAgICAgIGJyZWFrXG4gICAgICAgICAgICAgICAgICAgIGNhc2UgJ2QnOlxuICAgICAgICAgICAgICAgICAgICBjYXNlICdpJzpcbiAgICAgICAgICAgICAgICAgICAgICAgIGFyZyA9IHBhcnNlSW50KGFyZywgMTApXG4gICAgICAgICAgICAgICAgICAgICAgICBicmVha1xuICAgICAgICAgICAgICAgICAgICBjYXNlICdqJzpcbiAgICAgICAgICAgICAgICAgICAgICAgIGFyZyA9IEpTT04uc3RyaW5naWZ5KGFyZywgbnVsbCwgcGgud2lkdGggPyBwYXJzZUludChwaC53aWR0aCkgOiAwKVxuICAgICAgICAgICAgICAgICAgICAgICAgYnJlYWtcbiAgICAgICAgICAgICAgICAgICAgY2FzZSAnZSc6XG4gICAgICAgICAgICAgICAgICAgICAgICBhcmcgPSBwaC5wcmVjaXNpb24gPyBwYXJzZUZsb2F0KGFyZykudG9FeHBvbmVudGlhbChwaC5wcmVjaXNpb24pIDogcGFyc2VGbG9hdChhcmcpLnRvRXhwb25lbnRpYWwoKVxuICAgICAgICAgICAgICAgICAgICAgICAgYnJlYWtcbiAgICAgICAgICAgICAgICAgICAgY2FzZSAnZic6XG4gICAgICAgICAgICAgICAgICAgICAgICBhcmcgPSBwaC5wcmVjaXNpb24gPyBwYXJzZUZsb2F0KGFyZykudG9GaXhlZChwaC5wcmVjaXNpb24pIDogcGFyc2VGbG9hdChhcmcpXG4gICAgICAgICAgICAgICAgICAgICAgICBicmVha1xuICAgICAgICAgICAgICAgICAgICBjYXNlICdnJzpcbiAgICAgICAgICAgICAgICAgICAgICAgIGFyZyA9IHBoLnByZWNpc2lvbiA/IFN0cmluZyhOdW1iZXIoYXJnLnRvUHJlY2lzaW9uKHBoLnByZWNpc2lvbikpKSA6IHBhcnNlRmxvYXQoYXJnKVxuICAgICAgICAgICAgICAgICAgICAgICAgYnJlYWtcbiAgICAgICAgICAgICAgICAgICAgY2FzZSAnbyc6XG4gICAgICAgICAgICAgICAgICAgICAgICBhcmcgPSAocGFyc2VJbnQoYXJnLCAxMCkgPj4+IDApLnRvU3RyaW5nKDgpXG4gICAgICAgICAgICAgICAgICAgICAgICBicmVha1xuICAgICAgICAgICAgICAgICAgICBjYXNlICdzJzpcbiAgICAgICAgICAgICAgICAgICAgICAgIGFyZyA9IFN0cmluZyhhcmcpXG4gICAgICAgICAgICAgICAgICAgICAgICBhcmcgPSAocGgucHJlY2lzaW9uID8gYXJnLnN1YnN0cmluZygwLCBwaC5wcmVjaXNpb24pIDogYXJnKVxuICAgICAgICAgICAgICAgICAgICAgICAgYnJlYWtcbiAgICAgICAgICAgICAgICAgICAgY2FzZSAndCc6XG4gICAgICAgICAgICAgICAgICAgICAgICBhcmcgPSBTdHJpbmcoISFhcmcpXG4gICAgICAgICAgICAgICAgICAgICAgICBhcmcgPSAocGgucHJlY2lzaW9uID8gYXJnLnN1YnN0cmluZygwLCBwaC5wcmVjaXNpb24pIDogYXJnKVxuICAgICAgICAgICAgICAgICAgICAgICAgYnJlYWtcbiAgICAgICAgICAgICAgICAgICAgY2FzZSAnVCc6XG4gICAgICAgICAgICAgICAgICAgICAgICBhcmcgPSBPYmplY3QucHJvdG90eXBlLnRvU3RyaW5nLmNhbGwoYXJnKS5zbGljZSg4LCAtMSkudG9Mb3dlckNhc2UoKVxuICAgICAgICAgICAgICAgICAgICAgICAgYXJnID0gKHBoLnByZWNpc2lvbiA/IGFyZy5zdWJzdHJpbmcoMCwgcGgucHJlY2lzaW9uKSA6IGFyZylcbiAgICAgICAgICAgICAgICAgICAgICAgIGJyZWFrXG4gICAgICAgICAgICAgICAgICAgIGNhc2UgJ3UnOlxuICAgICAgICAgICAgICAgICAgICAgICAgYXJnID0gcGFyc2VJbnQoYXJnLCAxMCkgPj4+IDBcbiAgICAgICAgICAgICAgICAgICAgICAgIGJyZWFrXG4gICAgICAgICAgICAgICAgICAgIGNhc2UgJ3YnOlxuICAgICAgICAgICAgICAgICAgICAgICAgYXJnID0gYXJnLnZhbHVlT2YoKVxuICAgICAgICAgICAgICAgICAgICAgICAgYXJnID0gKHBoLnByZWNpc2lvbiA/IGFyZy5zdWJzdHJpbmcoMCwgcGgucHJlY2lzaW9uKSA6IGFyZylcbiAgICAgICAgICAgICAgICAgICAgICAgIGJyZWFrXG4gICAgICAgICAgICAgICAgICAgIGNhc2UgJ3gnOlxuICAgICAgICAgICAgICAgICAgICAgICAgYXJnID0gKHBhcnNlSW50KGFyZywgMTApID4+PiAwKS50b1N0cmluZygxNilcbiAgICAgICAgICAgICAgICAgICAgICAgIGJyZWFrXG4gICAgICAgICAgICAgICAgICAgIGNhc2UgJ1gnOlxuICAgICAgICAgICAgICAgICAgICAgICAgYXJnID0gKHBhcnNlSW50KGFyZywgMTApID4+PiAwKS50b1N0cmluZygxNikudG9VcHBlckNhc2UoKVxuICAgICAgICAgICAgICAgICAgICAgICAgYnJlYWtcbiAgICAgICAgICAgICAgICB9XG4gICAgICAgICAgICAgICAgaWYgKHJlLmpzb24udGVzdChwaC50eXBlKSkge1xuICAgICAgICAgICAgICAgICAgICBvdXRwdXQgKz0gYXJnXG4gICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgIGVsc2Uge1xuICAgICAgICAgICAgICAgICAgICBpZiAocmUubnVtYmVyLnRlc3QocGgudHlwZSkgJiYgKCFpc19wb3NpdGl2ZSB8fCBwaC5zaWduKSkge1xuICAgICAgICAgICAgICAgICAgICAgICAgc2lnbiA9IGlzX3Bvc2l0aXZlID8gJysnIDogJy0nXG4gICAgICAgICAgICAgICAgICAgICAgICBhcmcgPSBhcmcudG9TdHJpbmcoKS5yZXBsYWNlKHJlLnNpZ24sICcnKVxuICAgICAgICAgICAgICAgICAgICB9XG4gICAgICAgICAgICAgICAgICAgIGVsc2Uge1xuICAgICAgICAgICAgICAgICAgICAgICAgc2lnbiA9ICcnXG4gICAgICAgICAgICAgICAgICAgIH1cbiAgICAgICAgICAgICAgICAgICAgcGFkX2NoYXJhY3RlciA9IHBoLnBhZF9jaGFyID8gcGgucGFkX2NoYXIgPT09ICcwJyA/ICcwJyA6IHBoLnBhZF9jaGFyLmNoYXJBdCgxKSA6ICcgJ1xuICAgICAgICAgICAgICAgICAgICBwYWRfbGVuZ3RoID0gcGgud2lkdGggLSAoc2lnbiArIGFyZykubGVuZ3RoXG4gICAgICAgICAgICAgICAgICAgIHBhZCA9IHBoLndpZHRoID8gKHBhZF9sZW5ndGggPiAwID8gcGFkX2NoYXJhY3Rlci5yZXBlYXQocGFkX2xlbmd0aCkgOiAnJykgOiAnJ1xuICAgICAgICAgICAgICAgICAgICBvdXRwdXQgKz0gcGguYWxpZ24gPyBzaWduICsgYXJnICsgcGFkIDogKHBhZF9jaGFyYWN0ZXIgPT09ICcwJyA/IHNpZ24gKyBwYWQgKyBhcmcgOiBwYWQgKyBzaWduICsgYXJnKVxuICAgICAgICAgICAgICAgIH1cbiAgICAgICAgICAgIH1cbiAgICAgICAgfVxuICAgICAgICByZXR1cm4gb3V0cHV0XG4gICAgfVxuXG4gICAgdmFyIHNwcmludGZfY2FjaGUgPSBPYmplY3QuY3JlYXRlKG51bGwpXG5cbiAgICBmdW5jdGlvbiBzcHJpbnRmX3BhcnNlKGZtdCkge1xuICAgICAgICBpZiAoc3ByaW50Zl9jYWNoZVtmbXRdKSB7XG4gICAgICAgICAgICByZXR1cm4gc3ByaW50Zl9jYWNoZVtmbXRdXG4gICAgICAgIH1cblxuICAgICAgICB2YXIgX2ZtdCA9IGZtdCwgbWF0Y2gsIHBhcnNlX3RyZWUgPSBbXSwgYXJnX25hbWVzID0gMFxuICAgICAgICB3aGlsZSAoX2ZtdCkge1xuICAgICAgICAgICAgaWYgKChtYXRjaCA9IHJlLnRleHQuZXhlYyhfZm10KSkgIT09IG51bGwpIHtcbiAgICAgICAgICAgICAgICBwYXJzZV90cmVlLnB1c2gobWF0Y2hbMF0pXG4gICAgICAgICAgICB9XG4gICAgICAgICAgICBlbHNlIGlmICgobWF0Y2ggPSByZS5tb2R1bG8uZXhlYyhfZm10KSkgIT09IG51bGwpIHtcbiAgICAgICAgICAgICAgICBwYXJzZV90cmVlLnB1c2goJyUnKVxuICAgICAgICAgICAgfVxuICAgICAgICAgICAgZWxzZSBpZiAoKG1hdGNoID0gcmUucGxhY2Vob2xkZXIuZXhlYyhfZm10KSkgIT09IG51bGwpIHtcbiAgICAgICAgICAgICAgICBpZiAobWF0Y2hbMl0pIHtcbiAgICAgICAgICAgICAgICAgICAgYXJnX25hbWVzIHw9IDFcbiAgICAgICAgICAgICAgICAgICAgdmFyIGZpZWxkX2xpc3QgPSBbXSwgcmVwbGFjZW1lbnRfZmllbGQgPSBtYXRjaFsyXSwgZmllbGRfbWF0Y2ggPSBbXVxuICAgICAgICAgICAgICAgICAgICBpZiAoKGZpZWxkX21hdGNoID0gcmUua2V5LmV4ZWMocmVwbGFjZW1lbnRfZmllbGQpKSAhPT0gbnVsbCkge1xuICAgICAgICAgICAgICAgICAgICAgICAgZmllbGRfbGlzdC5wdXNoKGZpZWxkX21hdGNoWzFdKVxuICAgICAgICAgICAgICAgICAgICAgICAgd2hpbGUgKChyZXBsYWNlbWVudF9maWVsZCA9IHJlcGxhY2VtZW50X2ZpZWxkLnN1YnN0cmluZyhmaWVsZF9tYXRjaFswXS5sZW5ndGgpKSAhPT0gJycpIHtcbiAgICAgICAgICAgICAgICAgICAgICAgICAgICBpZiAoKGZpZWxkX21hdGNoID0gcmUua2V5X2FjY2Vzcy5leGVjKHJlcGxhY2VtZW50X2ZpZWxkKSkgIT09IG51bGwpIHtcbiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgZmllbGRfbGlzdC5wdXNoKGZpZWxkX21hdGNoWzFdKVxuICAgICAgICAgICAgICAgICAgICAgICAgICAgIH1cbiAgICAgICAgICAgICAgICAgICAgICAgICAgICBlbHNlIGlmICgoZmllbGRfbWF0Y2ggPSByZS5pbmRleF9hY2Nlc3MuZXhlYyhyZXBsYWNlbWVudF9maWVsZCkpICE9PSBudWxsKSB7XG4gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIGZpZWxkX2xpc3QucHVzaChmaWVsZF9tYXRjaFsxXSlcbiAgICAgICAgICAgICAgICAgICAgICAgICAgICB9XG4gICAgICAgICAgICAgICAgICAgICAgICAgICAgZWxzZSB7XG4gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIHRocm93IG5ldyBTeW50YXhFcnJvcignW3NwcmludGZdIGZhaWxlZCB0byBwYXJzZSBuYW1lZCBhcmd1bWVudCBrZXknKVxuICAgICAgICAgICAgICAgICAgICAgICAgICAgIH1cbiAgICAgICAgICAgICAgICAgICAgICAgIH1cbiAgICAgICAgICAgICAgICAgICAgfVxuICAgICAgICAgICAgICAgICAgICBlbHNlIHtcbiAgICAgICAgICAgICAgICAgICAgICAgIHRocm93IG5ldyBTeW50YXhFcnJvcignW3NwcmludGZdIGZhaWxlZCB0byBwYXJzZSBuYW1lZCBhcmd1bWVudCBrZXknKVxuICAgICAgICAgICAgICAgICAgICB9XG4gICAgICAgICAgICAgICAgICAgIG1hdGNoWzJdID0gZmllbGRfbGlzdFxuICAgICAgICAgICAgICAgIH1cbiAgICAgICAgICAgICAgICBlbHNlIHtcbiAgICAgICAgICAgICAgICAgICAgYXJnX25hbWVzIHw9IDJcbiAgICAgICAgICAgICAgICB9XG4gICAgICAgICAgICAgICAgaWYgKGFyZ19uYW1lcyA9PT0gMykge1xuICAgICAgICAgICAgICAgICAgICB0aHJvdyBuZXcgRXJyb3IoJ1tzcHJpbnRmXSBtaXhpbmcgcG9zaXRpb25hbCBhbmQgbmFtZWQgcGxhY2Vob2xkZXJzIGlzIG5vdCAoeWV0KSBzdXBwb3J0ZWQnKVxuICAgICAgICAgICAgICAgIH1cblxuICAgICAgICAgICAgICAgIHBhcnNlX3RyZWUucHVzaChcbiAgICAgICAgICAgICAgICAgICAge1xuICAgICAgICAgICAgICAgICAgICAgICAgcGxhY2Vob2xkZXI6IG1hdGNoWzBdLFxuICAgICAgICAgICAgICAgICAgICAgICAgcGFyYW1fbm86ICAgIG1hdGNoWzFdLFxuICAgICAgICAgICAgICAgICAgICAgICAga2V5czogICAgICAgIG1hdGNoWzJdLFxuICAgICAgICAgICAgICAgICAgICAgICAgc2lnbjogICAgICAgIG1hdGNoWzNdLFxuICAgICAgICAgICAgICAgICAgICAgICAgcGFkX2NoYXI6ICAgIG1hdGNoWzRdLFxuICAgICAgICAgICAgICAgICAgICAgICAgYWxpZ246ICAgICAgIG1hdGNoWzVdLFxuICAgICAgICAgICAgICAgICAgICAgICAgd2lkdGg6ICAgICAgIG1hdGNoWzZdLFxuICAgICAgICAgICAgICAgICAgICAgICAgcHJlY2lzaW9uOiAgIG1hdGNoWzddLFxuICAgICAgICAgICAgICAgICAgICAgICAgdHlwZTogICAgICAgIG1hdGNoWzhdXG4gICAgICAgICAgICAgICAgICAgIH1cbiAgICAgICAgICAgICAgICApXG4gICAgICAgICAgICB9XG4gICAgICAgICAgICBlbHNlIHtcbiAgICAgICAgICAgICAgICB0aHJvdyBuZXcgU3ludGF4RXJyb3IoJ1tzcHJpbnRmXSB1bmV4cGVjdGVkIHBsYWNlaG9sZGVyJylcbiAgICAgICAgICAgIH1cbiAgICAgICAgICAgIF9mbXQgPSBfZm10LnN1YnN0cmluZyhtYXRjaFswXS5sZW5ndGgpXG4gICAgICAgIH1cbiAgICAgICAgcmV0dXJuIHNwcmludGZfY2FjaGVbZm10XSA9IHBhcnNlX3RyZWVcbiAgICB9XG5cbiAgICAvKipcbiAgICAgKiBleHBvcnQgdG8gZWl0aGVyIGJyb3dzZXIgb3Igbm9kZS5qc1xuICAgICAqL1xuICAgIC8qIGVzbGludC1kaXNhYmxlIHF1b3RlLXByb3BzICovXG4gICAgaWYgKHR5cGVvZiBleHBvcnRzICE9PSAndW5kZWZpbmVkJykge1xuICAgICAgICBleHBvcnRzWydzcHJpbnRmJ10gPSBzcHJpbnRmXG4gICAgICAgIGV4cG9ydHNbJ3ZzcHJpbnRmJ10gPSB2c3ByaW50ZlxuICAgIH1cbiAgICBpZiAodHlwZW9mIHdpbmRvdyAhPT0gJ3VuZGVmaW5lZCcpIHtcbiAgICAgICAgd2luZG93WydzcHJpbnRmJ10gPSBzcHJpbnRmXG4gICAgICAgIHdpbmRvd1sndnNwcmludGYnXSA9IHZzcHJpbnRmXG5cbiAgICAgICAgaWYgKHR5cGVvZiBkZWZpbmUgPT09ICdmdW5jdGlvbicgJiYgZGVmaW5lWydhbWQnXSkge1xuICAgICAgICAgICAgZGVmaW5lKGZ1bmN0aW9uKCkge1xuICAgICAgICAgICAgICAgIHJldHVybiB7XG4gICAgICAgICAgICAgICAgICAgICdzcHJpbnRmJzogc3ByaW50ZixcbiAgICAgICAgICAgICAgICAgICAgJ3ZzcHJpbnRmJzogdnNwcmludGZcbiAgICAgICAgICAgICAgICB9XG4gICAgICAgICAgICB9KVxuICAgICAgICB9XG4gICAgfVxuICAgIC8qIGVzbGludC1lbmFibGUgcXVvdGUtcHJvcHMgKi9cbn0oKTsgLy8gZXNsaW50LWRpc2FibGUtbGluZVxuIiwiLyplc2xpbnQgbm8tdW51c2VkLXZhcnM6IFwib2ZmXCIqL1xuaW1wb3J0IHsgV2ViU29ja2V0TWFuYWdlck9iamVjdCB9IGZyb20gXCIuL3dlYlNvY2tldE1hbmFnZXJcIjtcblxuZ2xvYmFsLmNvbm5lY3QgPSBnbG9iYWwuY29ubmVjdCB8fCB7fTtcbmNvbm5lY3QuV2ViU29ja2V0TWFuYWdlciA9IFdlYlNvY2tldE1hbmFnZXJPYmplY3Q7XG5cbmV4cG9ydCBjb25zdCBXZWJTb2NrZXRNYW5hZ2VyID0gV2ViU29ja2V0TWFuYWdlck9iamVjdDtcbiIsInZhciBnO1xuXG4vLyBUaGlzIHdvcmtzIGluIG5vbi1zdHJpY3QgbW9kZVxuZyA9IChmdW5jdGlvbigpIHtcblx0cmV0dXJuIHRoaXM7XG59KSgpO1xuXG50cnkge1xuXHQvLyBUaGlzIHdvcmtzIGlmIGV2YWwgaXMgYWxsb3dlZCAoc2VlIENTUClcblx0ZyA9IGcgfHwgbmV3IEZ1bmN0aW9uKFwicmV0dXJuIHRoaXNcIikoKTtcbn0gY2F0Y2ggKGUpIHtcblx0Ly8gVGhpcyB3b3JrcyBpZiB0aGUgd2luZG93IHJlZmVyZW5jZSBpcyBhdmFpbGFibGVcblx0aWYgKHR5cGVvZiB3aW5kb3cgPT09IFwib2JqZWN0XCIpIGcgPSB3aW5kb3c7XG59XG5cbi8vIGcgY2FuIHN0aWxsIGJlIHVuZGVmaW5lZCwgYnV0IG5vdGhpbmcgdG8gZG8gYWJvdXQgaXQuLi5cbi8vIFdlIHJldHVybiB1bmRlZmluZWQsIGluc3RlYWQgb2Ygbm90aGluZyBoZXJlLCBzbyBpdCdzXG4vLyBlYXNpZXIgdG8gaGFuZGxlIHRoaXMgY2FzZS4gaWYoIWdsb2JhbCkgeyAuLi59XG5cbm1vZHVsZS5leHBvcnRzID0gZztcbiJdLCJzb3VyY2VSb290IjoiIn0=
+/***/ 891:
+/***/ (() => {
 
 /*
  * Copyright 2014-2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
@@ -24418,1901 +31156,722 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
  * SPDX-License-Identifier: Apache-2.0
  */
 (function () {
-  var global = this;
-  connect = global.connect || {};
-  global.connect = connect;
-  global.lily = connect;
-
-  connect.core = {};
-
-  connect.core.initialized = false;
-
-  connect.DEFAULT_BATCH_SIZE = 100;
-
-  var CCP_SYN_TIMEOUT = 1000; // 1 sec
-  var CCP_ACK_TIMEOUT = 3000; // 3 sec
-  var CCP_LOAD_TIMEOUT = 3000; // 3 sec
-  var CCP_IFRAME_REFRESH_INTERVAL = 5000; // 5 sec
-
-  var LOGIN_URL_PATTERN = "https://{alias}.awsapps.com/auth/?client_id={client_id}&redirect_uri={redirect}";
-  var CLIENT_ID_MAP = {
-    "us-east-1": "06919f4fd8ed324e"
-  };
-
-  var AUTHORIZE_ENDPOINT = "/connect/auth/authorize";
-  var AUTHORIZE_RETRY_INTERVAL = 2000;
-  var AUTHORIZE_MAX_RETRY = 5;
-
-  var WHITELISTED_ORIGINS_ENDPOINT = "/connect/whitelisted-origins";
-  var WHITELISTED_ORIGINS_RETRY_INTERVAL = 2000;
-  var WHITELISTED_ORIGINS_MAX_RETRY = 5;
-
-  /**
-   * @deprecated
-   * We will no longer need this function soon.
-   */
-  var createLoginUrl = function (params) {
-    var redirect = "https://lily.us-east-1.amazonaws.com/taw/auth/code";
-    connect.assertNotNull(redirect);
-
-    if (params.loginUrl) {
-      return params.loginUrl
-    } else if (params.alias) {
-      return LOGIN_URL_PATTERN
-        .replace("{alias}", params.alias)
-        .replace("{client_id}", CLIENT_ID_MAP["us-east-1"])
-        .replace("{redirect}", global.encodeURIComponent(
-          redirect));
-    } else {
-      return params.ccpUrl;
-    }
-  };
-
-  /**-------------------------------------------------------------------------
-  * Returns scheme://host:port for a given url
-  */
-  function sanitizeDomain(url) {
-    var domain = url.match(/^(?:https?:\/\/)?(?:[^@\n]+@)?(?:www\.)?([^:\/\n?]+)/ig);
-    return domain.length ? domain[0] : "";
-  }
-
-  /**-------------------------------------------------------------------------
-    * Print a warning message if the Connect core is not initialized.
-    */
-  connect.core.checkNotInitialized = function () {
-    if (connect.core.initialized) {
-      var log = connect.getLog();
-      log.warn("Connect core already initialized, only needs to be initialized once.");
-    }
-  };
-  /**-------------------------------------------------------------------------
-   * Basic Connect client initialization.
-   * Should be used only by the API Shared Worker.
-   */
-  connect.core.init = function (params) {
-    connect.core.eventBus = new connect.EventBus();
-    connect.core.agentDataProvider = new AgentDataProvider(connect.core.getEventBus());
-    connect.core.initClient(params);
-    connect.core.initialized = true;
-  };
-
-  /**-------------------------------------------------------------------------
-   * Initialized AWS client
-   * Should be used by Shared Worker to update AWS client with new credentials
-   * after refreshed authentication.
-   */
-  connect.core.initClient = function (params) {
-    connect.assertNotNull(params, 'params');
-
-    var authToken = connect.assertNotNull(params.authToken, 'params.authToken');
-    var region = connect.assertNotNull(params.region, 'params.region');
-    var endpoint = params.endpoint || null;
-
-    connect.core.client = new connect.AWSClient(authToken, region, endpoint);
-  };
-
-  /**-------------------------------------------------------------------------
-   * Uninitialize Connect.
-   */
-  connect.core.terminate = function () {
-    connect.core.client = new connect.NullClient();
-    connect.core.masterClient = new connect.NullClient();
-    var bus = connect.core.getEventBus();
-    if (bus) bus.unsubscribeAll();
-    connect.core.bus = new connect.EventBus();
-    connect.core.agentDataProvider = null;
-    connect.core.softphoneManager = null;
-    connect.core.upstream = null;
-    connect.core.keepaliveManager = null;
-    connect.agent.initialized = false;
-    connect.core.initialized = false;
-  };
-
-  /**-------------------------------------------------------------------------
-   * Setup the SoftphoneManager to be initialized when the agent
-   * is determined to have softphone enabled.
-   */
-  connect.core.softphoneUserMediaStream = null;
-
-  connect.core.getSoftphoneUserMediaStream = function () {
-    return connect.core.softphoneUserMediaStream;
-  };
-
-  connect.core.setSoftphoneUserMediaStream = function (stream) {
-    connect.core.softphoneUserMediaStream = stream;
-  };
-
-  connect.core.initRingtoneEngines = function (params) {
-    connect.assertNotNull(params, "params");
-
-    var setupRingtoneEngines = function (ringtoneSettings) {
-      connect.assertNotNull(ringtoneSettings, "ringtoneSettings");
-      connect.assertNotNull(ringtoneSettings.voice, "ringtoneSettings.voice");
-      connect.assertTrue(ringtoneSettings.voice.ringtoneUrl || ringtoneSettings.voice.disabled, "ringtoneSettings.voice.ringtoneUrl must be provided or ringtoneSettings.voice.disabled must be true");
-      connect.assertNotNull(ringtoneSettings.queue_callback, "ringtoneSettings.queue_callback");
-      connect.assertTrue(ringtoneSettings.queue_callback.ringtoneUrl || ringtoneSettings.queue_callback.disabled, "ringtoneSettings.voice.ringtoneUrl must be provided or ringtoneSettings.queue_callback.disabled must be true");
-
-      connect.core.ringtoneEngines = {};
-
-      connect.agent(function (agent) {
-        agent.onRefresh(function () {
-          connect.ifMaster(connect.MasterTopics.RINGTONE, function () {
-            if (!ringtoneSettings.voice.disabled && !connect.core.ringtoneEngines.voice) {
-              connect.core.ringtoneEngines.voice =
-                new connect.VoiceRingtoneEngine(ringtoneSettings.voice);
-              connect.getLog().info("VoiceRingtoneEngine initialized.");
-            }
-
-            if (!ringtoneSettings.chat.disabled && !connect.core.ringtoneEngines.chat) {
-              connect.core.ringtoneEngines.chat =
-                new connect.ChatRingtoneEngine(ringtoneSettings.chat);
-              connect.getLog().info("ChatRingtoneEngine initialized.");
-            }
-
-            if (!ringtoneSettings.queue_callback.disabled && !connect.core.ringtoneEngines.queue_callback) {
-              connect.core.ringtoneEngines.queue_callback =
-                new connect.QueueCallbackRingtoneEngine(ringtoneSettings.queue_callback);
-              connect.getLog().info("QueueCallbackRingtoneEngine initialized.");
-            }
-          });
-        });
-      });
-    };
-
-    var mergeParams = function (params, otherParams) {
-      // For backwards compatibility: support pulling disabled flag and ringtoneUrl
-      // from softphone config if it exists from downstream into the ringtone config.
-      params.ringtone = params.ringtone || {};
-      params.ringtone.voice = params.ringtone.voice || {};
-      params.ringtone.queue_callback = params.ringtone.queue_callback || {};
-      params.ringtone.chat = params.ringtone.chat || { disabled: true };
-
-      if (otherParams.softphone) {
-        if (otherParams.softphone.disableRingtone) {
-          params.ringtone.voice.disabled = true;
-          params.ringtone.queue_callback.disabled = true;
-        }
-
-        if (otherParams.softphone.ringtoneUrl) {
-          params.ringtone.voice.ringtoneUrl = otherParams.softphone.ringtoneUrl;
-          params.ringtone.queue_callback.ringtoneUrl = otherParams.softphone.ringtoneUrl;
-        }
-      }
-
-      // Merge in ringtone settings from downstream.
-      if (otherParams.ringtone) {
-        params.ringtone.voice = connect.merge(params.ringtone.voice,
-          otherParams.ringtone.voice || {});
-        params.ringtone.queue_callback = connect.merge(params.ringtone.queue_callback,
-          otherParams.ringtone.voice || {});
-        params.ringtone.chat = connect.merge(params.ringtone.chat,
-          otherParams.ringtone.chat || {});
-      }
-    };
-
-    // Merge params from params.softphone into params.ringtone
-    // for embedded and non-embedded use cases so that defaults
-    // are picked up.
-    mergeParams(params, params);
-
-    if (connect.isFramed()) {
-      // If the CCP is in a frame, wait for configuration from downstream.
-      var bus = connect.core.getEventBus();
-      bus.subscribe(connect.EventType.CONFIGURE, function (data) {
-        this.unsubscribe();
-        // Merge all params from data into params for any overridden
-        // values in either legacy "softphone" or "ringtone" settings.
-        mergeParams(params, data);
-        setupRingtoneEngines(params.ringtone);
-      });
-
-    } else {
-      setupRingtoneEngines(params.ringtone);
-    }
-  };
-
-  connect.core.initSoftphoneManager = function (paramsIn) {
-    var params = paramsIn || {};
-
-    var competeForMasterOnAgentUpdate = function (softphoneParamsIn) {
-      var softphoneParams = connect.merge(params.softphone || {}, softphoneParamsIn);
-
-      connect.agent(function (agent) {
-        if (!agent.getChannelConcurrency(connect.ChannelType.VOICE)) {
-          return;
-        }
-        agent.onRefresh(function () {
-          var sub = this;
-
-          connect.ifMaster(connect.MasterTopics.SOFTPHONE, function () {
-            if (!connect.core.softphoneManager && agent.isSoftphoneEnabled()) {
-              // Become master to send logs, since we need logs from softphone tab.
-              connect.becomeMaster(connect.MasterTopics.SEND_LOGS);
-              console.log('setting the softphoneManager');
-              connect.core.softphoneManager = new connect.SoftphoneManager(softphoneParams);
-              sub.unsubscribe();
-            }
-          });
-        });
-      });
-    };
-
-    /**
-     * If the window is framed, we need to wait for a CONFIGURE message from
-     * downstream before we try to initialize, unless params.allowFramedSoftphone is true.
-     */
-    if (connect.isFramed() && !params.allowFramedSoftphone) {
-      var bus = connect.core.getEventBus();
-      bus.subscribe(connect.EventType.CONFIGURE, function (data) {
-        if (data.softphone && data.softphone.allowFramedSoftphone) {
-          this.unsubscribe();
-          competeForMasterOnAgentUpdate(data.softphone);
-        }
-      });
-    } else {
-      competeForMasterOnAgentUpdate(params);
-    }
-
-
-    connect.agent(function (agent) {
-      // Sync mute across all tabs 
-      if (agent.isSoftphoneEnabled() && agent.getChannelConcurrency(connect.ChannelType.VOICE)) {
-        connect.core.getUpstream().sendUpstream(connect.EventType.BROADCAST,
-          {
-            event: connect.EventType.MUTE
-          });
-      }
-    });
-  };
-
-  connect.core.authorize = function (endpoint) {
-    var options = {
-      credentials: 'include'
-    };
-    return connect.fetch(endpoint || AUTHORIZE_ENDPOINT, options, AUTHORIZE_RETRY_INTERVAL, AUTHORIZE_MAX_RETRY);
-  };
-
-  connect.core.verifyDomainAccess = function (authToken, endpoint) {
-    if (!connect.isFramed()) {
-      return Promise.resolve();
-    }
-    var options = {
-      headers: {
-        'X-Amz-Bearer': authToken
-      }
-    };
-    return connect.fetch(endpoint || WHITELISTED_ORIGINS_ENDPOINT, options, WHITELISTED_ORIGINS_RETRY_INTERVAL, WHITELISTED_ORIGINS_MAX_RETRY).then(function (response) {
-      var topDomain = sanitizeDomain(window.document.referrer);
-      var isAllowed = response.whitelistedOrigins.some(function (origin) {
-        return topDomain === sanitizeDomain(origin);
-      });
-      return isAllowed ? Promise.resolve() : Promise.reject();
-    });
-  };
-
-  /**-------------------------------------------------------------------------
-   * Initializes Connect by creating or connecting to the API Shared Worker.
-   * Used primarily by the CCP.
-   */
-  connect.core.initSharedWorker = function (params) {
-    connect.core.checkNotInitialized();
-    if (connect.core.initialized) {
-      return;
-    }
-    connect.assertNotNull(params, 'params');
-
-    var sharedWorkerUrl = connect.assertNotNull(params.sharedWorkerUrl, 'params.sharedWorkerUrl');
-    var authToken = connect.assertNotNull(params.authToken, 'params.authToken');
-    var refreshToken = connect.assertNotNull(params.refreshToken, 'params.refreshToken');
-    var authTokenExpiration = connect.assertNotNull(params.authTokenExpiration, 'params.authTokenExpiration');
-    var region = connect.assertNotNull(params.region, 'params.region');
-    var endpoint = params.endpoint || null;
-    var authorizeEndpoint = params.authorizeEndpoint || "/connect/auth/authorize";
-
-    try {
-      // Initialize the event bus and agent data providers.
-      connect.core.eventBus = new connect.EventBus({ logEvents: true });
-      connect.core.agentDataProvider = new AgentDataProvider(connect.core.getEventBus());
-      connect.core.mediaFactory = new connect.MediaFactory(params);
-      // Create the shared worker and upstream conduit.
-      var worker = new SharedWorker(sharedWorkerUrl, "ConnectSharedWorker");
-      var conduit = new connect.Conduit("ConnectSharedWorkerConduit",
-        new connect.PortStream(worker.port),
-        new connect.WindowIOStream(window, parent));
-
-      // Set the global upstream conduit for external use.
-      connect.core.upstream = conduit;
-
-      connect.core.webSocketProvider = new WebSocketProvider();
-
-      // Close our port to the shared worker before the window closes.
-      global.onunload = function () {
-        conduit.sendUpstream(connect.EventType.CLOSE);
-        worker.port.close();
-      };
-
-      connect.getLog().scheduleUpstreamLogPush(conduit);
-      // Bridge all upstream messages into the event bus.
-      conduit.onAllUpstream(connect.core.getEventBus().bridge());
-      // Bridge all downstream messages into the event bus.
-      conduit.onAllDownstream(connect.core.getEventBus().bridge());
-      // Pass all upstream messages (from shared worker) downstream (to CCP consumer).
-      conduit.onAllUpstream(conduit.passDownstream());
-      // Pass all downstream messages (from CCP consumer) upstream (to shared worker).
-      conduit.onAllDownstream(conduit.passUpstream());
-      // Send configuration up to the shared worker.
-
-      conduit.sendUpstream(connect.EventType.CONFIGURE, {
-        authToken: authToken,
-        authTokenExpiration: authTokenExpiration,
-        endpoint: endpoint,
-        refreshToken: refreshToken,
-        region: region,
-        authorizeEndpoint: authorizeEndpoint
-      });
-
-      conduit.onUpstream(connect.EventType.ACKNOWLEDGE, function () {
-        connect.getLog().info("Acknowledged by the ConnectSharedWorker!");
-        connect.core.initialized = true;
-        this.unsubscribe();
-      });
-      // Add all upstream log entries to our own logger.
-      conduit.onUpstream(connect.EventType.LOG, function (logEntry) {
-        connect.getLog().addLogEntry(connect.LogEntry.fromObject(logEntry));
-      });
-      // Reload the page if the shared worker detects an API auth failure.
-      conduit.onUpstream(connect.EventType.AUTH_FAIL, function (logEntry) {
-        location.reload();
-      });
-
-      connect.core.client = new connect.UpstreamConduitClient(conduit);
-      connect.core.masterClient = new connect.UpstreamConduitMasterClient(conduit);
-
-      // Pass the TERMINATE request upstream to the shared worker.
-      connect.core.getEventBus().subscribe(connect.EventType.TERMINATE,
-        conduit.passUpstream());
-
-      // Refresh the page when we receive the TERMINATED response from the
-      // shared worker.
-      connect.core.getEventBus().subscribe(connect.EventType.TERMINATED, function () {
-        window.location.reload(true);
-      });
-
-      worker.port.start();
-
-      // Attempt to get permission to show notifications.
-      var nm = connect.core.getNotificationManager();
-      nm.requestPermission();
-
-    } catch (e) {
-      connect.getLog().error("Failed to initialize the API shared worker, we're dead!")
-        .withException(e);
-    }
-  };
-
-  /**-------------------------------------------------------------------------
-   * Initializes Connect by creating or connecting to the API Shared Worker.
-   * Initializes Connect by loading the CCP in an iframe and connecting to it.
-   */
-  connect.core.initCCP = function (containerDiv, paramsIn) {
-    connect.core.checkNotInitialized();
-    if (connect.core.initialized) {
-      return;
-    }
-
-    // For backwards compatibility, when instead of taking a params object
-    // as input we only accepted ccpUrl.
-    var params = {};
-    if (typeof (paramsIn) === 'string') {
-      params.ccpUrl = paramsIn;
-    } else {
-      params = paramsIn;
-    }
-
-    var softphoneParams = params.softphone || null;
-
-    connect.assertNotNull(containerDiv, 'containerDiv');
-    connect.assertNotNull(params.ccpUrl, 'params.ccpUrl');
-
-    // Create the CCP iframe and append it to the container div.
-    var iframe = document.createElement('iframe');
-    iframe.src = params.ccpUrl;
-    iframe.allow = "microphone; autoplay";
-    iframe.style = "width: 100%; height: 100%";
-    containerDiv.appendChild(iframe);
-
-    // Initialize the event bus and agent data providers.
-    // NOTE: Setting logEvents here to FALSE in order to avoid duplicating
-    // events which are logged in CCP.
-    connect.core.eventBus = new connect.EventBus({ logEvents: false });
-    connect.core.agentDataProvider = new AgentDataProvider(connect.core.getEventBus());
-    connect.core.mediaFactory = new connect.MediaFactory(params);
-
-    // Build the upstream conduit communicating with the CCP iframe.
-    var conduit = new connect.IFrameConduit(params.ccpUrl, window, iframe);
-
-    // Set the global upstream conduit for external use.
-    connect.core.upstream = conduit;
-
-    // Init webSocketProvider
-    connect.core.webSocketProvider = new WebSocketProvider();
-
-    conduit.onAllUpstream(connect.core.getEventBus().bridge());
-
-    // Initialize the keepalive manager.
-    connect.core.keepaliveManager = new KeepaliveManager(conduit,
-      connect.core.getEventBus(),
-      params.ccpSynTimeout || CCP_SYN_TIMEOUT,
-      params.ccpAckTimeout || CCP_ACK_TIMEOUT)
-      ;
-    connect.core.iframeRefreshInterval = null;
-
-    // Allow 10 sec (default) before receiving the first ACK from the CCP.
-    connect.core.ccpLoadTimeoutInstance = global.setTimeout(function () {
-      connect.core.ccpLoadTimeoutInstance = null;
-      connect.core.getEventBus().trigger(connect.EventType.ACK_TIMEOUT);
-    }, params.ccpLoadTimeout || CCP_LOAD_TIMEOUT);
-
-    // Once we receive the first ACK, setup our upstream API client and establish
-    // the SYN/ACK refresh flow.
-    conduit.onUpstream(connect.EventType.ACKNOWLEDGE, function () {
-      connect.getLog().info("Acknowledged by the CCP!");
-      connect.core.client = new connect.UpstreamConduitClient(conduit);
-      connect.core.masterClient = new connect.UpstreamConduitMasterClient(conduit);
-      connect.core.initialized = true;
-
-      if (softphoneParams) {
-        // Send configuration up to the CCP.
-        conduit.sendUpstream(connect.EventType.CONFIGURE, {
-          softphone: softphoneParams
-        });
-      }
-
-      if (connect.core.ccpLoadTimeoutInstance) {
-        global.clearTimeout(connect.core.ccpLoadTimeoutInstance);
-        connect.core.ccpLoadTimeoutInstance = null;
-      }
-
-      connect.core.keepaliveManager.start();
-      this.unsubscribe();
-    });
-
-    // Add any logs from the upstream to our own logger.
-    conduit.onUpstream(connect.EventType.LOG, function (logEntry) {
-      connect.getLog().addLogEntry(connect.LogEntry.fromObject(logEntry));
-    });
-
-    // Pop a login page when we encounter an ACK timeout.
-    connect.core.getEventBus().subscribe(connect.EventType.ACK_TIMEOUT, function () {
-      // loginPopup is true by default, only false if explicitly set to false.
-      if (params.loginPopup !== false) {
-        try {
-          var loginUrl = createLoginUrl(params);
-          connect.getLog().warn("ACK_TIMEOUT occurred, attempting to pop the login page if not already open.");
-          // clear out last opened timestamp for SAML authentication when there is ACK_TIMEOUT
-          if (params.loginUrl) {
-             connect.core.getPopupManager().clear(connect.MasterTopics.LOGIN_POPUP);
-          }
-          connect.core.loginWindow = connect.core.getPopupManager().open(loginUrl, connect.MasterTopics.LOGIN_POPUP);
-
-        } catch (e) {
-          connect.getLog().error("ACK_TIMEOUT occurred but we are unable to open the login popup.").withException(e);
-        }
-      }
-
-      if (connect.core.iframeRefreshInterval == null) {
-        connect.core.iframeRefreshInterval = window.setInterval(function () {
-          iframe.src = params.ccpUrl;
-        }, CCP_IFRAME_REFRESH_INTERVAL);
-
-        conduit.onUpstream(connect.EventType.ACKNOWLEDGE, function () {
-          this.unsubscribe();
-          global.clearInterval(connect.core.iframeRefreshInterval);
-          connect.core.iframeRefreshInterval = null;
-          connect.core.getPopupManager().clear(connect.MasterTopics.LOGIN_POPUP);
-          if (params.loginPopupAutoClose && connect.core.loginWindow) {
-            connect.core.loginWindow.close();
-            connect.core.loginWindow = null;
-          }
-        });
-      }
-    });
-
-    if (params.onViewContact) {
-  		connect.core.onViewContact(params.onViewContact);
-  	}
-  };
-
-  /**-----------------------------------------------------------------------*/
-  var KeepaliveManager = function (conduit, eventBus, synTimeout, ackTimeout) {
-    this.conduit = conduit;
-    this.eventBus = eventBus;
-    this.synTimeout = synTimeout;
-    this.ackTimeout = ackTimeout;
-    this.ackTimer = null;
-    this.synTimer = null;
-    this.ackSub = null;
-  };
-
-  KeepaliveManager.prototype.start = function () {
-    var self = this;
-
-    this.conduit.sendUpstream(connect.EventType.SYNCHRONIZE);
-    this.ackSub = this.conduit.onUpstream(connect.EventType.ACKNOWLEDGE, function () {
-      this.unsubscribe();
-      global.clearTimeout(self.ackTimer);
-      self.deferStart();
-    });
-    this.ackTimer = global.setTimeout(function () {
-      self.ackSub.unsubscribe();
-      self.eventBus.trigger(connect.EventType.ACK_TIMEOUT);
-      self.deferStart();
-    }, this.ackTimeout);
-  };
-
-  KeepaliveManager.prototype.deferStart = function () {
-    if (this.synTimer == null) {
-      this.synTimer = global.setTimeout(connect.hitch(this, this.start), this.synTimeout);
-    }
-  };
-
-  /**-----------------------------------------------------------------------*/
-
-  var WebSocketProvider = function () {
-
-    var callbacks = {
-      initFailure: new Set(),
-      subscriptionUpdate: new Set(),
-      subscriptionFailure: new Set(),
-      topic: new Map(),
-      allMessage: new Set(),
-      connectionGain: new Set(),
-      connectionLost: new Set()
-    };
-
-    var invokeCallbacks = function (callbacks, response) {
-      callbacks.forEach(function (callback) {
-        callback(response);
-      });
-    };
-
-    connect.core.getUpstream().onUpstream(connect.WebSocketEvents.INIT_FAILURE, function () {
-      invokeCallbacks(callbacks.initFailure);
-    });
-
-    connect.core.getUpstream().onUpstream(connect.WebSocketEvents.CONNECTION_GAIN, function () {
-      invokeCallbacks(callbacks.connectionGain);
-    });
-
-    connect.core.getUpstream().onUpstream(connect.WebSocketEvents.CONNECTION_LOST, function () {
-      invokeCallbacks(callbacks.connectionLost);
-    });
-
-    connect.core.getUpstream().onUpstream(connect.WebSocketEvents.SUBSCRIPTION_UPDATE, function (response) {
-      invokeCallbacks(callbacks.subscriptionUpdate, response);
-    });
-
-    connect.core.getUpstream().onUpstream(connect.WebSocketEvents.SUBSCRIPTION_FAILURE, function (response) {
-      invokeCallbacks(callbacks.subscriptionFailure, response);
-    });
-
-    connect.core.getUpstream().onUpstream(connect.WebSocketEvents.ALL_MESSAGE, function (response) {
-      invokeCallbacks(callbacks.allMessage, response);
-      if (callbacks.topic.has(response.topic)) {
-        invokeCallbacks(callbacks.topic.get(response.topic), response);
-      }
-    });
-
-    this.sendMessage = function (webSocketPayload) {
-      connect.core.getUpstream().sendUpstream(connect.WebSocketEvents.SEND, webSocketPayload);
-    };
-
-    this.onInitFailure = function (cb) {
-      connect.assertTrue(connect.isFunction(cb), 'method must be a function');
-      callbacks.initFailure.add(cb);
-      return function () {
-        return callbacks.initFailure.delete(cb);
-      };
-    };
-
-    this.onConnectionGain = function (cb) {
-      connect.assertTrue(connect.isFunction(cb), 'method must be a function');
-      callbacks.connectionGain.add(cb);
-      return function () {
-        return callbacks.connectionGain.delete(cb);
-      };
-    };
-
-    this.onConnectionLost = function (cb) {
-      connect.assertTrue(connect.isFunction(cb), 'method must be a function');
-      callbacks.connectionLost.add(cb);
-      return function () {
-        return callbacks.connectionLost.delete(cb);
-      };
-    };
-
-    this.onSubscriptionUpdate = function (cb) {
-      connect.assertTrue(connect.isFunction(cb), 'method must be a function');
-      callbacks.subscriptionUpdate.add(cb);
-      return function () {
-        return callbacks.subscriptionUpdate.delete(cb);
-      };
-    };
-
-    this.onSubscriptionFailure = function (cb) {
-      connect.assertTrue(connect.isFunction(cb), 'method must be a function');
-      callbacks.subscriptionFailure.add(cb);
-      return function () {
-        return callbacks.subscriptionFailure.delete(cb);
-      };
-    };
-
-    this.subscribeTopics = function (topics) {
-      connect.assertNotNull(topics, 'topics');
-      connect.assertTrue(connect.isArray(topics), 'topics must be a array');
-      connect.core.getUpstream().sendUpstream(connect.WebSocketEvents.SUBSCRIBE, topics);
-    };
-
-    this.onMessage = function (topicName, cb) {
-      connect.assertNotNull(topicName, 'topicName');
-      connect.assertTrue(connect.isFunction(cb), 'method must be a function');
-      if (callbacks.topic.has(topicName)) {
-        callbacks.topic.get(topicName).add(cb);
-      } else {
-        callbacks.topic.set(topicName, new Set([cb]));
-      }
-      return function () {
-        return callbacks.topic.get(topicName).delete(cb);
-      };
-    };
-
-    this.onAllMessage = function (cb) {
-      connect.assertTrue(connect.isFunction(cb), 'method must be a function');
-      callbacks.allMessage.add(cb);
-      return function () {
-        return callbacks.allMessage.delete(cb);
-      };
-    };
-
-  };
-
-  /**-----------------------------------------------------------------------*/
-  var AgentDataProvider = function (bus) {
-    var agentData = null;
-    this.bus = bus;
-    this.bus.subscribe(connect.AgentEvents.UPDATE, connect.hitch(this, this.updateAgentData));
-  };
-
-  AgentDataProvider.prototype.updateAgentData = function (agentData) {
-    var oldAgentData = this.agentData;
-    this.agentData = agentData;
-
-    if (oldAgentData == null) {
-      connect.agent.initialized = true;
-      this.bus.trigger(connect.AgentEvents.INIT, new connect.Agent());
-    }
-
-    this.bus.trigger(connect.AgentEvents.REFRESH, new connect.Agent());
-
-    this._fireAgentUpdateEvents(oldAgentData);
-  };
-
-  AgentDataProvider.prototype.getAgentData = function () {
-    if (this.agentData == null) {
-      throw new connect.StateError('No agent data is available yet!');
-    }
-
-    return this.agentData;
-  };
-
-  AgentDataProvider.prototype.getContactData = function (contactId) {
-    var agentData = this.getAgentData();
-    var contactData = connect.find(agentData.snapshot.contacts, function (ctdata) {
-      return ctdata.contactId === contactId;
-    });
-
-    if (contactData == null) {
-      throw new connect.StateError('Contact %s no longer exists.', contactId);
-    }
-
-    return contactData;
-  };
-
-  AgentDataProvider.prototype.getConnectionData = function (contactId, connectionId) {
-    var contactData = this.getContactData(contactId);
-    var connectionData = connect.find(contactData.connections, function (cdata) {
-      return cdata.connectionId === connectionId;
-    });
-
-    if (connectionData == null) {
-      throw new connect.StateError('Connection %s for contact %s no longer exists.', connectionId, contactId);
-    }
-
-    return connectionData;
-  };
-
-  AgentDataProvider.prototype._diffContacts = function (oldAgentData) {
-    var diff = {
-      added: {},
-      removed: {},
-      common: {},
-      oldMap: connect.index(oldAgentData == null ? [] : oldAgentData.snapshot.contacts, function (contact) { return contact.contactId; }),
-      newMap: connect.index(this.agentData.snapshot.contacts, function (contact) { return contact.contactId; })
-    };
-
-    connect.keys(diff.oldMap).forEach(function (contactId) {
-      if (connect.contains(diff.newMap, contactId)) {
-        diff.common[contactId] = diff.newMap[contactId];
-      } else {
-        diff.removed[contactId] = diff.oldMap[contactId];
-      }
-    });
-
-    connect.keys(diff.newMap).forEach(function (contactId) {
-      if (!connect.contains(diff.oldMap, contactId)) {
-        diff.added[contactId] = diff.newMap[contactId];
-      }
-    });
-
-    return diff;
-  };
-
-  AgentDataProvider.prototype._fireAgentUpdateEvents = function (oldAgentData) {
-    var self = this;
-    var diff = null;
-    var oldAgentState = oldAgentData == null ? connect.AgentAvailStates.INIT : oldAgentData.snapshot.state.name;
-    var newAgentState = this.agentData.snapshot.state.name;
-    var oldRoutingState = oldAgentData == null ? connect.AgentStateType.INIT : oldAgentData.snapshot.state.type;
-    var newRoutingState = this.agentData.snapshot.state.type;
-
-    if (oldRoutingState !== newRoutingState) {
-      connect.core.getAgentRoutingEventGraph().getAssociations(this, oldRoutingState, newRoutingState).forEach(function (event) {
-        self.bus.trigger(event, new connect.Agent());
-      });
-    }
-
-    if (oldAgentState !== newAgentState) {
-      this.bus.trigger(connect.AgentEvents.STATE_CHANGE, {
-        agent: new connect.Agent(),
-        oldState: oldAgentState,
-        newState: newAgentState
-
-      });
-      connect.core.getAgentStateEventGraph().getAssociations(this, oldAgentState, newAgentState).forEach(function (event) {
-        self.bus.trigger(event, new connect.Agent());
-      });
-    }
-
-    if (oldAgentData !== null) {
-      diff = this._diffContacts(oldAgentData);
-
-    } else {
-      diff = {
-        added: connect.index(this.agentData.snapshot.contacts, function (contact) { return contact.contactId; }),
-        removed: {},
-        common: {},
-        oldMap: {},
-        newMap: connect.index(this.agentData.snapshot.contacts, function (contact) { return contact.contactId; })
-      };
-    }
-
-    connect.values(diff.added).forEach(function (contactData) {
-      self.bus.trigger(connect.ContactEvents.INIT, new connect.Contact(contactData.contactId));
-      self._fireContactUpdateEvents(contactData.contactId, connect.ContactStateType.INIT, contactData.state.type);
-    });
-
-    connect.values(diff.removed).forEach(function (contactData) {
-      self.bus.trigger(connect.ContactEvents.DESTROYED, new connect.ContactSnapshot(contactData));
-      self.bus.trigger(connect.core.getContactEventName(connect.ContactEvents.DESTROYED, contactData.contactId), new connect.ContactSnapshot(contactData));
-      self._unsubAllContactEventsForContact(contactData.contactId);
-    });
-
-    connect.keys(diff.common).forEach(function (contactId) {
-      self._fireContactUpdateEvents(contactId, diff.oldMap[contactId].state.type, diff.newMap[contactId].state.type);
-    });
-  };
-
-  AgentDataProvider.prototype._fireContactUpdateEvents = function (contactId, oldContactState, newContactState) {
-    var self = this;
-    if (oldContactState !== newContactState) {
-      connect.core.getContactEventGraph().getAssociations(this, oldContactState, newContactState).forEach(function (event) {
-        self.bus.trigger(event, new connect.Contact(contactId));
-        self.bus.trigger(connect.core.getContactEventName(event, contactId), new connect.Contact(contactId));
-      });
-    }
-
-    self.bus.trigger(connect.ContactEvents.REFRESH, new connect.Contact(contactId));
-    self.bus.trigger(connect.core.getContactEventName(connect.ContactEvents.REFRESH, contactId), new connect.Contact(contactId));
-  };
-
-  AgentDataProvider.prototype._unsubAllContactEventsForContact = function (contactId) {
-    var self = this;
-    connect.values(connect.ContactEvents).forEach(function (eventName) {
-      self.bus.getSubscriptions(connect.core.getContactEventName(eventName, contactId))
-        .map(function (sub) { sub.unsubscribe(); });
-    });
-  };
-
-  /** ----- minimal view layer event handling **/
-
-  connect.core.onViewContact = function (f) {
-    connect.core.getUpstream().onUpstream(connect.ContactEvents.VIEW, f);
-  };
-
-  /**
-   * Used of agent interface control. 
-   * connect.core.viewContact("contactId") ->  this is curently programmed to get the contact into view.
-   */
-  connect.core.viewContact = function (contactId) {
-    connect.core.getUpstream().sendUpstream(connect.EventType.BROADCAST, {
-      event: connect.ContactEvents.VIEW,
-      data: {
-        contactId: contactId
-      }
-    });
-  };
-
-  /** ------------------------------------------------- */
-
-  /**
-  * This will be helpful for the custom and embedded CCPs 
-  * to handle the access denied use case. 
-  */
-  connect.core.onAccessDenied = function (f) {
-    connect.core.getUpstream().onUpstream(connect.EventType.ACCESS_DENIED, f);
-  };
-
-  /**
-  * This will be helpful for SAML use cases to handle the custom logins. 
-  */
-  connect.core.onAuthFail = function (f) {
-    connect.core.getUpstream().onUpstream(connect.EventType.AUTH_FAIL, f);
-  };
-
-  /** ------------------------------------------------- */
-
-  /**
-   * Used for handling the rtc session stats.
-   * Usage
-   * connect.core.onSoftphoneSessionInit(function({ connectionId }) {
-   *     var softphoneManager = connect.core.getSoftphoneManager();
-   *     if(softphoneManager){
-   *        // access session
-   *        var session = softphoneManager.getSession(connectionId); 
-   *      }
-   * });
-   */
-
-  connect.core.onSoftphoneSessionInit = function (f) {
-    connect.core.getUpstream().onUpstream(connect.ConnnectionEvents.SESSION_INIT, f);
-  };
-
-  /**-----------------------------------------------------------------------*/
-  connect.core.getContactEventName = function (eventName, contactId) {
-    connect.assertNotNull(eventName, 'eventName');
-    connect.assertNotNull(contactId, 'contactId');
-    if (!connect.contains(connect.values(connect.ContactEvents), eventName)) {
-      throw new connect.ValueError('%s is not a valid contact event.', eventName);
-    }
-    return connect.sprintf('%s::%s', eventName, contactId);
-  };
-
-  /**-----------------------------------------------------------------------*/
-  connect.core.getEventBus = function () {
-    return connect.core.eventBus;
-  };
-
-  /**-----------------------------------------------------------------------*/
-  connect.core.getWebSocketManager = function () {
-    return connect.core.webSocketProvider;
-  };
-
-  /**-----------------------------------------------------------------------*/
-  connect.core.getAgentDataProvider = function () {
-    return connect.core.agentDataProvider;
-  };
-
-  /**-----------------------------------------------------------------------*/
-  connect.core.getLocalTimestamp = function () {
-    return connect.core.getAgentDataProvider().getAgentData().snapshot.localTimestamp;
-  };
-
-  /**-----------------------------------------------------------------------*/
-  connect.core.getSkew = function () {
-    return connect.core.getAgentDataProvider().getAgentData().snapshot.skew;
-  };
-
-  /**-----------------------------------------------------------------------*/
-  connect.core.getAgentRoutingEventGraph = function () {
-    return connect.core.agentRoutingEventGraph;
-  };
-  connect.core.agentRoutingEventGraph = new connect.EventGraph()
-    .assoc(connect.EventGraph.ANY, connect.AgentStateType.ROUTABLE,
-      connect.AgentEvents.ROUTABLE)
-    .assoc(connect.EventGraph.ANY, connect.AgentStateType.NOT_ROUTABLE,
-      connect.AgentEvents.NOT_ROUTABLE)
-    .assoc(connect.EventGraph.ANY, connect.AgentStateType.OFFLINE,
-      connect.AgentEvents.OFFLINE);
-
-  /**-----------------------------------------------------------------------*/
-  connect.core.getAgentStateEventGraph = function () {
-    return connect.core.agentStateEventGraph;
-  };
-  connect.core.agentStateEventGraph = new connect.EventGraph()
-    .assoc(connect.EventGraph.ANY,
-      connect.values(connect.AgentErrorStates),
-      connect.AgentEvents.ERROR)
-    .assoc(connect.EventGraph.ANY, connect.AgentAvailStates.AFTER_CALL_WORK,
-      connect.AgentEvents.ACW);
-
-  /**-----------------------------------------------------------------------*/
-  connect.core.getContactEventGraph = function () {
-    return connect.core.contactEventGraph;
-  };
-
-  connect.core.contactEventGraph = new connect.EventGraph()
-    .assoc(connect.EventGraph.ANY,
-      connect.ContactStateType.INCOMING,
-      connect.ContactEvents.INCOMING)
-    .assoc(connect.EventGraph.ANY,
-      connect.ContactStateType.PENDING,
-      connect.ContactEvents.PENDING)
-    .assoc(connect.EventGraph.ANY,
-      connect.ContactStateType.CONNECTING,
-      connect.ContactEvents.CONNECTING)
-    .assoc(connect.EventGraph.ANY,
-      connect.ContactStateType.CONNECTED,
-      connect.ContactEvents.CONNECTED)
-    .assoc(connect.ContactStateType.CONNECTING,
-      connect.ContactStateType.ERROR,
-      connect.ContactEvents.MISSED)
-    .assoc(connect.ContactStateType.INCOMING,
-      connect.ContactStateType.ERROR,
-      connect.ContactEvents.MISSED)
-    .assoc(connect.EventGraph.ANY,
-      connect.ContactStateType.ENDED,
-      connect.ContactEvents.ACW)
-    .assoc(connect.values(connect.CONTACT_ACTIVE_STATES),
-      connect.values(connect.relativeComplement(connect.CONTACT_ACTIVE_STATES, connect.ContactStateType)),
-      connect.ContactEvents.ENDED);
-
-  /**-----------------------------------------------------------------------*/
-  connect.core.getClient = function () {
-    if (!connect.core.client) {
-      throw new connect.StateError('The connect core has not been initialized!');
-    }
-    return connect.core.client;
-  };
-  connect.core.client = null;
-
-  /**-----------------------------------------------------------------------*/
-  connect.core.getMasterClient = function () {
-    if (!connect.core.masterClient) {
-      throw new connect.StateError('The connect master client has not been initialized!');
-    }
-    return connect.core.masterClient;
-  };
-  connect.core.masterClient = null;
-
-  /**-----------------------------------------------------------------------*/
-  connect.core.getSoftphoneManager = function () {
-    //return connect.core.softphoneManager;
-	  return connect.core.softphoneManager;
-  };
-  connect.core.softphoneManager = null;
-
-  /**-----------------------------------------------------------------------*/
-  connect.core.getNotificationManager = function () {
-    if (!connect.core.notificationManager) {
-      connect.core.notificationManager = new connect.NotificationManager();
-    }
-    return connect.core.notificationManager;
-  };
-  connect.core.notificationManager = null;
-
-  /**-----------------------------------------------------------------------*/
-  connect.core.getPopupManager = function () {
-    return connect.core.popupManager;
-  };
-  connect.core.popupManager = new connect.PopupManager();
-
-  /**-----------------------------------------------------------------------*/
-  connect.core.getPopupManager = function () {
-    return connect.core.popupManager;
-  };
-  connect.core.popupManager = new connect.PopupManager();
-
-  /**-----------------------------------------------------------------------*/
-  connect.core.getUpstream = function () {
-    if (!connect.core.upstream) {
-      throw new connect.StateError('There is no upstream conduit!');
-    }
-    return connect.core.upstream;
-  };
-  connect.core.upstream = null;
-
-  /**-----------------------------------------------------------------------*/
-  connect.core.AgentDataProvider = AgentDataProvider;
-
-})();
-
-/*
- * Copyright 2014-2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
- *
- * SPDX-License-Identifier: Apache-2.0
- */
-(function () {
-  var global = this;
+  var global = this || globalThis;
   var connect = global.connect || {};
   global.connect = connect;
   global.lily = connect;
 
-  var RingtoneEngineBase = function (ringtoneConfig) {
-    var self = this;
-    this._prevContactId = null;
+  var userAgent = navigator.userAgent;
+  var ONE_DAY_MILLIS = 24 * 60 * 60 * 1000;
+  var DEFAULT_POPUP_HEIGHT = 578;
+  var DEFAULT_POPUP_WIDTH = 433;
+  var COPYABLE_EVENT_FIELDS = ["bubbles", "cancelBubble", "cancelable", "composed", "data", "defaultPrevented", "eventPhase", "isTrusted", "lastEventId", "origin", "returnValue", "timeStamp", "type"];
 
-    connect.assertNotNull(ringtoneConfig, "ringtoneConfig");
-    if (!ringtoneConfig.ringtoneUrl) {
-      throw new Error("ringtoneUrl is required!");
-    }
+  /**
+   * Unpollute sprintf functions from the global namespace.
+   */
+  connect.sprintf = global.sprintf;
+  connect.vsprintf = global.vsprintf;
+  delete global.sprintf;
+  delete global.vsprintf;
 
-    if (global.Audio && typeof global.Promise !== "undefined") {
-      this._playableAudioPromise = new Promise(function (resolve, reject) {
-        self._audio = new Audio(ringtoneConfig.ringtoneUrl);
-        self._audio.loop = true;
-        self._audio.addEventListener("canplay", function () {
-          self._audioPlayable = true;
-          resolve(self._audio);
-        });
-      });
-
-    } else {
-      this._audio = null;
-      connect.getLog().error("Unable to provide a ringtone.");
-    }
-
-    self._driveRingtone();
+  connect.HTTP_STATUS_CODES = {
+    SUCCESS: 200,
+    TOO_MANY_REQUESTS: 429,
+    INTERNAL_SERVER_ERROR: 500
   };
 
-  RingtoneEngineBase.prototype._driveRingtone = function () {
-    throw new Error("Not implemented.");
-  };
-
-  RingtoneEngineBase.prototype._startRingtone = function (contact) {
-    if (this._audio) {
-      this._audio.play();
-      this._publishTelemetryEvent("Ringtone Start", contact);
-    }
-  };
-
-  RingtoneEngineBase.prototype._stopRingtone = function (contact) {
-    if (this._audio) {
-      this._audio.pause();
-      this._audio.currentTime = 0;
-      this._publishTelemetryEvent("Ringtone Stop", contact);
-    }
+  connect.TRANSPORT_TYPES = {
+    CHAT_TOKEN: "chat_token",
+    WEB_SOCKET: "web_socket"
   };
 
   /**
-   * Stop ringtone.
+   * Binds the given instance object as the context for
+   * the method provided.
+   *
+   * @param scope The instance object to be set as the scope
+   *    of the function.
+   * @param method The method to be encapsulated.
+   *
+   * All other arguments, if any, are bound to the method
+   * invocation inside the closure.
+   *
+   * @return A closure encapsulating the invocation of the
+   *    method provided in context of the given instance.
    */
-  RingtoneEngineBase.prototype.stopRingtone = function () {
-    this._stopRingtone();
-  };
+  connect.hitch = function () {
+    var args = Array.prototype.slice.call(arguments);
+    var scope = args.shift();
+    var method = args.shift();
 
-  RingtoneEngineBase.prototype._ringtoneSetup = function (contact) {
-    var self = this;
-    connect.ifMaster(connect.MasterTopics.RINGTONE, function () {
-      self._startRingtone(contact);
-      self._prevContactId = contact.getContactId();
+    connect.assertNotNull(scope, 'scope');
+    connect.assertNotNull(method, 'method');
+    connect.assertTrue(connect.isFunction(method), 'method must be a function');
 
-      contact.onConnected(lily.hitch(self, self._stopRingtone));
-      contact.onAccepted(lily.hitch(self, self._stopRingtone));
-      contact.onEnded(lily.hitch(self, self._stopRingtone));
-      // Just to make sure to stop the ringtone in case of the failures of specific callbacks(onAccepted,onConnected);
-      contact.onRefresh(function (contact) {
-        if (contact.getStatus().type !== connect.ContactStatusType.CONNECTING &&
-          contact.getStatus().type !== connect.ContactStatusType.INCOMING) {
-          self._stopRingtone();
-        }
-      });
-    });
-  };
-
-  RingtoneEngineBase.prototype._publishTelemetryEvent = function (eventName, contact) {
-    if (contact && contact.getContactId()) {
-      connect.publishMetric({
-        name: eventName,
-        contactId: contact.getContactId()
-      });
-    }
+    return function () {
+      var closureArgs = Array.prototype.slice.call(arguments);
+      return method.apply(scope, args.concat(closureArgs));
+    };
   };
 
   /**
-   * Change the audio device used to play ringtone.
-   * If audio element is not fully initialized, the API will wait _audioPlayablePromise for 3 seconds and fail on timeout.
-   * This API is supported only by browsers that implemented ES6 Promise and http://www.w3.org/TR/audio-output/
-   * Return a Promise that indicates the result of changing output device.
+   * Determine if the given value is a callable function type.
+   * Borrowed from Underscore.js.
    */
-  RingtoneEngineBase.prototype.setOutputDevice = function (deviceId) {
-    if (this._playableAudioPromise) {
-      var playableAudioWithTimeout = Promise.race([
-        this._playableAudioPromise,
-        new Promise(function (resolve, reject) {
-          global.setTimeout(function () { reject("Timed out waiting for playable audio"); }, 3000/*ms*/);
-        })
-      ]);
-      return playableAudioWithTimeout.then(function (audio) {
-        if (audio.setSinkId) {
-          return Promise.resolve(audio.setSinkId(deviceId));
-        } else {
-          return Promise.reject("Not supported");
-        }
-      });
+  connect.isFunction = function (obj) {
+    return !!(obj && obj.constructor && obj.call && obj.apply);
+  };
+
+  /**
+   * Determine if the given value is an array.
+   */
+  connect.isArray = function (obj) {
+    return Object.prototype.toString.call(obj) === '[object Array]';
+  };
+
+  /**
+   * Get a list of keys from a Javascript object used
+   * as a hash map.
+   */
+  connect.keys = function (map) {
+    var keys = [];
+
+    connect.assertNotNull(map, 'map');
+
+    for (var k in map) {
+      keys.push(k);
     }
 
-    if (global.Promise) {
-      return Promise.reject("Not eligible ringtone owner");
+    return keys;
+  };
+
+  /**
+   * Get a list of values from a Javascript object used
+   * as a hash map.
+   */
+  connect.values = function (map) {
+    var values = [];
+
+    connect.assertNotNull(map, 'map');
+
+    for (var k in map) {
+      values.push(map[k]);
     }
+
+    return values;
   };
 
-  var VoiceRingtoneEngine = function (ringtoneConfig) {
-    RingtoneEngineBase.call(this, ringtoneConfig);
-  };
-  VoiceRingtoneEngine.prototype = Object.create(RingtoneEngineBase.prototype);
-  VoiceRingtoneEngine.prototype.constructor = VoiceRingtoneEngine;
+  /**
+   * Get a list of key/value pairs from the given map.
+   */
+  connect.entries = function (map) {
+    var entries = [];
 
-  VoiceRingtoneEngine.prototype._driveRingtone = function () {
-    var self = this;
+    for (var k in map) {
+      entries.push({ key: k, value: map[k] });
+    }
 
-    var onContactConnect = function (contact) {
-      if (contact.getType() === lily.ContactType.VOICE &&
-        contact.isSoftphoneCall() && contact.isInbound()) {
-        self._ringtoneSetup(contact);
-        self._publishTelemetryEvent("Ringtone Connecting", contact);
-      }
-    };
-
-    connect.contact(function (contact) {
-      contact.onConnecting(onContactConnect);
-    });
-
-    new connect.Agent().getContacts().forEach(function (contact) {
-      if (contact.getStatus().type === connect.ContactStatusType.CONNECTING) {
-        onContactConnect(contact);
-      }
-    });
+    return entries;
   };
 
+  /**
+   * Merge two or more maps together into a new map,
+   * or simply copy a single map.
+   */
+  connect.merge = function () {
+    var argMaps = Array.prototype.slice.call(arguments, 0);
+    var resultMap = {};
 
-  var ChatRingtoneEngine = function (ringtoneConfig) {
-    RingtoneEngineBase.call(this, ringtoneConfig);
-  };
-  ChatRingtoneEngine.prototype = Object.create(RingtoneEngineBase.prototype);
-  ChatRingtoneEngine.prototype.constructor = ChatRingtoneEngine;
-
-  ChatRingtoneEngine.prototype._driveRingtone = function () {
-    var self = this;
-
-    var onContactConnect = function (contact) {
-      if (contact.getType() === lily.ContactType.CHAT && contact.isInbound()) {
-        self._ringtoneSetup(contact);
-        self._publishTelemetryEvent("Chat Ringtone Connecting", contact);
-      }
-    };
-
-    connect.contact(function (contact) {
-      contact.onConnecting(onContactConnect);
-    });
-  };
-
-  var QueueCallbackRingtoneEngine = function (ringtoneConfig) {
-    RingtoneEngineBase.call(this, ringtoneConfig);
-  };
-  QueueCallbackRingtoneEngine.prototype = Object.create(RingtoneEngineBase.prototype);
-  QueueCallbackRingtoneEngine.prototype.constructor = QueueCallbackRingtoneEngine;
-
-  QueueCallbackRingtoneEngine.prototype._driveRingtone = function () {
-    var self = this;
-
-    connect.contact(function (contact) {
-      contact.onIncoming(function () {
-        if (contact.getType() === lily.ContactType.QUEUE_CALLBACK) {
-          self._ringtoneSetup(contact);
-          self._publishTelemetryEvent("Callback Ringtone Connecting", contact);
-        }
+    argMaps.forEach(function (map) {
+      connect.entries(map).forEach(function (kv) {
+        resultMap[kv.key] = kv.value;
       });
     });
+
+    return resultMap;
   };
 
-  /* export connect.RingtoneEngine */
-  connect.VoiceRingtoneEngine = VoiceRingtoneEngine;
-  connect.ChatRingtoneEngine = ChatRingtoneEngine;
-  connect.QueueCallbackRingtoneEngine = QueueCallbackRingtoneEngine;
-})();
-
-/*
- * Copyright 2014-2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
- *
- * SPDX-License-Identifier: Apache-2.0
- */
-(function () {
-  var global = this;
-  connect = global.connect || {};
-  global.connect = connect;
-  global.lily = connect;
-
-  var RTPJobIntervalMs = 1000;
-  var statsReportingJobIntervalMs = 30000;
-  var streamBufferSize = 500;
-  var CallTypeMap = {};
-  CallTypeMap[connect.SoftphoneCallType.AUDIO_ONLY] = 'Audio';
-  CallTypeMap[connect.SoftphoneCallType.VIDEO_ONLY] = 'Video';
-  CallTypeMap[connect.SoftphoneCallType.AUDIO_VIDEO] = 'AudioVideo';
-  CallTypeMap[connect.SoftphoneCallType.NONE] = 'None';
-  var AUDIO_INPUT = 'audio_input';
-  var AUDIO_OUTPUT = 'audio_output';
-
-  var MediaTypeMap = {};
-  MediaTypeMap[connect.ContactType.VOICE] = "Voice";
-  var UNKNOWN_MEDIA_TYPE = "Unknown";
-
-  var timeSeriesStreamStatsBuffer = [];
-  var aggregatedUserAudioStats = {};
-  var aggregatedRemoteAudioStats = {};
-  var rtpStatsJob = null;
-  var reportStatsJob = null;
-  //Logger specific to softphone.
-  var logger = null;
-  var SoftphoneErrorTypes = connect.SoftphoneErrorTypes;
-  var HANG_UP_MULTIPLE_SESSIONS_EVENT = "MultiSessionHangUp";
-  var MULTIPLE_SESSIONS_EVENT = "MultiSessions";
-
-  var localMediaStream = {};
-
-  var softphoneClientId = connect.randomId();
-
-  var requestIceAccess = function (transport) {
-    return new Promise(function (resolve, reject) {
-      connect.core.getClient().call(connect.ClientMethods.CREATE_TRANSPORT, transport, {
-        success: function (data) {
-          resolve(data.softphoneTransport.softphoneMediaConnections);
-        },
-        failure: function (reason) {
-          if (reason.message && reason.message.includes("SoftphoneConnectionLimitBreachedException")) {
-            publishError("multiple_softphone_active_sessions", "Number of active sessions are more then allowed limit.");
-          }
-          reject(Error("requestIceAccess failed"));
-        },
-        authFailure: function () {
-          reject(Error("Authentication failed while requestIceAccess"));
-        },
-        accessDenied: function () {
-          reject(Error("Access Denied while requestIceAccess"));
-        }
-      });
-    });
+  connect.now = function () {
+    return new Date().getTime();
   };
 
-  var SoftphoneManager = function (softphoneParams) {
-    var self = this;
-    logger = new SoftphoneLogger(connect.getLog());
-    var rtcPeerConnectionFactory;
-    if (connect.RtcPeerConnectionFactory) {
-      rtcPeerConnectionFactory = new connect.RtcPeerConnectionFactory(logger,
-        connect.core.getWebSocketManager(),
-        softphoneClientId,
-        connect.hitch(self, requestIceAccess, {
-          transportType: "softphone",
-          softphoneClientId: softphoneClientId
-        }),
-        connect.hitch(self, publishError));
-    }
-    if (!isBrowserSoftPhoneSupported()) {
-      publishError(SoftphoneErrorTypes.UNSUPPORTED_BROWSER,
-        "Connect does not support this browser. Some functionality may not work. ",
-        "");
-    }
-    var gumPromise = fetchUserMedia({
-      success: function (stream) {
-        if (connect.isFirefoxBrowser()) {
-          connect.core.setSoftphoneUserMediaStream(stream);
-        }
-      },
-      failure: function (err) {
-        publishError(err, "Your microphone is not enabled in your browser. ", "");
-      }
-    });
-    handleSoftPhoneMuteToggle();
-
-    this.ringtoneEngine = null;
-    var cleanMultipleSessions = 'true' === softphoneParams.cleanMultipleSessions;
-    var rtcSessions = {};
-    // Tracks the agent connection ID, so that if the same contact gets re-routed to the same agent, it'll still set up softphone
-    var callsDetected = {};
-
-    // helper method to provide access to rtc sessions
-    this.getSession = function (connectionId) {
-      return rtcSessions[connectionId];
-    }
-
-    var isContactTerminated = function (contact) {
-      return contact.getStatus().type === connect.ContactStatusType.ENDED ||
-        contact.getStatus().type === connect.ContactStatusType.ERROR ||
-        contact.getStatus().type === connect.ContactStatusType.MISSED;
-    };
-
-    var destroySession = function (agentConnectionId) {
-      if (rtcSessions.hasOwnProperty(agentConnectionId)) {
-        var session = rtcSessions[agentConnectionId];
-        // Currently the assumption is it will throw an exception only and if only it already has been hung up.
-        // TODO: Update once the hangup API does not throw exceptions
-        new Promise(function (resolve, reject) {
-          delete rtcSessions[agentConnectionId];
-          delete callsDetected[agentConnectionId];
-          session.hangup();
-        }).catch(function (err) {
-          lily.getLog().warn("Clean up the session locally " + agentConnectionId, err.message);
-        });
-      }
-    };
-
-    // When feature access control flag is on, ignore the new call and hang up the previous sessions.
-    // Otherwise just log the contact and agent in the client side metrics.
-    // TODO: Update when connect-rtc exposes an API to detect session status.
-    var sanityCheckActiveSessions = function (rtcSessions) {
-      if (Object.keys(rtcSessions).length > 0) {
-        if (cleanMultipleSessions) {
-          // Error! our state doesn't match, tear it all down.
-          for (var connectionId in rtcSessions) {
-            if (rtcSessions.hasOwnProperty(connectionId)) {
-              // Log an error for the session we are about to kill.
-              publishMultipleSessionsEvent(HANG_UP_MULTIPLE_SESSIONS_EVENT, rtcSessions[connectionId].callId, connectionId);
-              destroySession(connectionId);
-            }
-          }
-          throw new Error("duplicate session detected, refusing to setup new connection");
-        } else {
-          for (var _connectionId in rtcSessions) {
-            if (rtcSessions.hasOwnProperty(_connectionId)) {
-              publishMultipleSessionsEvent(MULTIPLE_SESSIONS_EVENT, rtcSessions[_connectionId].callId, _connectionId);
-            }
-          }
-        }
-      }
-    };
-
-    var onRefreshContact = function (contact, agentConnectionId) {
-      if (rtcSessions[agentConnectionId] && isContactTerminated(contact)) {
-        destroySession(agentConnectionId);
-      }
-      if (contact.isSoftphoneCall() && !callsDetected[agentConnectionId] && (
-        contact.getStatus().type === connect.ContactStatusType.CONNECTING ||
-        contact.getStatus().type === connect.ContactStatusType.INCOMING)) {
-
-        // Set to true, this will block subsequent invokes from entering.
-        callsDetected[agentConnectionId] = true;
-        logger.info("Softphone call detected:", "contactId " + contact.getContactId(), "agent connectionId " + agentConnectionId);
-
-        // Ensure our session state matches our contact state to prevent issues should we lose track of a contact.
-        sanityCheckActiveSessions(rtcSessions);
-
-        if (contact.getStatus().type === connect.ContactStatusType.CONNECTING) {
-          publishTelemetryEvent("Softphone Connecting", contact.getContactId());
-        }
-
-        initializeParams();
-        var softphoneInfo = contact.getAgentConnection().getSoftphoneMediaInfo();
-        var callConfig = parseCallConfig(softphoneInfo.callConfigJson);
-        var webSocketProvider;
-        if (callConfig.useWebSocketProvider) {
-          webSocketProvider = connect.core.getWebSocketManager();
-        }
-        var session = new connect.RTCSession(
-          callConfig.signalingEndpoint,
-          callConfig.iceServers,
-          softphoneInfo.callContextToken,
-          logger,
-          contact.getContactId(),
-          agentConnectionId,
-          webSocketProvider);
-
-        rtcSessions[agentConnectionId] = session;
-
-        if (connect.core.getSoftphoneUserMediaStream()) {
-          session.mediaStream = connect.core.getSoftphoneUserMediaStream();
-        }
-
-        // Custom Event to indicate the session init operations
-        connect.core.upstream.sendUpstream(connect.EventType.BROADCAST, {
-          event: connect.ConnnectionEvents.SESSION_INIT,
-          data: {
-            connectionId: agentConnectionId
-          }
-        });
-
-        session.onSessionFailed = function (rtcSession, reason) {
-          delete rtcSessions[agentConnectionId];
-          delete callsDetected[agentConnectionId];
-          publishSoftphoneFailureLogs(rtcSession, reason);
-          publishSessionFailureTelemetryEvent(contact.getContactId(), reason);
-          stopJobsAndReport(contact, rtcSession.sessionReport);
-        };
-        session.onSessionConnected = function (rtcSession) {
-          publishTelemetryEvent("Softphone Session Connected", contact.getContactId());
-          // Become master to send logs, since we need logs from softphone tab.
-          connect.becomeMaster(connect.MasterTopics.SEND_LOGS);
-          //start stats collection and reporting jobs
-          startStatsCollectionJob(rtcSession);
-          startStatsReportingJob(contact);
-          fireContactAcceptedEvent(contact);
-        };
-
-        session.onSessionCompleted = function (rtcSession) {
-          publishTelemetryEvent("Softphone Session Completed", contact.getContactId());
-
-          delete rtcSessions[agentConnectionId];
-          delete callsDetected[agentConnectionId];
-          // Stop all jobs and perform one last job.
-          stopJobsAndReport(contact, rtcSession.sessionReport);
-
-          // Cleanup the cached streams
-          deleteLocalMediaStream(agentConnectionId);
-        };
-
-        session.onLocalStreamAdded = function (rtcSession, stream) {
-          // Cache the streams for mute/unmute
-          localMediaStream[agentConnectionId] = {
-            stream: stream
-          };
-        };
-
-        session.remoteAudioElement = document.getElementById('remote-audio');
-        if (rtcPeerConnectionFactory) {
-          session.connect(rtcPeerConnectionFactory.get(callConfig.iceServers));
-        } else {
-          session.connect();
-        }
-      }
-    };
-
-    var onInitContact = function (contact) {
-      var agentConnectionId = contact.getAgentConnection().connectionId;
-      logger.info("Contact detected:", "contactId " + contact.getContactId(), "agent connectionId " + agentConnectionId);
-
-      if (!callsDetected[agentConnectionId]) {
-        contact.onRefresh(function () {
-          onRefreshContact(contact, agentConnectionId);
-        });
-      }
-    };
-
-    connect.contact(onInitContact);
-
-    // Contact already in connecting state scenario - In this case contact INIT is missed hence the OnRefresh callback is missed. 
-    new connect.Agent().getContacts().forEach(function (contact) {
-      var agentConnectionId = contact.getAgentConnection().connectionId;
-      logger.info("Contact exist in the snapshot. Reinitiate the Contact and RTC session creation for contactId" + contact.getContactId(), "agent connectionId " + agentConnectionId);
-      onInitContact(contact);
-      onRefreshContact(contact, agentConnectionId);
-    });
-  };
-
-  var fireContactAcceptedEvent = function (contact) {
-    var conduit = connect.core.getUpstream();
-    var agentConnection = contact.getAgentConnection();
-    if (!agentConnection) {
-      logger.info("Not able to retrieve the auto-accept setting from null AgentConnection, ignoring event publish..");
-      return;
-    }
-    var softphoneMediaInfo = agentConnection.getSoftphoneMediaInfo();
-    if (!softphoneMediaInfo) {
-      logger.info("Not able to retrieve the auto-accept setting from null SoftphoneMediaInfo, ignoring event publish..");
-      return;
-    }
-    if (softphoneMediaInfo.autoAccept === true) {
-      logger.info("Auto-accept is enabled, sending out Accepted event to stop ringtone..");
-      conduit.sendUpstream(connect.EventType.BROADCAST, {
-        event: connect.ContactEvents.ACCEPTED
-      });
-      conduit.sendUpstream(connect.EventType.BROADCAST, {
-        event: connect.core.getContactEventName(connect.ContactEvents.ACCEPTED, contact.contactId)
-      });
-    } else {
-      logger.info("Auto-accept is disabled, ringtone will be stopped by user action.");
-    }
-  };
-
-  // Bind events for mute
-  var handleSoftPhoneMuteToggle = function () {
-    var bus = connect.core.getEventBus();
-    bus.subscribe(connect.EventType.MUTE, muteToggle);
-  };
-
-  // Make sure once we disconnected we get the mute state back to normal
-  var deleteLocalMediaStream = function (connectionId) {
-    delete localMediaStream[connectionId];
-    connect.core.getUpstream().sendUpstream(connect.EventType.BROADCAST, {
-      event: connect.AgentEvents.MUTE_TOGGLE,
-      data: { muted: false }
-    });
-  };
-
-  // Check for the local streams if exists  -  revert it
-  // And inform other clients about the change 
-  var muteToggle = function (data) {
-    var status;
-    if (connect.keys(localMediaStream).length === 0) {
-      return;
-    }
-
-    if (data && data.mute !== undefined) {
-      status = data.mute;
-    }
-
-    for (var connectionId in localMediaStream) {
-      if (localMediaStream.hasOwnProperty(connectionId)) {
-        var localMedia = localMediaStream[connectionId].stream;
-        if (localMedia) {
-          var audioTracks = localMedia.getAudioTracks()[0];
-          if (status !== undefined) {
-            audioTracks.enabled = !status;
-            localMediaStream[connectionId].muted = status;
-
-            if (status) {
-              logger.info("Agent has muted the contact, connectionId -  " + connectionId);
-            } else {
-              logger.info("Agent has unmuted the contact, connectionId - " + connectionId);
-            }
-
-          } else {
-            status = localMediaStream[connectionId].muted || false;
-          }
-        }
+  connect.find = function (array, predicate) {
+    for (var x = 0; x < array.length; x++) {
+      if (predicate(array[x])) {
+        return array[x];
       }
     }
 
-    connect.core.getUpstream().sendUpstream(connect.EventType.BROADCAST, {
-      event: connect.AgentEvents.MUTE_TOGGLE,
-      data: { muted: status }
-    });
-  };
-
-  var publishSoftphoneFailureLogs = function (rtcSession, reason) {
-    if (reason === connect.RTCErrors.ICE_COLLECTION_TIMEOUT) {
-      var endPointUrl = "\n";
-      for (var i = 0; i < rtcSession._iceServers.length; i++) {
-        for (var j = 0; j < rtcSession._iceServers[i].urls.length; j++) {
-          endPointUrl = endPointUrl + rtcSession._iceServers[i].urls[j] + "\n";
-        }
-      }
-      publishError(SoftphoneErrorTypes.ICE_COLLECTION_TIMEOUT, "Ice collection timedout. ", endPointUrl);
-    } else if (reason === connect.RTCErrors.USER_BUSY) {
-      publishError(SoftphoneErrorTypes.USER_BUSY_ERROR,
-        "Softphone call UserBusy error. ",
-        "");
-    } else if (reason === connect.RTCErrors.SIGNALLING_HANDSHAKE_FAILURE) {
-      publishError(SoftphoneErrorTypes.SIGNALLING_HANDSHAKE_FAILURE,
-        "Handshaking with Signalling Server " + rtcSession._signalingUri + " failed. ",
-        rtcSession._signalingUri);
-    } else if (reason === connect.RTCErrors.GUM_TIMEOUT_FAILURE || reason === connect.RTCErrors.GUM_OTHER_FAILURE) {
-      publishError(SoftphoneErrorTypes.MICROPHONE_NOT_SHARED,
-        "Your microphone is not enabled in your browser. ",
-        "");
-    } else if (reason === connect.RTCErrors.SIGNALLING_CONNECTION_FAILURE) {
-      publishError(SoftphoneErrorTypes.SIGNALLING_CONNECTION_FAILURE,
-        "URL " + rtcSession._signalingUri + " cannot be reached. ",
-        rtcSession._signalingUri);
-    } else if (reason === connect.RTCErrors.CALL_NOT_FOUND) {
-      // No need to publish any softphone error for this case. CCP UX will handle this case.
-      logger.error("Softphone call failed due to CallNotFoundException.");
-    } else {
-      publishError(SoftphoneErrorTypes.WEBRTC_ERROR,
-        "webrtc system error. ",
-        "");
-    }
-  };
-
-  /** Parse the JSON encoded web call config into the data it represents. */
-  var parseCallConfig = function (serializedConfig) {
-    // Our underscore is too old for unescape
-    // https://issues.amazon.com/issues/CSWF-1467
-    var decodedJSON = serializedConfig.replace(/&quot;/g, '"');
-    return JSON.parse(decodedJSON);
-  };
-
-  var fetchUserMedia = function (callbacksIn) {
-    var callbacks = callbacksIn || {};
-    callbacks.success = callbacks.success || function () { };
-    callbacks.failure = callbacks.failure || function () { };
-
-    var CONSTRAINT = {
-      audio: true
-    };
-
-    var promise = null;
-
-    if (typeof Promise !== "function") {
-      callbacks.failure(SoftphoneErrorTypes.UNSUPPORTED_BROWSER);
-      return;
-    }
-
-    if (typeof navigator.mediaDevices === "object" && typeof navigator.mediaDevices.getUserMedia === "function") {
-      promise = navigator.mediaDevices.getUserMedia(CONSTRAINT);
-
-    } else if (typeof navigator.webkitGetUserMedia === "function") {
-      promise = new Promise(function (resolve, reject) {
-        navigator.webkitGetUserMedia(CONSTRAINT, resolve, reject);
-      });
-
-    } else {
-      callbacks.failure(SoftphoneErrorTypes.UNSUPPORTED_BROWSER);
-      return;
-    }
-
-    promise.then(function (stream) {
-      var audioTracks = stream.getAudioTracks();
-      if (audioTracks && audioTracks.length > 0) {
-        callbacks.success(stream);
-      } else {
-        callbacks.failure(SoftphoneErrorTypes.MICROPHONE_NOT_SHARED);
-      }
-    }, function (err) {
-      callbacks.failure(SoftphoneErrorTypes.MICROPHONE_NOT_SHARED);
-    });
-    return promise;
-  };
-
-  var publishError = function (errorType, message, endPointUrl) {
-    var bus = connect.core.getEventBus();
-    logger.error("Softphone error occurred : ", errorType,
-      message || "");
-
-    connect.core.upstream.sendUpstream(connect.EventType.BROADCAST, {
-      event: connect.AgentEvents.SOFTPHONE_ERROR,
-      data: new connect.SoftphoneError(errorType, message, endPointUrl)
-    });
-  };
-
-  var publishSessionFailureTelemetryEvent = function (contactId, reason) {
-    publishTelemetryEvent("Softphone Session Failed", contactId, {
-      failedReason: reason
-    });
-  };
-
-  var publishTelemetryEvent = function (eventName, contactId, data) {
-    if (contactId) {
-      connect.publishMetric({
-        name: eventName,
-        contactId: contactId,
-        data: data
-      });
-    }
-  };
-
-  // Publish the contact and agent information in a multiple sessions scenarios
-  var publishMultipleSessionsEvent = function (eventName, contactId, agentConnectionId) {
-    publishTelemetryEvent(eventName, contactId, [{
-      name: "AgentConnectionId",
-      value: agentConnectionId
-    }]);
-    logger.info("Publish multiple session error metrics", eventName, "contactId " + contactId, "agent connectionId " + agentConnectionId);
-  };
-
-  var isBrowserSoftPhoneSupported = function () {
-    // In Opera, the true version is after "Opera" or after "Version"
-    if (connect.isOperaBrowser() && connect.getOperaBrowserVersion() > 17) {
-      return true;
-    }
-    // In Chrome, the true version is after "Chrome"
-    else if (connect.isChromeBrowser() && connect.getChromeBrowserVersion() > 22) {
-      return true;
-    }
-    // In Firefox, the true version is after "Firefox"
-    else if (connect.isFirefoxBrowser() && connect.getFirefoxBrowserVersion() > 21) {
-      return true;
-    } else {
-      return false;
-    }
-  };
-
-  var sendSoftphoneMetrics = function (contact) {
-    var streamStats = timeSeriesStreamStatsBuffer.slice();
-    timeSeriesStreamStatsBuffer = [];
-    if (streamStats.length > 0) {
-      contact.sendSoftphoneMetrics(streamStats, {
-        success: function () {
-          logger.info("sendSoftphoneMetrics success");
-        },
-        failure: function (data) {
-          logger.error("sendSoftphoneMetrics failed.")
-            .withObject(data);
-        }
-      });
-    }
-  };
-
-  var sendSoftphoneReport = function (contact, report, userAudioStats, remoteAudioStats) {
-    report.streamStats = [addStreamTypeToStats(userAudioStats, AUDIO_INPUT),
-    addStreamTypeToStats(remoteAudioStats, AUDIO_OUTPUT)];
-    var callReport = {
-      callStartTime: report.sessionStartTime,
-      callEndTime: report.sessionEndTime,
-      gumTimeMillis: report.gumTimeMillis,
-      initializationTimeMillis: report.initializationTimeMillis,
-      iceCollectionTimeMillis: report.iceCollectionTimeMillis,
-      signallingConnectTimeMillis: report.signallingConnectTimeMillis,
-      handshakingTimeMillis: report.handshakingTimeMillis,
-      preTalkingTimeMillis: report.preTalkingTimeMillis,
-      talkingTimeMillis: report.talkingTimeMillis,
-      cleanupTimeMillis: report.cleanupTimeMillis,
-      iceCollectionFailure: report.iceCollectionFailure,
-      signallingConnectionFailure: report.signallingConnectionFailure,
-      handshakingFailure: report.handshakingFailure,
-      gumOtherFailure: report.gumOtherFailure,
-      gumTimeoutFailure: report.gumTimeoutFailure,
-      createOfferFailure: report.createOfferFailure,
-      setLocalDescriptionFailure: report.setLocalDescriptionFailure,
-      userBusyFailure: report.userBusyFailure,
-      invalidRemoteSDPFailure: report.invalidRemoteSDPFailure,
-      noRemoteIceCandidateFailure: report.noRemoteIceCandidateFailure,
-      setRemoteDescriptionFailure: report.setRemoteDescriptionFailure,
-      softphoneStreamStatistics: report.streamStats
-    };
-    console.log(JSON.stringify(callReport));
-    contact.sendSoftphoneReport(callReport, {
-      success: function () {
-        logger.info("sendSoftphoneReport success");
-      },
-      failure: function (data) {
-        logger.error("sendSoftphoneReport failed.")
-          .withObject(data);
-      }
-    });
-  };
-
-  var startStatsCollectionJob = function (rtcSession) {
-    rtpStatsJob = window.setInterval(function () {
-      rtcSession.getUserAudioStats().then(function (stats) {
-        var previousUserStats = aggregatedUserAudioStats;
-        aggregatedUserAudioStats = stats;
-        timeSeriesStreamStatsBuffer.push(getTimeSeriesStats(aggregatedUserAudioStats, previousUserStats, AUDIO_INPUT));
-      }, function (error) {
-        logger.debug("Failed to get user audio stats.", error);
-      });
-      rtcSession.getRemoteAudioStats().then(function (stats) {
-        var previousRemoteStats = aggregatedRemoteAudioStats;
-        aggregatedRemoteAudioStats = stats;
-        timeSeriesStreamStatsBuffer.push(getTimeSeriesStats(aggregatedRemoteAudioStats, previousRemoteStats, AUDIO_OUTPUT));
-      }, function (error) {
-        logger.debug("Failed to get remote audio stats.", error);
-      });
-    }, 1000);
-  };
-
-  var startStatsReportingJob = function (contact) {
-    reportStatsJob = window.setInterval(function () {
-      sendSoftphoneMetrics(contact);
-    }, statsReportingJobIntervalMs);
-  };
-
-  var initializeParams = function () {
-    aggregatedUserAudioStats = null;
-    aggregatedRemoteAudioStats = null;
-    timeSeriesStreamStatsBuffer = [];
-    rtpStatsJob = null;
-    reportStatsJob = null;
-  };
-
-  var getTimeSeriesStats = function (currentStats, previousStats, streamType) {
-    if (previousStats && currentStats) {
-      var packetsLost = currentStats.packetsLost > previousStats.packetsLost ? currentStats.packetsLost - previousStats.packetsLost : 0;
-      var packetsCount = currentStats.packetsCount > previousStats.packetsCount ? currentStats.packetsCount - previousStats.packetsCount : 0;
-      return new RTPStreamStats(currentStats.timestamp,
-        packetsLost,
-        packetsCount,
-        streamType,
-        currentStats.audioLevel,
-        currentStats.jbMilliseconds,
-        currentStats.rttMilliseconds);
-    } else {
-      return new RTPStreamStats(currentStats.timestamp,
-        currentStats.packetsLost,
-        currentStats.packetsCount,
-        streamType,
-        currentStats.audioLevel,
-        currentStats.jbMilliseconds,
-        currentStats.rttMilliseconds);
-    }
-  };
-
-  var stopJob = function (task) {
-    if (task !== null) {
-      window.clearInterval(task);
-    }
     return null;
   };
 
-  var stopJobsAndReport = function (contact, sessionReport) {
-    rtpStatsJob = stopJob(rtpStatsJob);
-    reportStatsJob = stopJob(reportStatsJob);
-    sendSoftphoneReport(contact, sessionReport, addStreamTypeToStats(aggregatedUserAudioStats, AUDIO_INPUT), addStreamTypeToStats(aggregatedRemoteAudioStats, AUDIO_OUTPUT));
-    sendSoftphoneMetrics(contact);
+  connect.contains = function (obj, value) {
+    if (obj instanceof Array) {
+      return connect.find(obj, function (v) { return v === value; }) != null;
+
+    } else {
+      return (value in obj);
+    }
+  };
+
+  connect.containsValue = function (obj, value) {
+    if (obj instanceof Array) {
+      return connect.find(obj, function (v) { return v === value; }) != null;
+
+    } else {
+      return connect.find(connect.values(obj), function (v) { return v === value; }) != null;
+    }
   };
 
   /**
-  *   Adding streamtype parameter on top of RTCJS RTStats object.
+   * Generate a random ID consisting of the current timestamp
+   * and a random base-36 number based on Math.random().
+   */
+  connect.randomId = function () {
+    return connect.sprintf("%s-%s", connect.now(), Math.random().toString(36).slice(2));
+  };
+
+  /**
+   * Generate an enum from the given list of lower-case enum values,
+   * where the enum keys will be upper case.
+   *
+   * Conversion from pascal case based on code from here:
+   * http://stackoverflow.com/questions/30521224
+   */
+  connect.makeEnum = function (values) {
+    var enumObj = {};
+
+    values.forEach(function (value) {
+      var key = value.replace(/\.?([a-z]+)_?/g, function (x, y) { return y.toUpperCase() + "_"; })
+        .replace(/_$/, "");
+
+      enumObj[key] = value;
+    });
+
+    return enumObj;
+  };
+
+  connect.makeNamespacedEnum = function (prefix, values) {
+    var enumObj = connect.makeEnum(values);
+    connect.keys(enumObj).forEach(function (key) {
+      enumObj[key] = connect.sprintf("%s::%s", prefix, enumObj[key]);
+    });
+    return enumObj;
+  };
+
+  connect.makeGenericNamespacedEnum = function (prefix, values, delimiter) {
+    var enumObj = connect.makeEnum(values);
+    connect.keys(enumObj).forEach(function (key) {
+      enumObj[key] = connect.sprintf("%s"+delimiter+"%s", prefix, enumObj[key]);
+    });
+    return enumObj;
+  };
+
+  /**
+  * Methods to determine browser type and versions, used for softphone initialization.
   */
-  var RTPStreamStats = function (timestamp, packetsLost, packetsCount, streamType, audioLevel, jitterBufferMillis, roundTripTimeMillis) {
-    this.softphoneStreamType = streamType;
-    this.timestamp = timestamp;
-    this.packetsLost = packetsLost;
-    this.packetsCount = packetsCount;
-    this.audioLevel = audioLevel;
-    this.jitterBufferMillis = jitterBufferMillis;
-    this.roundTripTimeMillis = roundTripTimeMillis;
+  connect.isChromeBrowser = function () {
+    return userAgent.indexOf("Chrome") !== -1;
   };
 
-  var addStreamTypeToStats = function (stats, streamType) {
-    stats = stats || {};
-    return new RTPStreamStats(stats.timestamp, stats.packetsLost, stats.packetsCount, streamType, stats.audioLevel);
+  connect.isFirefoxBrowser = function () {
+    return userAgent.indexOf("Firefox") !== -1;
   };
 
-  var SoftphoneLogger = function (logger) {
-    this._originalLogger = logger;
-    var self = this;
-    this._tee = function (level, method) {
-      return function () {
-        // call the original logger object to output to browser
-        //Connect logger follows %s format to print objects to console.
-        var args = Array.prototype.slice.call(arguments[0]);
-        var format = "";
-        args.forEach(function () {
-          format = format + " %s";
+  connect.isOperaBrowser = function () {
+    return userAgent.indexOf("Opera") !== -1;
+  };
+
+  connect.getChromeBrowserVersion = function () {
+    var chromeVersion = userAgent.substring(userAgent.indexOf("Chrome") + 7);
+    if (chromeVersion) {
+      return parseFloat(chromeVersion);
+    } else {
+      return -1;
+    }
+  };
+
+  connect.getFirefoxBrowserVersion = function () {
+    var firefoxVersion = userAgent.substring(userAgent.indexOf("Firefox") + 8);
+    if (firefoxVersion) {
+      return parseFloat(firefoxVersion);
+    } else {
+      return -1;
+    }
+  };
+
+  connect.isValidLocale = function (locale) {
+    var languages = [
+      {
+        id: 'en_US',
+        label: 'English'
+      },
+      {
+        id: 'de_DE',
+        label: 'Deutsch'
+      },
+      {
+        id: 'es_ES',
+        label: 'Español'
+      },
+      {
+        id: 'fr_FR',
+        label: 'Français'
+      },
+      {
+        id: 'ja_JP',
+        label: '日本語'
+      },
+      {
+        id: 'it_IT',
+        label: 'Italiano'
+      },
+      {
+        id: 'ko_KR',
+        label: '한국어'
+      },
+      {
+        id: 'pt_BR',
+        label: 'Português'
+      },
+      {
+        id: 'zh_CN',
+        label: '中文(简体)'
+      },
+      {
+        id: 'zh_TW',
+        label: '中文(繁體)'
+      }
+    ];
+    return languages.map(function(language){ return language.id}).includes(locale);
+  }
+
+  connect.getOperaBrowserVersion = function () {
+    var versionOffset = userAgent.indexOf("Opera");
+    var operaVersion = (userAgent.indexOf("Version") !== -1) ? userAgent.substring(versionOffset + 8) : userAgent.substring(versionOffset + 6);
+    if (operaVersion) {
+      return parseFloat(operaVersion);
+    } else {
+      return -1;
+    }
+  };
+
+  /**
+   * Return a map of items in the given list indexed by
+   * keys determined by the closure provided.
+   *
+   * @param iterable A list-like object.
+   * @param closure A closure to determine the index for the
+   *    items in the iterable.
+   * @return A map from index to item for each item in the iterable.
+   */
+  connect.index = function (iterable, closure) {
+    var map = {};
+
+    iterable.forEach(function (item) {
+      map[closure(item)] = item;
+    });
+
+    return map;
+  };
+
+  /**
+   * Converts the given array into a map as a set,
+   * where elements in the array are mapped to 1.
+   */
+  connect.set = function (arrayIn) {
+    var setMap = {};
+
+    arrayIn.forEach(function (key) {
+      setMap[key] = 1;
+    });
+
+    return setMap;
+  };
+
+  /**
+   * Returns a map for each key in mapB which
+   * is NOT in mapA.
+   */
+  connect.relativeComplement = function (mapA, mapB) {
+    var compMap = {};
+
+    connect.keys(mapB).forEach(function (key) {
+      if (!(key in mapA)) {
+        compMap[key] = mapB[key];
+      }
+    });
+
+    return compMap;
+  };
+
+  /**
+   * Asserts that a premise is true.
+   */
+  connect.assertTrue = function (premise, message) {
+    if (!premise) {
+      throw new connect.ValueError(message);
+    }
+  };
+
+  /**
+   * Asserts that a value is not null or undefined.
+   */
+  connect.assertNotNull = function (value, name) {
+    connect.assertTrue(value != null && typeof value !== undefined,
+      connect.sprintf("%s must be provided", name || 'A value'));
+    return value;
+  };
+
+  connect.deepcopy = function (src) {
+    return JSON.parse(JSON.stringify(src));
+  };
+
+  connect.deepcopyCrossOriginEvent = function(event) {
+    const obj = {};
+    const listOfAcceptableKeys = COPYABLE_EVENT_FIELDS;
+    listOfAcceptableKeys.forEach((key) => {
+      try {
+        obj[key] = event[key];
+      }
+      catch(e) {
+        connect.getLog().info("deepcopyCrossOriginEvent failed on key: ", key).sendInternalLogToServer();
+      }
+    });
+    return connect.deepcopy(obj);
+  }
+
+  /**
+   * Get the current base url of the open page, e.g. if the page is
+   * https://example.com:9494/oranges, this will be "https://example.com:9494".
+   */
+  connect.getBaseUrl = function () {
+    var location = global.location;
+    return connect.sprintf("%s//%s:%s", location.protocol, location.hostname, location.port);
+  };
+
+  connect.getUrlWithProtocol = function(url) {
+    var protocol = global.location.protocol;
+    if (url.substr(0, protocol.length) !== protocol) {
+      return connect.sprintf("%s//%s", protocol, url);
+    }
+    return url;
+  }
+
+  /**
+   * Determine if the current window is in an iframe.
+   * Courtesy: http://stackoverflow.com/questions/326069/
+   */
+  connect.isFramed = function () {
+    try {
+      return window.self !== window.top;
+    } catch (e) {
+      return true;
+    }
+  };
+
+  connect.hasOtherConnectedCCPs = function () {
+    return connect.numberOfConnectedCCPs > 1;
+  }
+
+  connect.fetch = function (endpoint, options, milliInterval, maxRetry) {
+    maxRetry = maxRetry || 5;
+    milliInterval = milliInterval || 1000;
+    options = options || {};
+    return new Promise(function (resolve, reject) {
+      function fetchData(maxRetry) {
+        fetch(endpoint, options).then(function (res) {
+          if (res.status === connect.HTTP_STATUS_CODES.SUCCESS) {
+            res.json().then(json => resolve(json)).catch(() => resolve({}));
+          } else if (maxRetry !== 1 && (res.status >= connect.HTTP_STATUS_CODES.INTERNAL_SERVER_ERROR || res.status === connect.HTTP_STATUS_CODES.TOO_MANY_REQUESTS)) {
+            setTimeout(function () {
+              fetchData(--maxRetry);
+            }, milliInterval);
+          } else {
+            reject(res);
+          }
+        }).catch(function (e) {
+          reject(e);
         });
-        method.apply(self._originalLogger, [connect.LogComponent.SOFTPHONE, format].concat(args));
+      }
+      fetchData(maxRetry);
+    });
+  };
+
+  /**
+   * Calling a function with exponential backoff with full jitter retry strategy
+   * It will retry calling the function for maximum maxRetry times if it fails.
+   * Success callback will be called if the function succeeded.
+   * Failure callback will be called only if the last try failed.
+   */
+  connect.backoff = function (func, milliInterval, maxRetry, callbacks) {
+    connect.assertTrue(connect.isFunction(func), "func must be a Function");
+    var self = this;
+    var ratio = 2;
+
+    func({
+      success: function (data) {
+        if (callbacks && callbacks.success) {
+          callbacks.success(data);
+        }
+      },
+      failure: function (err, data) {
+        if (maxRetry > 0) {
+          var interval = milliInterval * 2 * Math.random();
+          global.setTimeout(function () {
+            self.backoff(func, interval * ratio, --maxRetry, callbacks);
+          }, interval);
+        } else {
+          if (callbacks && callbacks.failure) {
+            callbacks.failure(err, data);
+          }
+        }
+      }
+    });
+  };
+
+  connect.publishMetric = function (metricData) {
+    connect.core.getUpstream().sendUpstream(connect.EventType.BROADCAST, {
+      event: connect.EventType.CLIENT_METRIC,
+      data: metricData
+    });
+  };
+
+  connect.publishSoftphoneStats = function(stats) {
+    connect.core.getUpstream().sendUpstream(connect.EventType.BROADCAST, {
+      event: connect.EventType.SOFTPHONE_STATS,
+      data: stats
+    });
+  };
+
+  connect.publishSoftphoneReport = function(report) {
+    connect.core.getUpstream().sendUpstream(connect.EventType.BROADCAST, {
+      event: connect.EventType.SOFTPHONE_REPORT,
+      data: report
+    });
+  };
+
+  connect.publishClickStreamData = function(report) {
+    connect.core.getUpstream().sendUpstream(connect.EventType.BROADCAST, {
+      event: connect.EventType.CLICK_STREAM_DATA,
+      data: report
+    });
+  };
+
+  connect.publishClientSideLogs = function(logs) {
+    var bus = connect.core.getEventBus();
+    bus.trigger(connect.EventType.CLIENT_SIDE_LOGS, logs);
+  };
+
+  connect.addNamespaceToLogs = function(namespace) {
+    const methods = ['log', 'error', 'warn', 'info', 'debug'];
+
+    methods.forEach((method) => {
+      const consoleMethod = window.console[method];
+      window.console[method] = function () {
+        const args = Array.from(arguments);
+        args.unshift(`[${namespace}]`);
+        consoleMethod.apply(window.console, args);
       };
-    };
+    });
   };
 
-  SoftphoneLogger.prototype.debug = function () {
-    this._tee(1, this._originalLogger.debug)(arguments);
-  };
-  SoftphoneLogger.prototype.info = function () {
-    this._tee(2, this._originalLogger.info)(arguments);
-  };
-  SoftphoneLogger.prototype.log = function () {
-    this._tee(3, this._originalLogger.log)(arguments);
-  };
-  SoftphoneLogger.prototype.warn = function () {
-    this._tee(4, this._originalLogger.warn)(arguments);
-  };
-  SoftphoneLogger.prototype.error = function () {
-    this._tee(5, this._originalLogger.error)(arguments);
+  /**
+   * A wrapper around Window.open() for managing single instance popups.
+   */
+  connect.PopupManager = function () { };
+
+  connect.PopupManager.prototype.open = function (url, name, options) {
+    var then = this._getLastOpenedTimestamp(name);
+    var now = new Date().getTime();
+    var win = null;
+    if (now - then > ONE_DAY_MILLIS) {
+      if (options) {
+        // default values are chosen to provide a minimum height without scrolling
+        // and a uniform margin based on the css of the ccp login page
+        var height = options.height || DEFAULT_POPUP_HEIGHT;
+        var width = options.width || DEFAULT_POPUP_WIDTH;
+        var top = options.top || 0;
+        var left = options.left || 0;
+        win = window.open('', name, "width="+width+", height="+height+", top="+top+", left="+left);
+        if (win.location !== url) {
+          win = window.open(url, name, "width="+width+", height="+height+", top="+top+", left="+left);
+        }
+      } else {
+        win = window.open('', name);
+        if (win.location !== url) {
+          win = window.open(url, name);
+        }
+      }
+      this._setLastOpenedTimestamp(name, now);
+    }
+    return win;
   };
 
-  connect.SoftphoneManager = SoftphoneManager;
+  connect.PopupManager.prototype.clear = function (name) {
+    var key = this._getLocalStorageKey(name);
+    global.localStorage.removeItem(key);
+  };
+
+  connect.PopupManager.prototype._getLastOpenedTimestamp = function (name) {
+    var key = this._getLocalStorageKey(name);
+    var value = global.localStorage.getItem(key);
+
+    if (value) {
+      return parseInt(value, 10);
+
+    } else {
+      return 0;
+    }
+  };
+
+  connect.PopupManager.prototype._setLastOpenedTimestamp = function (name, ts) {
+    var key = this._getLocalStorageKey(name);
+    global.localStorage.setItem(key, '' + ts);
+  };
+
+  connect.PopupManager.prototype._getLocalStorageKey = function (name) {
+    return "connectPopupManager::" + name;
+  };
+
+  /**
+   * An enumeration of the HTML5 notification permission values.
+   */
+  var NotificationPermission = connect.makeEnum([
+    'granted',
+    'denied',
+    'default'
+  ]);
+
+  /**
+   * A simple engine for showing notification popups.
+   */
+  connect.NotificationManager = function () {
+    this.queue = [];
+    this.permission = NotificationPermission.DEFAULT;
+  };
+
+  connect.NotificationManager.prototype.requestPermission = function () {
+    var self = this;
+    if (!("Notification" in global)) {
+      connect.getLog().warn("This browser doesn't support notifications.").sendInternalLogToServer();
+      this.permission = NotificationPermission.DENIED;
+
+    } else if (global.Notification.permission === NotificationPermission.DENIED) {
+      connect.getLog().warn("The user has requested to not receive notifications.").sendInternalLogToServer();
+      this.permission = NotificationPermission.DENIED;
+
+    } else if (this.permission !== NotificationPermission.GRANTED) {
+      global.Notification.requestPermission().then(function (permission) {
+        self.permission = permission;
+        if (permission === NotificationPermission.GRANTED) {
+          self._showQueued();
+
+        } else {
+          self.queue = [];
+        }
+      });
+    }
+  };
+
+  connect.NotificationManager.prototype.show = function (title, options) {
+    if (this.permission === NotificationPermission.GRANTED) {
+      return this._showImpl({ title: title, options: options });
+
+    } else if (this.permission === NotificationPermission.DENIED) {
+      connect.getLog().warn("Unable to show notification.")
+        .sendInternalLogToServer()
+        .withObject({
+          title: title,
+          options: options
+        });
+
+    } else {
+      var params = { title: title, options: options };
+      connect.getLog().warn("Deferring notification until user decides to allow or deny.")
+        .withObject(params)
+        .sendInternalLogToServer();
+      this.queue.push(params);
+    }
+  };
+
+  connect.NotificationManager.prototype._showQueued = function () {
+    var self = this;
+    var notifications = this.queue.map(function (params) {
+      return self._showImpl(params);
+    });
+    this.queue = [];
+    return notifications;
+  };
+
+  connect.NotificationManager.prototype._showImpl = function (params) {
+    var notification = new global.Notification(params.title, params.options);
+    if (params.options.clicked) {
+      notification.onclick = function () {
+        params.options.clicked.call(notification);
+      };
+    }
+    return notification;
+  };
+
+  connect.ValueError = function () {
+    var args = Array.prototype.slice.call(arguments, 0);
+    var format = args.shift();
+    var instance = new Error(connect.vsprintf(format, args));
+    Object.setPrototypeOf(instance, connect.ValueError.prototype);
+    return instance; 
+  };
+  Object.setPrototypeOf(connect.ValueError.prototype, Error.prototype);
+  Object.setPrototypeOf(connect.ValueError, Error);
+  connect.ValueError.prototype.name = 'ValueError';
+
+  connect.NotImplementedError = function () {
+    var args = Array.prototype.slice.call(arguments, 0);
+    var format = args.shift();
+    var instance = new Error(connect.vsprintf(format, args));
+    Object.setPrototypeOf(instance, connect.NotImplementedError.prototype);
+    return instance; 
+  };
+  Object.setPrototypeOf(connect.NotImplementedError.prototype, Error.prototype);
+  Object.setPrototypeOf(connect.NotImplementedError, Error);
+  connect.NotImplementedError.prototype.name = 'NotImplementedError';
+
+  connect.StateError = function () {
+    var args = Array.prototype.slice.call(arguments, 0);
+    var format = args.shift();
+    var instance = new Error(connect.vsprintf(format, args));
+    Object.setPrototypeOf(instance, connect.StateError.prototype);
+    return instance; 
+  }
+  Object.setPrototypeOf(connect.StateError.prototype, Error.prototype);
+  Object.setPrototypeOf(connect.StateError, Error);
+  connect.StateError.prototype.name = 'StateError';
+
+
+
+  connect.VoiceIdError = function(type, message, err){
+    var error = {};
+    error.type = type;
+    error.message = message;
+    error.stack = Error(message).stack;
+    error.err = err;
+    return error;
+  }
+
+  // internal use only
+  connect.isCCP = function () {
+    var conduit = connect.core.getUpstream();
+    return conduit.name === 'ConnectSharedWorkerConduit';
+  }
+
 })();
+
+
+/***/ }),
+
+/***/ 736:
+/***/ (() => {
 
 /*
  * Copyright 2014-2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
@@ -26320,8 +31879,8 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
  * SPDX-License-Identifier: Apache-2.0
  */
 (function () {
-  var global = this;
-  connect = global.connect || {};
+  var global = this || globalThis;
+  var connect = global.connect || {};
   global.connect = connect;
   global.lily = connect;
 
@@ -26332,7 +31891,7 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
   var GET_AGENT_SUCCESS_TIMEOUT_MS = 100;
   var LOG_BUFFER_CAP_SIZE = 400;
 
-  var CHECK_AUTH_TOKEN_INTERVAL_MS = 300000; // 5 minuts
+  var CHECK_AUTH_TOKEN_INTERVAL_MS = 300000; // 5 minutes
   var REFRESH_AUTH_TOKEN_INTERVAL_MS = 10000; // 10 seconds
   var REFRESH_AUTH_TOKEN_MAX_TRY = 4;
 
@@ -26378,23 +31937,48 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
   WorkerClient.prototype._callImpl = function (method, params, callbacks) {
     var self = this;
     var request_start = new Date().getTime();
-    connect.core.getClient()._callImpl(method, params, {
-      success: function (data) {
-        self._recordAPILatency(method, request_start);
-        callbacks.success(data);
-      },
-      failure: function (error, data) {
-        self._recordAPILatency(method, request_start, error);
-        callbacks.failure(error, data);
-      },
-      authFailure: function () {
-        self._recordAPILatency(method, request_start);
-        callbacks.authFailure();
-      },
-      accessDenied: function () {
-        callbacks.accessDenied && callbacks.accessDenied();
-      }
-    });
+    if(connect.containsValue(connect.AgentAppClientMethods, method)) {
+      connect.core.getAgentAppClient()._callImpl(method, params, {
+        success: function (data) {
+          self._recordAPILatency(method, request_start);
+          callbacks.success(data);
+        },
+        failure: function (error) {
+          self._recordAPILatency(method, request_start, error);
+          callbacks.failure(error);
+        }
+      })
+    } else if(connect.containsValue(connect.TaskTemplatesClientMethods, method)) {
+      connect.core.getTaskTemplatesClient()._callImpl(method, params, {
+        success: function (data) {
+          self._recordAPILatency(method, request_start);
+          callbacks.success(data);
+        },
+        failure: function (error) {
+          self._recordAPILatency(method, request_start, error);
+          callbacks.failure(error);
+        }
+      })
+    } else {
+      connect.core.getClient()._callImpl(method, params, {
+        success: function (data) {
+          self._recordAPILatency(method, request_start);
+          callbacks.success(data);
+        },
+        failure: function (error, data) {
+          self._recordAPILatency(method, request_start, error);
+          callbacks.failure(error, data);
+        },
+        authFailure: function () {
+          self._recordAPILatency(method, request_start);
+          callbacks.authFailure();
+        },
+        accessDenied: function () {
+          callbacks.accessDenied && callbacks.accessDenied();
+        }
+      });
+    }
+
   };
 
   WorkerClient.prototype._recordAPILatency = function (method, request_start, err) {
@@ -26432,51 +32016,50 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
     this.nextToken = null;
     this.initData = {};
     this.portConduitMap = {};
+    this.streamMapByTabId = {};
     this.masterCoord = new MasterTopicCoordinator();
     this.logsBuffer = [];
+    this.suppress = false;
+    this.forceOffline = false;
+    this.longPollingOptions = {
+      allowLongPollingShadowMode: false,
+      allowLongPollingWebsocketOnlyMode: false,
+    }
 
     var webSocketManager = null;
 
     connect.rootLogger = new connect.DownstreamConduitLogger(this.conduit);
 
     this.conduit.onDownstream(connect.EventType.SEND_LOGS, function (logsToUpload) {
+      // Add softphone logs downstream
+      connect.getLog().pushLogsDownstream(logsToUpload);
+
       self.logsBuffer = self.logsBuffer.concat(logsToUpload);
       //only call API to send logs if buffer reached cap
       if (self.logsBuffer.length > LOG_BUFFER_CAP_SIZE) {
         self.handleSendLogsRequest(self.logsBuffer);
       }
     });
+
     this.conduit.onDownstream(connect.EventType.CONFIGURE, function (data) {
+      console.log('@@@ configure event handler', data);
+      try {
       if (data.authToken && data.authToken !== self.initData.authToken) {
         self.initData = data;
         connect.core.init(data);
-
-        // Start polling for agent data.
-        if (!self.agentPolling) {
-          connect.getLog().info("Kicking off agent polling");
-          self.agentPolling = true;
-          self.pollForAgent();
-        } else {
-          connect.getLog().info("Not kicking off new agent polling, since there's already polling going on");
+        if (data.longPollingOptions) {
+          if (typeof data.longPollingOptions.allowLongPollingShadowMode == "boolean") {
+            self.longPollingOptions.allowLongPollingShadowMode = data.longPollingOptions.allowLongPollingShadowMode;
+          }
+          if (typeof data.longPollingOptions.allowLongPollingWebsocketOnlyMode == "boolean") {
+            self.longPollingOptions.allowLongPollingWebsocketOnlyMode = data.longPollingOptions.allowLongPollingWebsocketOnlyMode;
+          }
         }
-        if (!self.configPolling) {
-          connect.getLog().info("Kicking off config polling");
-          self.configPolling = true;
-          self.pollForAgentConfiguration({ repeatForever: true });
-        } else {
-          connect.getLog().info("Not kicking off new config polling, since there's already polling going on");
-        }
-        if (!global.checkAuthTokenInterval) {
-          connect.getLog().info("Kicking off auth token polling");
-          global.checkAuthTokenInterval = global.setInterval(connect.hitch(self, self.checkAuthToken), CHECK_AUTH_TOKEN_INTERVAL_MS);
-        } else {
-          connect.getLog().info("Not kicking off auth token polling, since there's already polling going on");
-        }
-
         // init only once.
         if (!webSocketManager) {
-
-          connect.getLog().info("Creating a new Websocket connection for CCP");
+          
+          connect.getLog().info("Creating a new Websocket connection for CCP")
+            .sendInternalLogToServer();
 
           connect.WebSocketManager.setGlobalConfig({
             loggerConfig: { logger: connect.getLog() }
@@ -26488,12 +32071,22 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
             self.conduit.sendDownstream(connect.WebSocketEvents.INIT_FAILURE);
           });
 
+          webSocketManager.onConnectionOpen(function (response) {
+            self.conduit.sendDownstream(connect.WebSocketEvents.CONNECTION_OPEN, response);
+          });
+
+          webSocketManager.onConnectionClose(function (response) {
+            self.conduit.sendDownstream(connect.WebSocketEvents.CONNECTION_CLOSE, response);
+          });
+
           webSocketManager.onConnectionGain(function () {
+            self.conduit.sendDownstream(connect.AgentEvents.WEBSOCKET_CONNECTION_GAINED);
             self.conduit.sendDownstream(connect.WebSocketEvents.CONNECTION_GAIN);
           });
 
-          webSocketManager.onConnectionLost(function () {
-            self.conduit.sendDownstream(connect.WebSocketEvents.CONNECTION_LOST);
+          webSocketManager.onConnectionLost(function (response) {
+            self.conduit.sendDownstream(connect.AgentEvents.WEBSOCKET_CONNECTION_LOST, response);
+            self.conduit.sendDownstream(connect.WebSocketEvents.CONNECTION_LOST, response);
           });
 
           webSocketManager.onSubscriptionUpdate(function (response) {
@@ -26516,10 +32109,42 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
             webSocketManager.subscribeTopics(topics);
           });
 
-          webSocketManager.init(connect.hitch(self, self.getWebSocketUrl));
+          webSocketManager.init(connect.hitch(self, self.getWebSocketUrl)).then(function(response) {
+            try {
+              if (response && !response.webSocketConnectionFailed) {
+                // Start polling for agent data.
+                connect.getLog().info("Kicking off agent polling")
+                  .sendInternalLogToServer();
+                self.pollForAgent();
+
+                connect.getLog().info("Kicking off config polling")
+                  .sendInternalLogToServer();
+                self.pollForAgentConfiguration({ repeatForever: true });
+
+                connect.getLog().info("Kicking off auth token polling")
+                  .sendInternalLogToServer();
+                global.setInterval(connect.hitch(self, self.checkAuthToken), CHECK_AUTH_TOKEN_INTERVAL_MS);
+              } else {
+                if (!connect.webSocketInitFailed) {
+                  const event = connect.WebSocketEvents.INIT_FAILURE;
+                  self.conduit.sendDownstream(event);
+                  connect.webSocketInitFailed = true;
+                  throw new Error(event);
+                }
+              }
+            } catch (e) {
+              connect.getLog().error("WebSocket failed to initialize")
+                .withException(e)
+                .sendInternalLogToServer();
+            }
+          });
         } else {
-          connect.getLog().info("Not Creating a Websocket instance, since there's already one exist");
+          connect.getLog().info("Not Initializing a new WebsocketManager instance, since one already exists")
+            .sendInternalLogToServer();
         }
+      }
+      } catch (e) {
+        console.error('@@@ error', e);
       }
     });
     this.conduit.onDownstream(connect.EventType.TERMINATE, function () {
@@ -26549,6 +32174,7 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
       portConduit.sendDownstream(connect.EventType.ACKNOWLEDGE, { id: stream.getId() });
 
       self.portConduitMap[stream.getId()] = portConduit;
+      self.conduit.sendDownstream(connect.EventType.UPDATE_CONNECTED_CCPS, { length: Object.keys(self.portConduitMap).length });
 
       if (self.agent !== null) {
         self.updateAgent();
@@ -26560,17 +32186,15 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
         connect.hitch(self, self.handleMasterRequest, portConduit, stream.getId()));
       portConduit.onDownstream(connect.EventType.RELOAD_AGENT_CONFIGURATION,
         connect.hitch(self, self.pollForAgentConfiguration));
-      portConduit.onDownstream(connect.EventType.CLOSE, function () {
-        self.multiplexer.removeStream(stream);
-        delete self.portConduitMap[stream.getId()];
-        self.masterCoord.removeMaster(stream.getId());
-      });
+      portConduit.onDownstream(connect.EventType.TAB_ID,
+        connect.hitch(self, self.handleTabIdEvent, stream));
+      portConduit.onDownstream(connect.EventType.CLOSE,
+        connect.hitch(self, self.handleCloseEvent, stream));
     };
   };
 
   ClientEngine.prototype.pollForAgent = function () {
     var self = this;
-    var client = connect.core.getClient();
     var onAuthFail = connect.hitch(self, self.handleAuthFail);
 
     this.client.call(connect.ClientMethods.GET_AGENT_SNAPSHOT, {
@@ -26584,10 +32208,15 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
             self.agent.snapshot.localTimestamp = connect.now();
             self.agent.snapshot.skew = self.agent.snapshot.snapshotTimestamp - self.agent.snapshot.localTimestamp;
             self.nextToken = data.nextToken;
-            connect.getLog().trace("GET_AGENT_SNAPSHOT succeeded.").withObject(data);
+            connect.getLog().trace("GET_AGENT_SNAPSHOT succeeded.")
+              .withObject(data)
+              .sendInternalLogToServer();
             self.updateAgent();
           } catch (e) {
-            connect.getLog().error("Long poll failed to update agent.").withObject(data).withException(e);
+            connect.getLog().error("Long poll failed to update agent.")
+              .withObject(data)
+              .withException(e)
+              .sendInternalLogToServer();
           } finally {
             global.setTimeout(connect.hitch(self, self.pollForAgent), GET_AGENT_SUCCESS_TIMEOUT_MS);
           }
@@ -26595,22 +32224,22 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
         failure: function (err, data) {
           try {
             connect.getLog().error("Failed to get agent data.")
+              .sendInternalLogToServer()
               .withObject({
                 err: err,
                 data: data
               });
 
-          } finally {
-            global.setTimeout(connect.hitch(self, self.pollForAgent), GET_AGENT_RECOVERY_TIMEOUT_MS);
-          }
-        },
-        authFailure: function () {
-          self.agentPolling = false;
-          onAuthFail();
-        },
-        accessDenied: connect.hitch(self, self.handleAccessDenied)
+        } finally {
+          global.setTimeout(connect.hitch(self, self.pollForAgent), GET_AGENT_RECOVERY_TIMEOUT_MS);
+        }
+      },
+      authFailure: function () {
+        onAuthFail();
+      },
+      accessDenied: connect.hitch(self, self.handleAccessDenied)
 
-      });
+    });
 
   };
 
@@ -26634,6 +32263,7 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
       failure: function (err, data) {
         try {
           connect.getLog().error("Failed to fetch agent configuration data.")
+            .sendInternalLogToServer()
             .withObject({
               err: err,
               data: data
@@ -26646,7 +32276,6 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
         }
       },
       authFailure: function () {
-        self.configPolling = false;
         onAuthFail();
       },
       accessDenied: connect.hitch(self, self.handleAccessDenied)
@@ -26663,29 +32292,30 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
       maxResults: params.maxResults
 
     }, {
-        success: function (data) {
-          if (data.nextToken) {
-            self.pollForAgentStates(configuration, {
-              states: (params.states || []).concat(data.states),
-              nextToken: data.nextToken,
-              maxResults: params.maxResults
-            });
+      success: function (data) {
+        if (data.nextToken) {
+          self.pollForAgentStates(configuration, {
+            states: (params.states || []).concat(data.states),
+            nextToken: data.nextToken,
+            maxResults: params.maxResults
+          });
 
-          } else {
-            configuration.agentStates = (params.states || []).concat(data.states);
-            self.updateAgentConfiguration(configuration);
-          }
-        },
-        failure: function (err, data) {
-          connect.getLog().error("Failed to fetch agent states list.")
-            .withObject({
-              err: err,
-              data: data
-            });
-        },
-        authFailure: connect.hitch(self, self.handleAuthFail),
-        accessDenied: connect.hitch(self, self.handleAccessDenied)
-      });
+        } else {
+          configuration.agentStates = (params.states || []).concat(data.states);
+          self.updateAgentConfiguration(configuration);
+        }
+      },
+      failure: function (err, data) {
+        connect.getLog().error("Failed to fetch agent states list.")
+          .sendInternalLogToServer()
+          .withObject({
+            err: err,
+            data: data
+          });
+      },
+      authFailure: connect.hitch(self, self.handleAuthFail),
+      accessDenied: connect.hitch(self, self.handleAccessDenied)
+    });
   };
 
   ClientEngine.prototype.pollForAgentPermissions = function (configuration, paramsIn) {
@@ -26698,29 +32328,30 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
       maxResults: params.maxResults
 
     }, {
-        success: function (data) {
-          if (data.nextToken) {
-            self.pollForAgentPermissions(configuration, {
-              permissions: (params.permissions || []).concat(data.permissions),
-              nextToken: data.nextToken,
-              maxResults: params.maxResults
-            });
+      success: function (data) {
+        if (data.nextToken) {
+          self.pollForAgentPermissions(configuration, {
+            permissions: (params.permissions || []).concat(data.permissions),
+            nextToken: data.nextToken,
+            maxResults: params.maxResults
+          });
 
-          } else {
-            configuration.permissions = (params.permissions || []).concat(data.permissions);
-            self.updateAgentConfiguration(configuration);
-          }
-        },
-        failure: function (err, data) {
-          connect.getLog().error("Failed to fetch agent permissions list.")
-            .withObject({
-              err: err,
-              data: data
-            });
-        },
-        authFailure: connect.hitch(self, self.handleAuthFail),
-        accessDenied: connect.hitch(self, self.handleAccessDenied)
-      });
+        } else {
+          configuration.permissions = (params.permissions || []).concat(data.permissions);
+          self.updateAgentConfiguration(configuration);
+        }
+      },
+      failure: function (err, data) {
+        connect.getLog().error("Failed to fetch agent permissions list.")
+          .sendInternalLogToServer()
+          .withObject({
+            err: err,
+            data: data
+          });
+      },
+      authFailure: connect.hitch(self, self.handleAuthFail),
+      accessDenied: connect.hitch(self, self.handleAccessDenied)
+    });
   };
 
   ClientEngine.prototype.pollForDialableCountryCodes = function (configuration, paramsIn) {
@@ -26732,29 +32363,30 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
       nextToken: params.nextToken || null,
       maxResults: params.maxResults
     }, {
-        success: function (data) {
-          if (data.nextToken) {
-            self.pollForDialableCountryCodes(configuration, {
-              countryCodes: (params.countryCodes || []).concat(data.countryCodes),
-              nextToken: data.nextToken,
-              maxResults: params.maxResults
-            });
+      success: function (data) {
+        if (data.nextToken) {
+          self.pollForDialableCountryCodes(configuration, {
+            countryCodes: (params.countryCodes || []).concat(data.countryCodes),
+            nextToken: data.nextToken,
+            maxResults: params.maxResults
+          });
 
-          } else {
-            configuration.dialableCountries = (params.countryCodes || []).concat(data.countryCodes);
-            self.updateAgentConfiguration(configuration);
-          }
-        },
-        failure: function (err, data) {
-          connect.getLog().error("Failed to fetch dialable country codes list.")
-            .withObject({
-              err: err,
-              data: data
-            });
-        },
-        authFailure: connect.hitch(self, self.handleAuthFail),
-        accessDenied: connect.hitch(self, self.handleAccessDenied)
-      });
+        } else {
+          configuration.dialableCountries = (params.countryCodes || []).concat(data.countryCodes);
+          self.updateAgentConfiguration(configuration);
+        }
+      },
+      failure: function (err, data) {
+        connect.getLog().error("Failed to fetch dialable country codes list.")
+          .sendInternalLogToServer()
+          .withObject({
+            err: err,
+            data: data
+          });
+      },
+      authFailure: connect.hitch(self, self.handleAuthFail),
+      accessDenied: connect.hitch(self, self.handleAccessDenied)
+    });
   };
 
   ClientEngine.prototype.pollForRoutingProfileQueues = function (configuration, paramsIn) {
@@ -26767,29 +32399,30 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
       nextToken: params.nextToken || null,
       maxResults: params.maxResults
     }, {
-        success: function (data) {
-          if (data.nextToken) {
-            self.pollForRoutingProfileQueues(configuration, {
-              countryCodes: (params.queues || []).concat(data.queues),
-              nextToken: data.nextToken,
-              maxResults: params.maxResults
-            });
+      success: function (data) {
+        if (data.nextToken) {
+          self.pollForRoutingProfileQueues(configuration, {
+            countryCodes: (params.queues || []).concat(data.queues),
+            nextToken: data.nextToken,
+            maxResults: params.maxResults
+          });
 
-          } else {
-            configuration.routingProfile.queues = (params.queues || []).concat(data.queues);
-            self.updateAgentConfiguration(configuration);
-          }
-        },
-        failure: function (err, data) {
-          connect.getLog().error("Failed to fetch routing profile queues list.")
-            .withObject({
-              err: err,
-              data: data
-            });
-        },
-        authFailure: connect.hitch(self, self.handleAuthFail),
-        accessDenied: connect.hitch(self, self.handleAccessDenied)
-      });
+        } else {
+          configuration.routingProfile.queues = (params.queues || []).concat(data.queues);
+          self.updateAgentConfiguration(configuration);
+        }
+      },
+      failure: function (err, data) {
+        connect.getLog().error("Failed to fetch routing profile queues list.")
+          .sendInternalLogToServer()
+          .withObject({
+            err: err,
+            data: data
+          });
+      },
+      authFailure: connect.hitch(self, self.handleAuthFail),
+      accessDenied: connect.hitch(self, self.handleAccessDenied)
+    });
   };
 
   ClientEngine.prototype.handleAPIRequest = function (portConduit, request) {
@@ -26803,10 +32436,12 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
       failure: function (err, data) {
         var response = connect.EventFactory.createResponse(connect.EventType.API_RESPONSE, request, data, JSON.stringify(err));
         portConduit.sendDownstream(response.event, response);
-        connect.getLog().error("'%s' API request failed: %s", request.method, err)
-          .withObject({ request: self.filterAuthToken(request), response: response });
+        connect.getLog().error("'%s' API request failed", request.method)
+          .withObject({ request: self.filterAuthToken(request), response: response })
+          .withException(err)
+          .sendInternalLogToServer();
       },
-      authFailure: connect.hitch(self, self.handleAuthFail)
+      authFailure: connect.hitch(self, self.handleAuthFail, {authorize: true})
     });
   };
 
@@ -26814,32 +32449,35 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
    * Handle incoming master query or modification requests from connected tab ports.
    */
   ClientEngine.prototype.handleMasterRequest = function (portConduit, portId, request) {
+    var multiplexerConduit = this.conduit;
     var response = null;
 
     switch (request.method) {
       case connect.MasterMethods.BECOME_MASTER:
+        var masterId = this.masterCoord.getMaster(request.params.topic);
+        var takeOver = Boolean(masterId) && masterId !== portId;
         this.masterCoord.setMaster(request.params.topic, portId);
         response = connect.EventFactory.createResponse(connect.EventType.MASTER_RESPONSE, request, {
           masterId: portId,
-          isMaster: true,
+          takeOver: takeOver,
           topic: request.params.topic
         });
-
+        if (takeOver) {
+          multiplexerConduit.sendDownstream(response.event, response);
+        }
         break;
 
       case connect.MasterMethods.CHECK_MASTER:
         var masterId = this.masterCoord.getMaster(request.params.topic);
-        if (!masterId) {
+        if (!masterId && !request.params.shouldNotBecomeMasterIfNone) {
           this.masterCoord.setMaster(request.params.topic, portId);
           masterId = portId;
         }
-
         response = connect.EventFactory.createResponse(connect.EventType.MASTER_RESPONSE, request, {
           masterId: masterId,
           isMaster: portId === masterId,
           topic: request.params.topic
         });
-
         break;
 
       default:
@@ -26847,6 +32485,57 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
     }
 
     portConduit.sendDownstream(response.event, response);
+  };
+
+  ClientEngine.prototype.handleTabIdEvent = function (stream, data) {
+    var self = this;
+    try {
+      let tabId = data.tabId;
+      let streamsInThisTab = self.streamMapByTabId[tabId];
+      let currentStreamId = stream.getId();
+      let tabIds = Object.keys(self.streamMapByTabId);
+      let streamsTabsAcrossBrowser = tabIds.filter(tabId => self.streamMapByTabId[tabId].length > 0).length;
+      if (streamsInThisTab && streamsInThisTab.length > 0){
+        if (!streamsInThisTab.includes(currentStreamId)) {
+          self.streamMapByTabId[tabId].push(currentStreamId);
+          let updateObject = { length: Object.keys(self.portConduitMap).length, tabId, streamsTabsAcrossBrowser };
+          updateObject[tabId] = { length: streamsInThisTab.length };
+          self.conduit.sendDownstream(connect.EventType.UPDATE_CONNECTED_CCPS, updateObject);
+        }
+      }
+      else {
+        self.streamMapByTabId[tabId] = [stream.getId()];
+        let updateObject = { length: Object.keys(self.portConduitMap).length, tabId, streamsTabsAcrossBrowser: streamsTabsAcrossBrowser + 1 };
+        updateObject[tabId] = { length: self.streamMapByTabId[tabId].length };
+        self.conduit.sendDownstream(connect.EventType.UPDATE_CONNECTED_CCPS, updateObject);
+      }
+    } catch(e) {
+      connect.getLog().error("[Tab Ids] Issue updating connected CCPs within the same tab").withException(e).sendInternalLogToServer();
+    }
+  };
+
+  ClientEngine.prototype.handleCloseEvent = function(stream) {
+    var self = this;
+    self.multiplexer.removeStream(stream);
+    delete self.portConduitMap[stream.getId()];
+    self.masterCoord.removeMaster(stream.getId());
+    let updateObject = { length: Object.keys(self.portConduitMap).length };
+    let tabIds = Object.keys(self.streamMapByTabId);
+    try {
+      let tabId = tabIds.find(key => self.streamMapByTabId[key].includes(stream.getId()));
+      if (tabId) {
+        let streamIndexInMap = self.streamMapByTabId[tabId].findIndex((value) => stream.getId() === value);
+        self.streamMapByTabId[tabId].splice(streamIndexInMap, 1);
+        let tabLength = self.streamMapByTabId[tabId] ? self.streamMapByTabId[tabId].length : 0;
+        updateObject[tabId] = { length: tabLength };
+        updateObject.tabId = tabId;
+      }
+      let streamsTabsAcrossBrowser = tabIds.filter(tabId => self.streamMapByTabId[tabId].length > 0).length;
+      updateObject.streamsTabsAcrossBrowser = streamsTabsAcrossBrowser;
+    } catch(e) {
+      connect.getLog().error("[Tab Ids] Issue updating tabId-specific stream data").withException(e).sendInternalLogToServer();
+    }
+    self.conduit.sendDownstream(connect.EventType.UPDATE_CONNECTED_CCPS, updateObject);
   };
 
   ClientEngine.prototype.updateAgentConfiguration = function (configuration) {
@@ -26860,19 +32549,23 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
       this.updateAgent();
 
     } else {
-      connect.getLog().trace("Waiting to update agent configuration until all config data has been fetched.");
+      connect.getLog().trace("Waiting to update agent configuration until all config data has been fetched.")
+        .sendInternalLogToServer();
     }
   };
 
   ClientEngine.prototype.updateAgent = function () {
     if (!this.agent) {
-      connect.getLog().trace("Waiting to update agent until the agent has been fully constructed.");
+      connect.getLog().trace("Waiting to update agent until the agent has been fully constructed.")
+        .sendInternalLogToServer();
 
     } else if (!this.agent.snapshot) {
-      connect.getLog().trace("Waiting to update agent until the agent snapshot is available.");
+      connect.getLog().trace("Waiting to update agent until the agent snapshot is available.")
+        .sendInternalLogToServer();
 
     } else if (!this.agent.configuration) {
-      connect.getLog().trace("Waiting to update agent until the agent configuration is available.");
+      connect.getLog().trace("Waiting to update agent until the agent configuration is available.")
+        .sendInternalLogToServer();
 
     } else {
       // Alias some of the properties for backwards compatibility.
@@ -26906,15 +32599,14 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
       });
       this.agent.configuration.routingProfile.routingProfileId =
         this.agent.configuration.routingProfile.routingProfileARN;
-
       this.conduit.sendDownstream(connect.AgentEvents.UPDATE, this.agent);
     }
   };
 
   /**
- * Provides a websocket url through the create_transport API.
- * @returns a promise which, upon success, returns the response from the createTransport API.
- */
+   * Provides a websocket url through the create_transport API.
+   * @returns a promise which, upon success, returns the response from the createTransport API.
+   */
   ClientEngine.prototype.getWebSocketUrl = function () {
     var self = this;
     var client = connect.core.getClient();
@@ -26923,24 +32615,28 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
     return new Promise(function (resolve, reject) {
       client.call(connect.ClientMethods.CREATE_TRANSPORT, { transportType: connect.TRANSPORT_TYPES.WEB_SOCKET }, {
         success: function (data) {
-          connect.getLog().info("getWebSocketUrl succeeded");
+          connect.getLog().info("getWebSocketUrl succeeded").sendInternalLogToServer();
           resolve(data);
         },
         failure: function (err, data) {
           connect.getLog().error("getWebSocketUrl failed")
+            .sendInternalLogToServer()
             .withObject({
               err: err,
               data: data
             });
-          reject(Error("getWebSocketUrl failed"));
+          reject({
+            reason: 'getWebSocketUrl failed',
+            _debug: err
+          });
         },
         authFailure: function () {
-          connect.getLog().error("getWebSocketUrl Auth Failure");
+          connect.getLog().error("getWebSocketUrl Auth Failure").sendInternalLogToServer();
           reject(Error("Authentication failed while getting getWebSocketUrl"));
           onAuthFail();
         },
         accessDenied: function () {
-          connect.getLog().error("getWebSocketUrl Access Denied Failure");
+          connect.getLog().error("getWebSocketUrl Access Denied Failure").sendInternalLogToServer();
           reject(Error("Access Denied Failure while getting getWebSocketUrl"));
           onAccessDenied();
         }
@@ -26967,18 +32663,25 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
     });
     this.client.call(connect.ClientMethods.SEND_CLIENT_LOGS, { logEvents: logEvents }, {
       success: function (data) {
-        connect.getLog().info("SendLogs request succeeded.");
+        connect.getLog().info("SendLogs request succeeded.").sendInternalLogToServer();
       },
       failure: function (err, data) {
-        connect.getLog().error("SendLogs request failed. %s", err);
+        connect.getLog().error("SendLogs request failed.")
+          .withObject(data).withException(err)
+          .sendInternalLogToServer();
       },
       authFailure: connect.hitch(self, self.handleAuthFail)
     });
   };
 
-  ClientEngine.prototype.handleAuthFail = function () {
+  ClientEngine.prototype.handleAuthFail = function (data) {
     var self = this;
-    self.conduit.sendDownstream(connect.EventType.AUTH_FAIL);
+    if (data) {
+      self.conduit.sendDownstream(connect.EventType.AUTH_FAIL, data);
+    }
+    else {
+      self.conduit.sendDownstream(connect.EventType.AUTH_FAIL);
+    }
   };
 
   ClientEngine.prototype.handleAccessDenied = function () {
@@ -26994,7 +32697,8 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
 
     // refresh token 30 minutes before expiration
     if (expirationDate.getTime() < (currentTimeStamp + thirtyMins)) {
-      connect.getLog().info("Auth token expires at " + expirationDate + " Start refreshing token with retry.");
+      connect.getLog().info("Auth token expires at " + expirationDate + " Start refreshing token with retry.")
+        .sendInternalLogToServer();
       connect.backoff(connect.hitch(self, self.authorize), REFRESH_AUTH_TOKEN_INTERVAL_MS, REFRESH_AUTH_TOKEN_MAX_TRY);
     }
   };
@@ -27004,13 +32708,16 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
     var self = this;
     connect.core.authorize(this.initData.authorizeEndpoint).then(function (response) {
       var expiration = new Date(response.expiration);
-      connect.getLog().info("Authorization succeded and the token expires at %s", expiration);
+      connect.getLog().info("Authorization succeeded and the token expires at %s", expiration)
+        .sendInternalLogToServer();
       self.initData.authToken = response.accessToken;
       self.initData.authTokenExpiration = expiration;
       connect.core.initClient(self.initData);
+      connect.core.initAgentAppClient(self.initData);
       callbacks.success();
     }).catch(function (response) {
-      connect.getLog().error("Authorization failed %s ", response);
+      connect.getLog().error("Authorization failed with code %s", response.status)
+        .sendInternalLogToServer();
       if (response.status === 401) {
         self.handleAuthFail();
       } else {
@@ -27050,199 +32757,73 @@ AWS.apiLoader.services['sts']['2011-06-15'] = require('../apis/sts-2011-06-15.mi
 
 })();
 
-/*
- * Copyright 2014-2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
- *
- * Licensed under the Amazon Software License (the "License"). You may not use
- * this file except in compliance with the License. A copy of the License is
- * located at
- *
- *    http://aws.amazon.com/asl/
- *
- * or in the "license" file accompanying this file. This file is distributed
- * on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, express
- * or implied. See the License for the specific language governing permissions
- * and limitations under the License.
- */
+/***/ })
 
-(function () {
-  var global = this;
-  connect = global.connect || {};
-  global.connect = connect;
-
-  connect.ChatMediaController = function (mediaInfo, metadata) {
-    var logger = connect.getLog();
-    var logComponent = connect.LogComponent.CHAT;
-
-    var createMediaInstance = function () {
-      publishTelemetryEvent("Chat media controller init", mediaInfo.contactId);
-      logger.info(logComponent, "Chat media controller init").withObject(mediaInfo);
-
-      connect.ChatSession.setGlobalConfig({
-        loggerConfig: {
-          logger: logger
-        },
-        region: metadata.region
-      });
-
-      /** Could be also CUSTOMER -  For now we are creating only Agent connection media object */
-      var controller = connect.ChatSession.create({
-        chatDetails: mediaInfo,
-        type: "AGENT",
-        websocketManager: connect.core.getWebSocketManager()
-      });
-      
-      trackChatConnectionStatus(controller);
-      return controller
-        .connect()
-        .then(function (data) {
-          logger.info(logComponent, "Chat Session Successfully established for contactId %s", mediaInfo.contactId);
-          publishTelemetryEvent("Chat Session Successfully established", mediaInfo.contactId);
-          return controller;
-        })
-        .catch(function (error) {
-          logger.error(logComponent, "Chat Session establishement failed for contact %s", mediaInfo.contactId).withException(error);
-          publishTelemetryEvent("Chat Session establishement failed", mediaInfo.contactId, error);
-          throw error;
-        });
-    };
-
-    var publishTelemetryEvent = function (eventName, data) {
-      connect.publishMetric({
-        name: eventName,
-        contactId: mediaInfo.contactId,
-        data: data || mediaInfo
-      });
-    };
-
-    var trackChatConnectionStatus = function (controller) {
-      controller.onConnectionBroken(function (data) {
-        logger.error(logComponent, "Chat Session connection broken").withException(data);
-        publishTelemetryEvent("Chat Session connection broken", data);
-      });
-
-      controller.onConnectionEstablished(function (data) {
-        logger.info(logComponent, "Chat Session connection established").withObject(data);
-        publishTelemetryEvent("Chat Session connection established", data);
-      });
-    }
-
-    return {
-      get: function () {
-        return createMediaInstance();
-      }
-    }
-  }
-})();
-
-/*
- * Copyright 2014-2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
- *
- * Licensed under the Amazon Software License (the "License"). You may not use
- * this file except in compliance with the License. A copy of the License is
- * located at
- *
- *    http://aws.amazon.com/asl/
- *
- * or in the "license" file accompanying this file. This file is distributed
- * on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, express
- * or implied. See the License for the specific language governing permissions
- * and limitations under the License.
- */
-
-(function () {
-  var global = this;
-  connect = global.connect || {};
-  global.connect = connect;
-
-  connect.MediaFactory = function (params) {
-    /** controller holder */
-    var mediaControllers = {};
-
-    var logger = connect.getLog();
-    var logComponent = connect.LogComponent.CHAT;
-
-    var metadata = params || {};
-    metadata.region =  metadata.region || "us-west-2"; // Default it to us-west-2
-
-    var getMediaController = function (connectionObj) {
-      var connectionId = connectionObj.getConnectionId();
-      var mediaInfo = connectionObj.getMediaInfo();
-      /** if we do not have the media info then just reject the request */
-      if (!mediaInfo) {
-        logger.error(logComponent, "Media info does not exists for a media type %s").withObject(connectionObj);
-        return Promise.reject("Media info does not exists for this connection");
-      }
-
-      if (!mediaControllers[connectionId]) {
-        logger.info(logComponent, "media controller of type %s init", connectionObj.getMediaType()).withObject(connectionObj);
-        switch (connectionObj.getMediaType()) {
-          case connect.MediaType.CHAT:
-            return mediaControllers[connectionId] = new connect.ChatMediaController(connectionObj.getMediaInfo(), metadata).get();
-          case connect.MediaType.SOFTPHONE:
-            return mediaControllers[connectionId] = new connect.SoftphoneMediaController(connectionObj.getMediaInfo()).get();
-          default:
-            logger.error(logComponent, "Unrecognized media type %s ", connectionObj.getMediaType());
-            return Promise.reject();
-        }
-      } else {
-        return mediaControllers[connectionId];
-      }
-    };
-
-    /** Check all the active states for the connection */
-    var ifConnectionActive = function (connectionObj) {
-      return connectionObj.isActive();
-    };
-
-    var get = function (connectionObj) {
-      if (ifConnectionActive(connectionObj)) {
-        return getMediaController(connectionObj);
-      } else {
-        destroy(connectionObj.getConnectionId());
-        return Promise.reject("Media Controller is no longer available for this connection");
-      }
-    };
-
-    var destroy = function (connectionId) {
-      if (mediaControllers[connectionId]) {
-        logger.info(logComponent, "Destroying mediaController for %s", connectionId);
-        delete mediaControllers[connectionId];
-      }
-    };
-
-    return {
-      get: get,
-      destroy: destroy
-    };
-  }
-})();
-/*
- * Copyright 2014-2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
- *
- * Licensed under the Amazon Software License (the "License"). You may not use
- * this file except in compliance with the License. A copy of the License is
- * located at
- *
- *    http://aws.amazon.com/asl/
- *
- * or in the "license" file accompanying this file. This file is distributed
- * on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, express
- * or implied. See the License for the specific language governing permissions
- * and limitations under the License.
- */
-
-(function () {
-  var global = this;
-  connect = global.connect || {};
-  global.connect = connect;
-
-  // TODO move softphone implementations here - Wil do this for GA
-  connect.SoftphoneMediaController = function (mediaInfo) {
-    return {
-      get: function () {
-        return Promise.resolve(mediaInfo)
-      }
-    }
-  }
-})();
+/******/ 	});
+/************************************************************************/
+/******/ 	// The module cache
+/******/ 	var __webpack_module_cache__ = {};
+/******/ 	
+/******/ 	// The require function
+/******/ 	function __webpack_require__(moduleId) {
+/******/ 		// Check if module is in cache
+/******/ 		var cachedModule = __webpack_module_cache__[moduleId];
+/******/ 		if (cachedModule !== undefined) {
+/******/ 			return cachedModule.exports;
+/******/ 		}
+/******/ 		// Create a new module (and put it into the cache)
+/******/ 		var module = __webpack_module_cache__[moduleId] = {
+/******/ 			// no module.id needed
+/******/ 			// no module.loaded needed
+/******/ 			exports: {}
+/******/ 		};
+/******/ 	
+/******/ 		// Execute the module function
+/******/ 		__webpack_modules__[moduleId].call(module.exports, module, module.exports, __webpack_require__);
+/******/ 	
+/******/ 		// Return the exports of the module
+/******/ 		return module.exports;
+/******/ 	}
+/******/ 	
+/************************************************************************/
+/******/ 	/* webpack/runtime/global */
+/******/ 	(() => {
+/******/ 		__webpack_require__.g = (function() {
+/******/ 			if (typeof globalThis === 'object') return globalThis;
+/******/ 			try {
+/******/ 				return this || new Function('return this')();
+/******/ 			} catch (e) {
+/******/ 				if (typeof window === 'object') return window;
+/******/ 			}
+/******/ 		})();
+/******/ 	})();
+/******/ 	
+/************************************************************************/
+/******/ 	
+/******/ 	// startup
+/******/ 	// Load entry module and return exports
+/******/ 	// This entry module used 'module' so it can't be inlined
+/******/ 	__webpack_require__(827);
+/******/ 	__webpack_require__(163);
+/******/ 	__webpack_require__(944);
+/******/ 	__webpack_require__(151);
+/******/ 	__webpack_require__(891);
+/******/ 	__webpack_require__(592);
+/******/ 	__webpack_require__(82);
+/******/ 	__webpack_require__(754);
+/******/ 	__webpack_require__(833);
+/******/ 	__webpack_require__(965);
+/******/ 	__webpack_require__(286);
+/******/ 	__webpack_require__(895);
+/******/ 	__webpack_require__(743);
+/******/ 	__webpack_require__(642);
+/******/ 	__webpack_require__(736);
+/******/ 	__webpack_require__(439);
+/******/ 	__webpack_require__(279);
+/******/ 	__webpack_require__(418);
+/******/ 	__webpack_require__(187);
+/******/ 	__webpack_require__(821);
+/******/ 	var __webpack_exports__ = __webpack_require__(500);
+/******/ 	
+/******/ })()
+;
