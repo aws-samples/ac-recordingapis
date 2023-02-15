@@ -188,11 +188,11 @@
                 //Connect CCP Integration
                 var container = document.getElementById("ccpContainer");
                 var instanceAlias = getInstanceName();
-                var loginURL = `https://${instanceAlias}.awsapps.com/connect/login`;
-                var logoutURL = `https://${instanceAlias}.awsapps.com/connect/logout`;
-                var instanceHome = `https://${instanceAlias}.awsapps.com/connect/home`;
-                var ccpURL = `https://${instanceAlias}.awsapps.com/connect/ccp-v2`;
-                var agentMetricsURL = `https://${instanceAlias}.awsapps.com/connect/real-time-metrics?tableType=user`;
+                var loginURL = `https://${instanceAlias}.my.connect.aws/login`;
+                var logoutURL = `https://${instanceAlias}.my.connect.aws/logout`;
+                var instanceHome = `https://${instanceAlias}.my.connect.aws/home`;
+                var ccpURL = `https://${instanceAlias}.my.connect.aws/ccp-v2`;
+                var agentMetricsURL = `https://${instanceAlias}.my.connect.aws/real-time-metrics?tableType=user`;
                 var loginWindow;
                 var prevState;
                 var agentProfileName ="";
