@@ -53,6 +53,9 @@ Resources:
             WebsiteConfiguration:
                 IndexDocument: agentRecording.html
                 ErrorDocument: error.html
+            OwnershipControls:
+                Rules:
+                    - ObjectOwnership: ObjectWriter                
     CADs3BucketPolicy:
         Type: AWS::S3::BucketPolicy
         DependsOn:
@@ -173,7 +176,7 @@ Resources:
             AWS Lambda Function that will provide the functions to control the call recordings
         Handler: "index.handler"
         Role: !GetAtt CADLambdaCallRecordingControlRole.Arn
-        Runtime: "nodejs12.x"
+        Runtime: "nodejs16.x"
         MemorySize: 256
         Timeout: 120
         Code: ./recording-lambda/
@@ -255,7 +258,7 @@ Resources:
             AWS Lambda Function that will create the website and upload it to the S3 bucket
         Handler: "index.handler"
         Role: !GetAtt CADContactFlowCreatorRole.Arn
-        Runtime: "nodejs12.x"
+        Runtime: "nodejs16.x"
         MemorySize: 256
         Timeout: 120
         Code: ./website-creator/
